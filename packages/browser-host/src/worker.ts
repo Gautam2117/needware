@@ -6,6 +6,7 @@ import { requireSupported } from '../../renderer/src/registry';
 
 let runtime: BrowserRuntime | undefined;
 let current: LibraryEntry | undefined;
+let instance = '';
 let storage = 'Unavailable';
 interface Persistence {
   list(): Promise<LibraryEntry[]>;
@@ -100,11 +101,12 @@ async function execute(command: Command): Promise<unknown> {
         const view = JSON.parse(next.view());
         await persistence.put(entry, old?.generation ?? 0);
         runtime?.free(); runtime = next; current = entry;
-        return { info, view, storage } satisfies Loaded;
+        instance = crypto.randomUUID();
+        return { instance, info, view, storage } satisfies Loaded;
       } catch (error) { next.free(); throw error; }
     }
     case 'dispatch': {
-      if (!runtime || !current) throw new Error('Open an application first.');
+      if (!runtime || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
       const previous = runtime.snapshot();
       try {
         const effects: unknown[] = JSON.parse(runtime.dispatch(JSON.stringify({ action: command.action, values: command.values, now: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })));

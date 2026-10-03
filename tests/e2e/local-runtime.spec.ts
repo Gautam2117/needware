@@ -52,3 +52,17 @@ test('malformed packages fail without opening an application', async ({ page }) 
   await expect(page.getByRole('alert').filter({ hasText: 'invalid package' })).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
 });
+test('reopening the same application replaces its bound channel', async ({ page }) => {
+  await page.goto('/'); await expect(page.getByText('Local runtime ready', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Try the authored habit tracker' }).click();
+  await page.getByRole('button', { name: 'Trust signer and run application' }).click();
+  const frame = page.frameLocator('iframe'); await frame.getByLabel('Habit name').fill('Reconnect');
+  await frame.getByRole('button', { name: 'Add habit', exact: true }).click();
+  for (let index = 0; index < 3; index++) {
+    const oldFrame = await page.locator('iframe').elementHandle();
+    await page.getByRole('button', { name: 'Open Habit tracker' }).click();
+    await expect.poll(() => oldFrame?.evaluate(element => element.isConnected)).toBe(false);
+    await frame.getByRole('button', { name: index % 2 ? 'Undo' : 'Complete', exact: true }).click();
+    await expect(frame.getByRole('button', { name: index % 2 ? 'Complete' : 'Undo', exact: true })).toBeVisible();
+  }
+});

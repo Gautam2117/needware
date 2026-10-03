@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { Command, LibraryEntry, Loaded, PackageInfo, WorkerReply } from '../../../packages/browser-host/src/protocol';
-import { frameEvent } from '../../../packages/browser-host/src/protocol';
+import Sandbox from './sandbox';
 
 class Host {
   private port: Worker;
@@ -31,7 +31,7 @@ function download(filename: string, data: BlobPart, type: string) {
 }
 const frameStyle = `:root{color-scheme:light dark;font-family:Arial,sans-serif;color:#1c2623;background:#fffefa}body{margin:0;padding:28px}h2{font-size:28px;letter-spacing:-1px}p{line-height:1.5}label{display:block;margin:16px 0;font-size:14px}input,textarea{box-sizing:border-box;display:block;width:100%;font:inherit;padding:12px;border:1px solid #ccd5ce;border-radius:8px;margin-top:7px;background:transparent;color:inherit}button{font:inherit;cursor:pointer;background:#18594e;color:white;border:0;padding:10px 16px;border-radius:8px;margin:7px 8px 7px 0}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #579fd6;outline-offset:3px}.card{padding:17px;border:1px solid #d9dfd6;border-radius:12px;margin:14px 0}.row{display:flex;gap:12px;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.empty{color:#65746a}.spacer{height:20px}@media(prefers-color-scheme:dark){:root{background:#18231e;color:#e8ede7}.card{border-color:#35453c}}`;
 export default function Workbench() {
-  const host = useRef<Host | null>(null); const iframe = useRef<HTMLIFrameElement>(null); const framePort = useRef<MessagePort | null>(null); const latestView = useRef<ViewNode | null>(null);
+  const host = useRef<Host | null>(null);
   const [library, setLibrary] = useState<LibraryEntry[]>([]); const [review, setReview] = useState<{ info: PackageInfo; bytes: Uint8Array } | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null); const [view, setView] = useState<ViewNode | null>(null);
   const [renderer, setRenderer] = useState<{ code: string; hash: string } | null>(null);
@@ -48,21 +48,6 @@ export default function Workbench() {
     if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { /* Offline readiness is shown only after successful caching. */ });
     return () => { client.close(); host.current = null; };
   }, []);
-  useEffect(() => { latestView.current = view; if (view) framePort.current?.postMessage(view); }, [view]);
-  useEffect(() => {
-    if (!loaded) return;
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== iframe.current?.contentWindow || event.data?.kind !== 'needware-ready') return;
-      const channel = new MessageChannel(); framePort.current?.close(); framePort.current = channel.port1;
-      channel.port1.onmessage = event => {
-        if (!frameEvent(event.data)) { setError('Invalid application event was rejected.'); return; }
-        host.current?.request<ViewNode>({ kind: 'dispatch', action: event.data.action, values: event.data.values }).then(setView).catch(error => setError(String(error)));
-      };
-      channel.port1.start(); iframe.current.contentWindow?.postMessage({ kind: 'needware-connect' }, '*', [channel.port2]);
-      if (latestView.current) channel.port1.postMessage(latestView.current);
-    };
-    window.addEventListener('message', onMessage); return () => { window.removeEventListener('message', onMessage); framePort.current?.close(); framePort.current = null; };
-  }, [loaded, renderer]);
   async function run(operation: () => Promise<void>) { setBusy(true); setError(''); try { await operation(); } catch (error) { setError(String(error)); } finally { setBusy(false); } }
   async function inspect(bytes: Uint8Array) { const info = await host.current?.request<PackageInfo>({ kind: 'inspect', bytes }); if (info) setReview({ info, bytes }); }
   async function open(bytes: Uint8Array) { const result = await host.current?.request<Loaded>({ kind: 'load', bytes, consent: true }); if (result) { setLoaded(result); setView(result.view); setReview(null); setStatus(result.storage); const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); if (entries) setLibrary(entries); } }
@@ -76,7 +61,7 @@ export default function Workbench() {
     </div>
     <div role="status" aria-live="polite">{busy ? 'Verifying application…' : status}</div>{error && <p className="notice error" role="alert">{error}</p>}
     {review && <section className="review" aria-labelledby="review-title"><h2 id="review-title">Review {review.info.application.title}</h2><p>Package integrity and signature verified. Review this signer before trusting the application.</p><code>{review.info.signers.join(', ')}</code><p>Requested permissions:</p><ul>{review.info.application.capabilities.map((cap, i) => <li key={i}>{cap.kind === 'storage' ? `Read${cap.write ? ' and write' : ''} this application's ${cap.collections.join(', ')} data ${cap.synchronized ? 'with synchronization' : 'on this device'}.` : JSON.stringify(cap)}</li>)}</ul><div className="toolbar"><button className="primary" disabled={busy} onClick={() => run(() => open(review.bytes))}>Trust signer and run application</button><button onClick={() => setReview(null)}>Cancel</button></div><details><summary>Inspect application definition</summary><pre>{JSON.stringify(review.info.application, null, 2)}</pre></details></section>}
-    {loaded && renderer && <section className="viewer" aria-label="Application viewer"><div className="security-bar"><strong>{loaded.info.application.title}</strong><p>Needware trusted shell · Local application · {loaded.storage}</p><code>Digest {loaded.info.digest}</code><div className="toolbar"><button onClick={() => { const entry = library.find(a => a.id === loaded.info.application.id); if (entry) download(`${entry.title}.need`, new Uint8Array(entry.bytes), 'application/vnd.needware.package'); }}>Export package</button><button onClick={() => run(async () => { const state = await host.current?.request<string>({ kind: 'export-state' }); if (state) download('needware-state.json', state, 'application/json'); })}>Export plaintext data</button><button onClick={() => run(() => remove(loaded.info.application.id))}>Delete local application</button></div></div><iframe ref={iframe} title={`${loaded.info.application.title} application`} sandbox="allow-scripts" srcDoc={frame} /></section>}
+    {loaded && renderer && <section className="viewer" aria-label="Application viewer"><div className="security-bar"><strong>{loaded.info.application.title}</strong><p>Needware trusted shell · Local application · {loaded.storage}</p><code>Digest {loaded.info.digest}</code><div className="toolbar"><button onClick={() => { const entry = library.find(a => a.id === loaded.info.application.id); if (entry) download(`${entry.title}.need`, new Uint8Array(entry.bytes), 'application/vnd.needware.package'); }}>Export package</button><button onClick={() => run(async () => { const state = await host.current?.request<string>({ kind: 'export-state' }); if (state) download('needware-state.json', state, 'application/json'); })}>Export plaintext data</button><button onClick={() => run(() => remove(loaded.info.application.id))}>Delete local application</button></div></div><Sandbox key={loaded.instance} title={loaded.info.application.title} document={frame} view={view ?? loaded.view} error={setError} dispatch={(action, values) => { host.current?.request<ViewNode>({ kind: 'dispatch', instance: loaded.instance, action, values }).then(setView).catch(error => setError(String(error))); }} /></section>}
     <section aria-labelledby="library-title"><h2 id="library-title">On this device</h2>{library.length ? <div className="library">{library.map(entry => <article className="app-card" key={entry.id}><strong>{entry.title}</strong><p>Signed package · Local data</p><button disabled={busy} onClick={() => run(() => open(entry.bytes))}>Open {entry.title}</button></article>)}</div> : <p>Your applications will appear here after you run them.</p>}</section>
     <footer>Local data stays in this browser. Browser storage can be cleared or evicted; export a copy of anything important. Offline use requires the shell and runtime to finish caching.</footer>
   </main></>;

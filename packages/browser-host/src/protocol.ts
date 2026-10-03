@@ -8,11 +8,11 @@ export type Command =
   | { kind: 'inspect'; bytes: Uint8Array }
   | { kind: 'library' }
   | { kind: 'load'; bytes: Uint8Array; consent: true }
-  | { kind: 'dispatch'; action: string; values: Record<string, Value> }
+  | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
   | { kind: 'delete'; id: string }
   | { kind: 'export-state' };
 export interface WorkerReply { id: number; ok: boolean; data?: unknown; error?: string }
-export interface Loaded { info: PackageInfo; view: ViewNode; storage: string }
+export interface Loaded { instance: string; info: PackageInfo; view: ViewNode; storage: string }
 export function frameEvent(value: unknown): value is { action: string; values: Record<string, Value> } {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
