@@ -29,3 +29,14 @@ jobs:
           pnpm --filter @needware/web start --port 3108 > /tmp/needware-server.log 2>&1 &
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3108/ > /dev/null && break; sleep 1; done
           python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test'
+      - if: failure()
+        run: python3 scripts/browser_diagnostics.py
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: browser-failure-evidence
+          path: |
+            artifacts/browser-results.json
+            test-results/**/error-context.md
+            test-results/**/trace.zip
+          retention-days: 7
