@@ -1,0 +1,39 @@
+[workspace]
+members = ["crates/*", "xtask"]
+resolver = "3"
+
+[workspace.package]
+version = "2026.10.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.99"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1.2.2"
+thiserror = "2"
+uuid = { version = "1", features = ["serde", "v4", "js"] }
+blake3 = "1"
+ed25519-dalek = "3.0.0"
+serde_json_canonicalizer = "0.3.2"
+chacha20poly1305 = "0.10.1"
+hkdf = "0.12.4"
+sha2 = "0.10.9"
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+hex = "0.4"
+url = "2"
+proptest = "1"
+wasm-bindgen = "0.2.129"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

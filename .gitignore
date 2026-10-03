@@ -1,0 +1,16 @@
+/target/
+/node_modules/
+**/node_modules/
+**/.next/
+**/dist/
+/.local/
+/.logs/
+/artifacts/
+/.env
+/.env.*
+!/.env.example
+SESSION_ANCHOR.md
+.DS_Store
+playwright-report/
+test-results/
+*.profraw

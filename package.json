@@ -1,0 +1,14 @@
+{
+  "name": "needware",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "packageManager": "pnpm@11.5.3",
+  "engines": { "node": "24.x" },
+  "scripts": {
+    "doctor": "python3 scripts/doctor.py",
+    "check": "python3 scripts/token_guard.py run 'python3 scripts/check.py'",
+    "test": "python3 scripts/token_guard.py run 'cargo test --workspace'",
+    "security": "python3 scripts/token_guard.py run 'python3 scripts/security.py'",
+    "contracts": "python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts'"
+  }
+}
