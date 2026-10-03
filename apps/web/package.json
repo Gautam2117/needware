@@ -1,0 +1,27 @@
+{
+  "name": "@needware/web",
+  "private": true,
+  "version": "2026.10.0",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "check": "tsc --noEmit && cd ../.. && ./apps/web/node_modules/.bin/eslint apps/web packages/browser-host/src packages/runtime-frame/src",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "@needware/ir-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/node": "26.6.4",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.8",
+    "vitest": "5.0.3"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@needware/renderer",
+  "private": true,
+  "version": "2026.10.0",
+  "exports": { "./registry": "./src/registry.ts" },
+  "dependencies": { "@needware/ir-types": "workspace:*" }
+}

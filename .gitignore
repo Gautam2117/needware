@@ -1,6 +1,7 @@
 /target/
 /node_modules/
 **/node_modules/
+*.tsbuildinfo
 **/.next/
 **/dist/
 /.local/
@@ -13,4 +14,11 @@ SESSION_ANCHOR.md
 .DS_Store
 playwright-report/
 test-results/
+apps/web/public/wasm/
+apps/web/public/sqlite/
+apps/web/public/sqlite3.wasm
+apps/web/public/frame.js
+apps/web/public/runtime-worker.js
+apps/web/public/sw.js
+apps/web/next-env.d.ts
 *.profraw

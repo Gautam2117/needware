@@ -1,0 +1,16 @@
+import { build } from 'esbuild';
+import { mkdir, cp, readdir, readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+const root = process.cwd();
+const publicDir = `${root}/apps/web/public`;
+await mkdir(`${publicDir}/wasm`, { recursive: true });
+execFileSync('cargo', ['build', '-p', 'needware-wasm', '--target', 'wasm32-unknown-unknown', '--release'], { stdio: 'inherit' });
+execFileSync('wasm-bindgen', ['target/wasm32-unknown-unknown/release/needware_wasm.wasm', '--target', 'web', '--out-dir', `${publicDir}/wasm`], { stdio: 'inherit' });
+await build({ entryPoints: ['packages/browser-host/src/worker.ts'], outfile: `${publicDir}/runtime-worker.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', alias: { 'needware-wasm-runtime': '/wasm/needware_wasm.js' }, external: ['/wasm/*'], minify: true });
+await build({ entryPoints: ['packages/runtime-frame/src/frame.tsx'], outfile: `${publicDir}/frame.js`, bundle: true, format: 'iife', platform: 'browser', target: 'es2022', minify: true, define: { 'process.env.NODE_ENV': '"production"' } });
+await mkdir(`${publicDir}/sqlite`, { recursive: true });
+const sqliteDir = 'packages/browser-host/node_modules/@sqlite.org/sqlite-wasm/dist';
+await cp(`${sqliteDir}/sqlite3.wasm`, `${publicDir}/sqlite3.wasm`);
+for (const name of await readdir(sqliteDir)) if (name.endsWith('.wasm') || name.endsWith('.js')) await cp(`${sqliteDir}/${name}`, `${publicDir}/sqlite/${name}`);
+const runtime = await readFile(`${publicDir}/wasm/needware_wasm_bg.wasm`);
+console.log(`Browser assets built; WASM ${runtime.length} bytes`);

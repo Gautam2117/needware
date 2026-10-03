@@ -11,8 +11,8 @@ Statuses describe actual code and checks, not planned completeness.
 | Signed packages and crypto primitives | VERIFIED | Ed25519 known vector, AEAD context separation, duplicate JSON rejection, arbitrary-byte property test, package tamper/untrusted-signer tests |
 | Native transactional runtime | VERIFIED | Add/toggle/delete, snapshot restore, invalid field rejection and failed-sequence rollback; overlay/back/effect completion pending |
 | Native SQLite | VERIFIED | Durable reopen, namespace isolation, compare-and-swap conflict and delete tests |
-| WASM boundary | IMPLEMENTED | Release build succeeds; browser parity and runtime UX verification pending |
-| Browser host/renderer/PWA | IMPLEMENTED | Source and assets exist; browser checks ongoing; local-storage applications only |
+| WASM boundary | VERIFIED | Same Rust add/toggle behavior executes in Chromium, Firefox and WebKit; unsupported renderer features fail before startup |
+| Browser host/renderer/PWA | IMPLEMENTED | Nine Playwright journeys pass across three engines: durable mutation/reopen with actual server stopped, malformed input rejection, stale-write rejection and leader takeover. Chromium/Firefox use SQLite/OPFS; WebKit uses explicit IndexedDB fallback. Complete renderer families, temporary mode, quota/corruption recovery UX, installation and exact devices pending |
 | Compiler/provider adapters | NOT_STARTED | Approved architecture |
 | Accounts, cloud sharing, history | NOT_STARTED | Approved architecture |
 | Encrypted sync, collaboration, recovery | NOT_STARTED | Approved architecture |
