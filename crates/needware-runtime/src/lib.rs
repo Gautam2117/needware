@@ -1,8 +1,10 @@
 //! Verified packages execute transactionally; platform effects remain typed data.
+mod revisions;
 use needware_capabilities::{Capability, Grants, authorize};
 use needware_expr::{Budget, Context, boolean, evaluate};
 use needware_ir::*;
 use needware_package::VerifiedPackage;
+pub use revisions::{RevisionPreview, RevisionReport};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;

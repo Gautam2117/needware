@@ -1149,11 +1149,15 @@ name = "needware-cli"
 version = "2026.10.0"
 dependencies = [
  "hex",
+ "needware-capabilities",
  "needware-compiler",
  "needware-crypto",
  "needware-ir",
  "needware-package",
+ "needware-runtime",
+ "needware-storage",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
@@ -1231,6 +1235,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "needware-migrations"
+version = "2026.10.0"
+dependencies = [
+ "needware-expr",
+ "needware-ir",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "needware-package"
 version = "2026.10.0"
 dependencies = [
@@ -1250,14 +1266,18 @@ dependencies = [
 name = "needware-runtime"
 version = "2026.10.0"
 dependencies = [
+ "hex",
  "needware-capabilities",
  "needware-crypto",
  "needware-expr",
  "needware-ir",
+ "needware-migrations",
  "needware-package",
+ "needware-storage",
  "needware-validation",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "ts-rs",
  "uuid",
@@ -1281,6 +1301,7 @@ dependencies = [
  "chrono",
  "needware-capabilities",
  "needware-ir",
+ "needware-migrations",
  "serde",
  "serde_json",
  "thiserror",

@@ -24,6 +24,8 @@ impl ValidatedApplication {
 }
 
 pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
+    needware_migrations::validate_declarations(&app)
+        .map_err(|e| fail("migrations", &e.to_string()))?;
     if app.schema_version != IR_VERSION {
         return Err(fail("schema_version", "unsupported IR version"));
     }
@@ -87,6 +89,23 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
     }
     for action in app.actions.values() {
         validate_action(action, &app, 0)?;
+    }
+    for migration in &app.migrations {
+        for operation in &migration.operations {
+            if let MigrationOp::AddField {
+                collection,
+                field,
+                default,
+            } = operation
+            {
+                let field = app
+                    .collections
+                    .get(collection)
+                    .and_then(|c| c.fields.get(field))
+                    .ok_or_else(|| fail("migration", "unknown target field"))?;
+                validate_value(default, field, 0)?;
+            }
+        }
     }
     for value in app.state.values() {
         bounded_value(value, 0)?;

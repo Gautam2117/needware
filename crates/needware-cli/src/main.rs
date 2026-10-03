@@ -1,5 +1,6 @@
 use std::{env, fs};
 mod compile;
+mod revisions;
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
@@ -11,6 +12,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("compile") => compile::run(&args[2..]).await?,
+        Some("state-init") => revisions::initialize(&args[2..])?,
+        Some("revision-preview") => revisions::revision(&args[2..], false)?,
+        Some("revision-apply") => revisions::revision(&args[2..], true)?,
+        Some("revision-rollback") => revisions::rollback(&args[2..])?,
         Some("example") => {
             let path = args.get(2).ok_or("usage: needware example OUTPUT.need")?;
             let key = needware_crypto::SecretKey::random()?;

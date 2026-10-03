@@ -9,12 +9,16 @@ needware-expr = { path = "../needware-expr" }
 needware-validation = { path = "../needware-validation" }
 needware-package = { path = "../needware-package" }
 needware-capabilities = { path = "../needware-capabilities" }
+needware-migrations = { path = "../needware-migrations" }
+needware-crypto = { path = "../needware-crypto" }
 serde.workspace = true
 serde_json.workspace = true
+hex.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 ts-rs = { version = "12.0.1", features = ["serde-compat"] }
 [dev-dependencies]
-needware-crypto = { path = "../needware-crypto" }
+needware-storage = { path = "../needware-storage" }
+tempfile = "3"
 [lints]
 workspace = true

@@ -31,6 +31,8 @@ The browser can run the authored habit tracker or import signed `.need` packages
 
 ## Engineering boundaries
 
+Native revisions support explicit [preview, activation and recoverable rollback](docs/development/revisions.md). Browser refinement/history and synchronized schema transitions remain under implementation.
+
 - Deny-by-default capability authorization bound to application and revision.
 - Canonical domain types in Rust; mechanically generated browser contracts.
 - Immutable, signed packages; state remains separate from definitions.

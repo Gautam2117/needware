@@ -11,8 +11,13 @@ needware-ir = { path = "../needware-ir" }
 needware-package = { path = "../needware-package" }
 needware-crypto = { path = "../needware-crypto" }
 needware-compiler = { path = "../needware-compiler" }
+needware-runtime = { path = "../needware-runtime" }
+needware-storage = { path = "../needware-storage" }
+needware-capabilities = { path = "../needware-capabilities" }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "signal"] }
 serde_json.workspace = true
 hex.workspace = true
+[dev-dependencies]
+tempfile = "3"
 [lints]
 workspace = true

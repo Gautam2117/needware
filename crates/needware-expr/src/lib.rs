@@ -29,6 +29,10 @@ impl Budget {
     pub fn new(fuel: u32) -> Self {
         Self { remaining: fuel }
     }
+    pub fn consume(&mut self, units: u32) -> Result<(), EvalError> {
+        self.remaining = self.remaining.checked_sub(units).ok_or(EvalError::Limit)?;
+        Ok(())
+    }
 }
 pub fn boolean(v: Value) -> Result<bool, EvalError> {
     if let Value::Boolean(b) = v {
