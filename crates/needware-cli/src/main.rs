@@ -1,13 +1,16 @@
 use std::{env, fs};
-fn main() {
-    if let Err(e) = run() {
+mod compile;
+#[tokio::main]
+async fn main() {
+    if let Err(e) = run().await {
         eprintln!("{e}");
         std::process::exit(1);
     }
 }
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("compile") => compile::run(&args[2..]).await?,
         Some("example") => {
             let path = args.get(2).ok_or("usage: needware example OUTPUT.need")?;
             let key = needware_crypto::SecretKey::random()?;
@@ -38,7 +41,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
         }
-        _ => return Err("usage: needware example|verify|inspect FILE.need".into()),
+        _ => return Err("usage: needware example|verify|inspect|compile FILE.need".into()),
     }
     Ok(())
 }

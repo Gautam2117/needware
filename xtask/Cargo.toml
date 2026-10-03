@@ -7,6 +7,7 @@ license.workspace = true
 needware-ir = { path = "../crates/needware-ir" }
 needware-capabilities = { path = "../crates/needware-capabilities" }
 needware-runtime = { path = "../crates/needware-runtime" }
+needware-compiler = { path = "../crates/needware-compiler" }
 schemars.workspace = true
 serde_json.workspace = true
 ts-rs = "12.0.1"

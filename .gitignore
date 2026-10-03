@@ -2,6 +2,7 @@
 /node_modules/
 **/node_modules/
 *.tsbuildinfo
+__pycache__/
 **/.next/
 **/dist/
 /.local/

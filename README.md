@@ -18,13 +18,16 @@ pnpm check
 pnpm test
 pnpm security
 pnpm build
+pnpm test:compiler
 pnpm --filter @needware/web start --port 3108
 NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm test:e2e
 ```
 
 Commands retain complete local logs in ignored `.logs/` and return bounded diagnostics. Lockfiles pin resolved dependencies. No provider credentials or paid cloud account are needed for domain tests.
 
-The browser can run the authored habit tracker or import signed `.need` packages after explicit signer/permission review. Rust/WASM executes mutations; SQLite/OPFS coordinates writers, with an explicit IndexedDB fallback. A production build caches its shell/runtime for offline reopen. Package and plaintext state exports are separate. The current host accepts local-storage applications and rejects unsupported renderer components before startup. Model generation and account services remain under implementation.
+The browser can run the authored habit tracker or import signed `.need` packages after explicit signer/permission review. Rust/WASM executes mutations; SQLite/OPFS coordinates writers, with an explicit IndexedDB fallback. A production build caches its shell/runtime for offline reopen. Package and plaintext state exports are separate. The current host accepts local-storage applications and rejects unsupported renderer components before startup.
+
+`pnpm dev` starts the shell and local Rust compiler gateway. Configure an approved provider using `.env.example`; without a provider, generation is unavailable. Creation requires disclosure of the recipient and installation-owned credentials. Four HTTP adapters feed a bounded Rust validation/signing pipeline. `pnpm test:compiler` explicitly starts a free HTTP fixture and verifies the browser wiring; it does not call a model. See [compiler setup and limitations](docs/development/compiler.md). Account services remain under implementation.
 
 ## Engineering boundaries
 

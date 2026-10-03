@@ -10,6 +10,8 @@ path = "src/main.rs"
 needware-ir = { path = "../needware-ir" }
 needware-package = { path = "../needware-package" }
 needware-crypto = { path = "../needware-crypto" }
+needware-compiler = { path = "../needware-compiler" }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "signal"] }
 serde_json.workspace = true
 hex.workspace = true
 [lints]

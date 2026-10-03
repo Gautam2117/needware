@@ -11,6 +11,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             needware_runtime::ViewNode::export_all(&config)?;
             needware_runtime::Event::export_all(&config)?;
             needware_runtime::Effect::export_all(&config)?;
+            needware_compiler::protocol::CompileRequest::export_all(&config)?;
+            needware_compiler::protocol::CompileMessage::export_all(&config)?;
+            needware_compiler::protocol::ProviderResponse::export_all(&config)?;
             std::fs::create_dir_all("specs")?;
             let schema = schemars::schema_for!(needware_ir::Application);
             std::fs::write(
@@ -18,6 +21,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 format!("{}\n", serde_json::to_string_pretty(&schema)?),
             )?;
             println!("Generated canonical IR contracts");
+        }
+        Some("compiler-fixture") => {
+            use needware_ir::{BehaviorTest, BinaryOp, Expr, Value};
+            let mut app = needware_ir::examples::habit_tracker();
+            app.description =
+                "Authored compiler contract fixture; this is not model-generated output.".into();
+            app.tests.push(BehaviorTest {
+                name: "add creates a record".into(),
+                action: "add".into(),
+                event: std::collections::BTreeMap::from([
+                    (
+                        "record_id".into(),
+                        Value::String("11111111-1111-4111-8111-111111111111".into()),
+                    ),
+                    ("name".into(), Value::String("Contract habit".into())),
+                ]),
+                assertion: Expr::Binary {
+                    operator: BinaryOp::Eq,
+                    left: Box::new(Expr::Length {
+                        value: Box::new(Expr::Collection {
+                            name: "habits".into(),
+                        }),
+                    }),
+                    right: Box::new(Expr::Literal {
+                        value: Value::Integer("1".into()),
+                    }),
+                },
+            });
+            let wire = needware_compiler::schema::WireSchema::new().encode(&app)?;
+            std::fs::create_dir_all("artifacts")?;
+            std::fs::write(
+                "artifacts/compiler-fixture.json",
+                serde_json::to_vec(&wire)?,
+            )?;
+            println!("Authored compiler fixture generated; no provider inference occurred");
         }
         Some("workspace") => {
             let status = std::process::Command::new("cargo")
