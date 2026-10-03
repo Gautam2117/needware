@@ -8,4 +8,6 @@ Persistent state contains revision, named values and collections of UUID-address
 
 Expressions read explicit state/event/item/context values. Arithmetic checks signed 64-bit overflow and division by zero. Evaluation has depth/fuel limits. Models cannot insert scripts, HTML, SQL, dynamic functions or imports.
 
+Each runtime event has one expression budget of 1,000,000 evaluated nodes, shared by all action fields, nested sequences, selected conditional branches and parallel groups. Conditions consume this budget too; unselected branches do not execute. Action count (256), action nesting (32) and prepared effects (four) have independent event-wide bounds. Local mutations and effect preparation in parallel groups run in definition order; host execution of approved effects may be concurrent. Exhaustion returns the typed `RuntimeError::Limit`, discards prepared effects and leaves state and navigation unchanged. Each later event receives a fresh budget. Rendering uses its own bounded budget.
+
 The schema currently describes more component/action families than the executed browser surface. The project status records this gap; schema representation alone is not feature completion. Fully static expression typing, derived-field materialization, all component behaviors and migration activation remain under implementation.

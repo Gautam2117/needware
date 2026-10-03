@@ -18,6 +18,9 @@ impl<'de> Deserialize<'de> for Strict {
                 Ok(Strict(Value::Bool(v)))
             }
             fn visit_i64<E: de::Error>(self, v: i64) -> Result<Strict, E> {
+                if v < -9_007_199_254_740_991 {
+                    return Err(E::custom("unsafe JSON integer"));
+                }
                 Ok(Strict(Value::Number(Number::from(v))))
             }
             fn visit_u64<E: de::Error>(self, v: u64) -> Result<Strict, E> {

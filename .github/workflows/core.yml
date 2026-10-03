@@ -30,6 +30,7 @@ jobs:
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3108/ > /dev/null && break; sleep 1; done
           python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test local-runtime.spec.ts'
       - run: pnpm test:compiler
+        timeout-minutes: 10
       - if: failure()
         run: python3 scripts/browser_diagnostics.py
       - if: failure()

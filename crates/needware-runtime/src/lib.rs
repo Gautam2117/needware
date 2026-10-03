@@ -107,6 +107,7 @@ impl Runtime {
         let mut effects = vec![];
         let mut screen = self.screen.clone();
         let mut count = 0;
+        let mut budget = Budget::new(1_000_000);
         apply(
             &action,
             self.application(),
@@ -116,6 +117,7 @@ impl Runtime {
             &mut effects,
             &mut screen,
             &mut count,
+            &mut budget,
             0,
         )?;
         needware_validation::validate_state(&next, self.application())
@@ -175,6 +177,7 @@ fn value(
     event: &Event,
     item: Option<&BTreeMap<String, Value>>,
     app: &Application,
+    budget: &mut Budget,
 ) -> Result<Value, RuntimeError> {
     evaluate(
         expr,
@@ -186,9 +189,15 @@ fn value(
             locale: &app.locale,
             timezone: &event.timezone,
         },
-        &mut Budget::new(1_000_000),
+        budget,
     )
-    .map_err(|e| RuntimeError::Invalid(e.to_string()))
+    .map_err(expression_error)
+}
+fn expression_error(error: needware_expr::EvalError) -> RuntimeError {
+    match error {
+        needware_expr::EvalError::Limit => RuntimeError::Limit,
+        other => RuntimeError::Invalid(other.to_string()),
+    }
 }
 #[allow(clippy::too_many_arguments)]
 fn apply(
@@ -200,6 +209,7 @@ fn apply(
     effects: &mut Vec<Effect>,
     screen: &mut String,
     count: &mut u32,
+    budget: &mut Budget,
     depth: u32,
 ) -> Result<(), RuntimeError> {
     *count += 1;
@@ -226,7 +236,7 @@ fn apply(
                     collections: vec![collection.clone()],
                 },
             )?;
-            let Value::String(id) = value(id, state, event, None, app)? else {
+            let Value::String(id) = value(id, state, event, None, app, budget)? else {
                 return Err(RuntimeError::Invalid("record id must be a string".into()));
             };
             if uuid::Uuid::parse_str(&id).is_err() {
@@ -255,7 +265,10 @@ fn apply(
                     .collect()
             });
             for (field, expr) in values {
-                record.insert(field.clone(), value(expr, state, event, old.as_ref(), app)?);
+                record.insert(
+                    field.clone(),
+                    value(expr, state, event, old.as_ref(), app, budget)?,
+                );
             }
             needware_validation::validate_record(&record, schema)
                 .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
@@ -275,7 +288,7 @@ fn apply(
                     collections: vec![collection.clone()],
                 },
             )?;
-            let id = value(id, state, event, None, app)?.text();
+            let id = value(id, state, event, None, app, budget)?.text();
             state
                 .collections
                 .get_mut(collection)
@@ -286,10 +299,12 @@ fn apply(
             if !app.state.contains_key(key) {
                 return Err(RuntimeError::Invalid("unknown state key".into()));
             }
-            let v = value(expr, state, event, None, app)?;
+            let v = value(expr, state, event, None, app, budget)?;
             state.values.insert(key.clone(), v);
         }
         Action::Sequence { actions } | Action::Parallel { actions } => {
+            // Local mutations and effect preparation are deterministic and ordered.
+            // A parallel group shares the event budget; only host effects may run concurrently.
             for a in actions {
                 apply(
                     a,
@@ -300,12 +315,13 @@ fn apply(
                     effects,
                     screen,
                     count,
+                    budget,
                     depth + 1,
                 )?;
             }
         }
         Action::Conditional { condition, yes, no } => {
-            if boolean(value(condition, state, event, None, app)?)
+            if boolean(value(condition, state, event, None, app, budget)?)
                 .map_err(|e| RuntimeError::Invalid(e.to_string()))?
             {
                 apply(
@@ -317,6 +333,7 @@ fn apply(
                     effects,
                     screen,
                     count,
+                    budget,
                     depth + 1,
                 )?;
             } else if let Some(no) = no {
@@ -329,6 +346,7 @@ fn apply(
                     effects,
                     screen,
                     count,
+                    budget,
                     depth + 1,
                 )?;
             }
@@ -352,7 +370,7 @@ fn apply(
             effects.push(Effect {
                 id: uuid::Uuid::new_v4().to_string(),
                 capability: capability.clone(),
-                input: value(input, state, event, None, app)?,
+                input: value(input, state, event, None, app, budget)?,
             });
         }
     }
@@ -370,9 +388,7 @@ fn render(
         return Err(RuntimeError::Limit);
     }
     let text = match &node.text {
-        Some(e) => evaluate(e, ctx, budget)
-            .map_err(|e| RuntimeError::Invalid(e.to_string()))?
-            .text(),
+        Some(e) => evaluate(e, ctx, budget).map_err(expression_error)?.text(),
         None => String::new(),
     };
     let mut children = vec![];

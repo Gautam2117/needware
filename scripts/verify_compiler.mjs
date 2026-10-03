@@ -9,7 +9,8 @@ const environment = { ...process.env, NEEDWARE_PROVIDER: 'local', NEEDWARE_MODEL
 const children = [];
 function start(name, command, args) {
   const log = createWriteStream(`.logs/compiler-${name}.log`, { flags: 'a' });
-  const child = spawn(command, args, { env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(command, args, { env: environment, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+  child.closed = new Promise(resolve => child.once('close', resolve));
   child.stdout.pipe(log); child.stderr.pipe(log); children.push(child); return child;
 }
 async function ready(url) {
@@ -34,5 +35,17 @@ try {
   const test = spawn('pnpm', ['exec', 'playwright', 'test', 'compiler.spec.ts', '--workers=1'], { env: environment, stdio: 'inherit' });
   process.exitCode = await new Promise(resolve => test.once('exit', code => resolve(code ?? 1)));
 } finally {
-  for (const child of children) child.kill('SIGTERM');
+  const signal = (child, name) => {
+    try {
+      if (process.platform === 'win32') child.kill(name);
+      else process.kill(-child.pid, name);
+    } catch (error) { if (error.code !== 'ESRCH') throw error; }
+  };
+  // pnpm may exit before its Next.js child. Terminate the owned process group,
+  // then wait for inherited output pipes to close before leaving the runner.
+  await Promise.all(children.map(async child => {
+    signal(child, 'SIGTERM');
+    const deadline = setTimeout(() => signal(child, 'SIGKILL'), 2000);
+    try { await child.closed; } finally { clearTimeout(deadline); }
+  }));
 }

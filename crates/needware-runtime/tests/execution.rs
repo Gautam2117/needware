@@ -70,6 +70,110 @@ fn failed_sequence_is_atomic() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 #[test]
+fn expression_fuel_is_shared_across_actions_and_rolls_back()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut app = habit_tracker();
+    app.state
+        .insert("counter".into(), Value::Integer("0".into()));
+    let expensive = Action::Set {
+        key: "counter".into(),
+        value: Expr::Length {
+            value: Box::new(Expr::Map {
+                collection: Box::new(Expr::Event { key: "rows".into() }),
+                value: Box::new(Expr::Item { field: "n".into() }),
+            }),
+        },
+    };
+    let first_mutation = Action::Set {
+        key: "counter".into(),
+        value: Expr::Literal {
+            value: Value::Integer("1".into()),
+        },
+    };
+    let left = Action::Sequence {
+        actions: vec![expensive.clone(); 100],
+    };
+    let right = Action::Sequence {
+        actions: vec![expensive.clone(); 101],
+    };
+    let branch = |condition: bool, selected: Action| Action::Conditional {
+        condition: Expr::Literal {
+            value: Value::Boolean(condition),
+        },
+        yes: Box::new(if condition {
+            selected.clone()
+        } else {
+            first_mutation.clone()
+        }),
+        no: Some(Box::new(if condition {
+            first_mutation.clone()
+        } else {
+            selected
+        })),
+    };
+    let groups = [
+        (
+            "sequence",
+            Action::Sequence {
+                actions: vec![expensive.clone(); 201],
+            },
+        ),
+        (
+            "nested",
+            Action::Sequence {
+                actions: vec![left.clone(), right.clone()],
+            },
+        ),
+        (
+            "conditional",
+            Action::Sequence {
+                actions: vec![branch(true, left.clone()), branch(false, right.clone())],
+            },
+        ),
+        (
+            "parallel",
+            Action::Parallel {
+                actions: vec![left, right],
+            },
+        ),
+    ];
+    app.actions.insert("bounded".into(), expensive);
+    let mut input = event("exhaust", "");
+    let row = Value::Map(BTreeMap::from([("n".into(), Value::Integer("1".into()))]));
+    input
+        .values
+        .insert("rows".into(), Value::List(vec![row; 5000]));
+    for (name, group) in groups {
+        let mut candidate = app.clone();
+        candidate.actions.insert(
+            "exhaust".into(),
+            Action::Sequence {
+                actions: vec![first_mutation.clone(), group],
+            },
+        );
+        let mut r = runtime(candidate)?;
+        input.action = "exhaust".into();
+        for _ in 0..2 {
+            assert!(
+                matches!(
+                    r.dispatch(&input),
+                    Err(needware_runtime::RuntimeError::Limit)
+                ),
+                "{name}"
+            );
+            assert_eq!(
+                r.state().values["counter"],
+                Value::Integer("0".into()),
+                "{name}"
+            );
+        }
+        input.action = "bounded".into();
+        r.dispatch(&input)?;
+        assert_eq!(r.state().values["counter"], Value::Integer("5000".into()));
+    }
+    Ok(())
+}
+#[test]
 fn tamper_unknown_signer_and_invalid_field_are_rejected() -> Result<(), Box<dyn std::error::Error>>
 {
     let app = habit_tracker();

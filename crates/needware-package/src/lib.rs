@@ -258,6 +258,16 @@ mod tests {
     fn duplicate_json_and_noncanonical_numbers_fail() {
         assert!(parse_json::<serde_json::Value>(br#"{"a":1,"a":2}"#).is_err());
         assert!(parse_json::<serde_json::Value>(b"1.2").is_err());
+        for number in [
+            "9007199254740992",
+            "-9007199254740992",
+            "-9223372036854775808",
+        ] {
+            assert!(parse_json::<serde_json::Value>(number.as_bytes()).is_err());
+        }
+        for number in ["9007199254740991", "-9007199254740991"] {
+            assert!(parse_json::<serde_json::Value>(number.as_bytes()).is_ok());
+        }
     }
     proptest! {#[test]fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(),0..4096)){let _=verify(&bytes);}}
 }
