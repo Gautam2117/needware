@@ -1,0 +1,6 @@
+{
+  "name": "@needware/ir-types",
+  "private": true,
+  "version": "2026.10.0",
+  "exports": { "./*": "./src/*.ts" }
+}

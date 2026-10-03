@@ -1,0 +1,10 @@
+[package]
+name = "needware-expr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+needware-ir = { path = "../needware-ir" }
+thiserror.workspace = true
+[lints]
+workspace = true

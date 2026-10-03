@@ -1,0 +1,19 @@
+[package]
+name = "needware-package"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+needware-ir = { path = "../needware-ir" }
+needware-validation = { path = "../needware-validation" }
+needware-crypto = { path = "../needware-crypto" }
+serde.workspace = true
+serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+image = { version = "0.25", default-features = false, features = ["png","jpeg","webp"] }
+[dev-dependencies]
+proptest.workspace = true
+[lints]
+workspace = true

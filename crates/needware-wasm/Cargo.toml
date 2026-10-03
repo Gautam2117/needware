@@ -1,0 +1,18 @@
+[package]
+name = "needware-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[lib]
+crate-type = ["cdylib","rlib"]
+[dependencies]
+needware-runtime = { path = "../needware-runtime" }
+needware-ir = { path = "../needware-ir" }
+needware-package = { path = "../needware-package" }
+needware-crypto = { path = "../needware-crypto" }
+needware-capabilities = { path = "../needware-capabilities" }
+wasm-bindgen.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+[lints]
+workspace = true

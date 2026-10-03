@@ -13,3 +13,5 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
       - run: python3 scripts/token_guard.py run 'python3 scripts/check.py'
+      - run: python3 scripts/token_guard.py run 'cargo build -p needware-wasm --target wasm32-unknown-unknown --release'
+      - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts && git diff --exit-code -- packages/ir-types specs/application.schema.json'

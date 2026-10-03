@@ -6,10 +6,13 @@ Statuses describe actual code and checks, not planned completeness.
 |---|---|---|
 | Workspace and bounded-output tooling | VERIFIED | Rust format, Clippy, tests, credential-pattern scan and toolchain doctor pass locally |
 | Scoped capability authorization | VERIFIED | Two tests pass: default denial/revision isolation and network scope/escalation rejection |
-| IR, expressions, validation, migrations | NOT_STARTED | Approved architecture |
-| Signed packages and cryptography | NOT_STARTED | Approved architecture |
-| Runtime, WASM, renderer | NOT_STARTED | Approved architecture |
-| Browser storage and offline PWA | NOT_STARTED | Approved architecture |
+| IR, expressions, validation | IMPLEMENTED | Canonical Rust/TS/schema, bounded evaluator and reference/data validation; full static typing/derived fields pending |
+| Declarative migrations | NOT_STARTED | IR operations represented; no executable migration engine yet |
+| Signed packages and crypto primitives | VERIFIED | Ed25519 known vector, AEAD context separation, duplicate JSON rejection, arbitrary-byte property test, package tamper/untrusted-signer tests |
+| Native transactional runtime | VERIFIED | Add/toggle/delete, snapshot restore, invalid field rejection and failed-sequence rollback; overlay/back/effect completion pending |
+| Native SQLite | VERIFIED | Durable reopen, namespace isolation, compare-and-swap conflict and delete tests |
+| WASM boundary | IMPLEMENTED | Release build succeeds; browser parity and runtime UX verification pending |
+| Browser host/renderer/PWA | IMPLEMENTED | Source and assets exist; browser checks ongoing; local-storage applications only |
 | Compiler/provider adapters | NOT_STARTED | Approved architecture |
 | Accounts, cloud sharing, history | NOT_STARTED | Approved architecture |
 | Encrypted sync, collaboration, recovery | NOT_STARTED | Approved architecture |

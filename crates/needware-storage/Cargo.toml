@@ -1,0 +1,17 @@
+[package]
+name = "needware-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[features]
+default = ["native"]
+native = ["dep:rusqlite"]
+[dependencies]
+needware-ir = { path = "../needware-ir" }
+serde_json.workspace = true
+thiserror.workspace = true
+rusqlite = { version = "0.38", features = ["bundled"], optional = true }
+[dev-dependencies]
+tempfile = "3"
+[lints]
+workspace = true

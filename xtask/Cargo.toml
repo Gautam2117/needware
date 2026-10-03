@@ -3,3 +3,10 @@ name = "xtask"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+[dependencies]
+needware-ir = { path = "../crates/needware-ir" }
+needware-capabilities = { path = "../crates/needware-capabilities" }
+needware-runtime = { path = "../crates/needware-runtime" }
+schemars.workspace = true
+serde_json.workspace = true
+ts-rs = "12.0.1"

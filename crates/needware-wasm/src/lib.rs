@@ -1,0 +1,60 @@
+//! Narrow browser boundary; core semantics stay in native-testable Rust.
+use needware_ir::State;
+use needware_runtime::{Event, Runtime};
+use wasm_bindgen::prelude::*;
+fn error(e: impl std::fmt::Display) -> JsValue {
+    JsValue::from_str(&e.to_string())
+}
+#[wasm_bindgen]
+pub fn inspect_package(bytes: &[u8]) -> Result<String, JsValue> {
+    let p = needware_package::verify(bytes).map_err(error)?;
+    serde_json::to_string(&serde_json::json!({"application":p.application().application(),"digest":p.digest(),"signers":p.signers().iter().map(hex::encode).collect::<Vec<_>>()})).map_err(error)
+}
+#[wasm_bindgen]
+pub fn authored_example() -> Result<Vec<u8>, JsValue> {
+    let key = needware_crypto::SecretKey::random().map_err(error)?;
+    needware_package::build(needware_ir::examples::habit_tracker(), vec![], &key).map_err(error)
+}
+#[wasm_bindgen]
+pub struct BrowserRuntime {
+    inner: Runtime,
+}
+#[wasm_bindgen]
+impl BrowserRuntime {
+    #[wasm_bindgen(constructor)]
+    pub fn new(bytes: &[u8], state_json: Option<String>, consent: bool) -> Result<Self, JsValue> {
+        if !consent {
+            return Err(error("explicit package and permission consent required"));
+        }
+        let p = needware_package::verify(bytes).map_err(error)?;
+        let app = p.application().application();
+        let grants = needware_capabilities::Grants {
+            application: app.id.clone(),
+            revision: app.revision.clone(),
+            capabilities: app.capabilities.clone(),
+        };
+        let trusted = p.signers().to_vec();
+        let state = state_json
+            .map(|s| needware_package::parse_json::<State>(s.as_bytes()))
+            .transpose()
+            .map_err(error)?;
+        Ok(Self {
+            inner: Runtime::load(p, state, grants, &trusted).map_err(error)?,
+        })
+    }
+    pub fn view(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.inner.view().map_err(error)?).map_err(error)
+    }
+    pub fn snapshot(&self) -> Result<String, JsValue> {
+        serde_json::to_string(self.inner.state()).map_err(error)
+    }
+    pub fn restore(&mut self, json: &str) -> Result<(), JsValue> {
+        let state = needware_package::parse_json(json.as_bytes()).map_err(error)?;
+        self.inner.restore(state).map_err(error)
+    }
+    pub fn dispatch(&mut self, json: &str) -> Result<String, JsValue> {
+        let event: Event = needware_package::parse_json(json.as_bytes()).map_err(error)?;
+        let effects = self.inner.dispatch(&event).map_err(error)?;
+        serde_json::to_string(&effects).map_err(error)
+    }
+}

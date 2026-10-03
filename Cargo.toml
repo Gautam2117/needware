@@ -17,7 +17,7 @@ uuid = { version = "1", features = ["serde", "v4", "js"] }
 blake3 = "1"
 ed25519-dalek = "3.0.0"
 serde_json_canonicalizer = "0.3.2"
-chacha20poly1305 = "0.10.1"
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 hkdf = "0.12.4"
 sha2 = "0.10.9"
 getrandom = { version = "0.3.4", features = ["wasm_js"] }

@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -23,8 +24,12 @@ def main():
         for line in lines[-18:]:
             print(line[:300])
     else:
-        useful = [x for x in lines if any(k in x for k in ('test result:', 'passed', 'finished', 'Finished'))]
-        for line in useful[-8:]:
+        results = [re.search(r'test result: ok\. (\d+) passed', line) for line in lines]
+        counts = [int(match.group(1)) for match in results if match]
+        if counts:
+            print(f"Rust tests: {sum(counts)} passed across {len(counts)} suites")
+        useful = [x for x in lines if any(k in x for k in ('passed', 'Finished')) and 'test result:' not in x]
+        for line in useful[-4:]:
             print(line[:200])
     return result.returncode
 

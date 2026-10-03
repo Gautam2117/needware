@@ -1,0 +1,16 @@
+[package]
+name = "needware-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[[bin]]
+name = "needware"
+path = "src/main.rs"
+[dependencies]
+needware-ir = { path = "../needware-ir" }
+needware-package = { path = "../needware-package" }
+needware-crypto = { path = "../needware-crypto" }
+serde_json.workspace = true
+hex.workspace = true
+[lints]
+workspace = true
