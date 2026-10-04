@@ -14,6 +14,8 @@ await new Promise(resolve => listener.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
 process.env.BETTER_AUTH_URL = origin;
 const environment = { ...process.env };
+assert.equal(environment.SMTP_HOST, '127.0.0.1', 'Account acceptance requires local Mailpit');
+assert.equal(Number(environment.SMTP_PORT), 51025, 'Account acceptance requires local Mailpit port');
 execFileSync('node', ['scripts/auth-migrate.mjs'], { env: environment, stdio: 'inherit' });
 const { authResources } = await import('../apps/web/lib/auth-options.ts');
 const { pool } = authResources();
@@ -56,7 +58,7 @@ async function ready() {
   throw new Error('Account server did not start; see private .logs/accounts-web.log');
 }
 async function mailLink(subject) {
-  for (let attempt = 0; attempt < 100; attempt++) {
+  for (let attempt = 0; attempt < 300; attempt++) {
     const response = await fetch(`http://127.0.0.1:58025/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`);
     const list = await response.json(); const message = list.messages.find(value => value.Subject === subject);
     if (message) {

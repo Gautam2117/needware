@@ -19,12 +19,14 @@ async function deliver() {
     await mail.sendMail({ from, to: job.recipient, subject: labels[job.kind],
       text: `${labels[job.kind]}\n\n${job.link}\n\nIf you did not request this, ignore this email. Password reset does not recover encrypted data.` });
     await pool.query('DELETE FROM needware_email_outbox WHERE id=$1 AND lease_id=$2', [job.id, lease]);
-  } catch {
+  } catch (error) {
     const delay = Math.min(3600, 2 ** Math.min(job.attempts, 12));
     await pool.query(`UPDATE needware_email_outbox SET lease_id=NULL, lease_until=NULL,
       next_attempt_at=now()+($3 * interval '1 second'), last_error='DELIVERY_FAILED' WHERE id=$1 AND lease_id=$2`, [job.id, lease, delay]);
     // No recipient, verification link, SMTP credentials or provider error text enters logs.
-    console.error('Email delivery failed; durable retry scheduled');
+    const code = typeof error?.code === 'string' && /^(?:E[A-Z_]{1,24}|[0-9]{5})$/.test(error.code) ? error.code : 'UNKNOWN';
+    const response = Number.isInteger(error?.responseCode) && error.responseCode >= 400 && error.responseCode <= 599 ? error.responseCode : 0;
+    console.error(`Email delivery failed; durable retry scheduled code=${code} smtp=${response}`);
   }
   return true;
 }
