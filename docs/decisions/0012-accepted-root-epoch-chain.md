@@ -1,7 +1,7 @@
 # Accepted root authority and document epochs
 
-Native/WASM protocol boundary implemented 2026-10-04. Atomic account-root cloud
-publication and durable multi-document browser publication remain outstanding.
+Native/WASM protocol and atomic local multi-document publication implemented
+2026-10-04. Atomic account-root cloud publication remains outstanding.
 This decision does not establish complete account-device revocation.
 
 An account root transition has the existing old-authority signature and a new
@@ -24,13 +24,30 @@ rewrapped under the new root without exporting plaintext keys. Explicit recipien
 offers use the staged fresh document key. Recovery under the new root uses a new
 recovery envelope and code; old codes and old document keys fail independently.
 
+The trusted host stages a bounded encrypted intent under the existing
+nonextractable local key. Its authenticated metadata binds the complete source
+journal generations and rotation identity. Pending bytes count toward the account
+quota; ordinary writes cannot alter the source cut. One IndexedDB transaction
+publishes the new native vault, every encrypted journal and the quota ledger.
+Source, root and intent conflicts abort the entire transaction. Cancellation
+refunds the intent while preserving originals. Three-engine tests inject a
+failure after the first journal write, then restart offline and publish all
+journals together. Historical wrapped keys change holder root while original
+authorship, signed frames and the old upload queue remain in the archive.
+
+Retained browsers verify the accepted forward transition against their own old
+pin before opening the signed HPKE approval. The opaque candidate preserves the
+live source. Server approval validation authenticates native HPKE attestations
+and admits only explicitly selected, existing device public keys; the current
+browser must remain selected. This does not yet establish cloud publication.
+
 Server verification uses actual Rust-generated public vectors, both signatures,
 canonical encoding, exact context and independent current authority. Tests reject
 signature-byte mutation, replay, account substitution and malformed public keys.
 The Rust tests and three-engine WASM tests also verify preserved source state,
 retained-device checkpoint installation, historical access and new recovery.
-The full local regression passes 87 native tests, seven server proof tests,
-60 browser cases and nine compiler fixtures; dependency audits pass. Actual
+The full local regression passes 87 native tests, ten server proof tests,
+66 browser cases and nine compiler fixtures; dependency audits pass. Actual
 PostgreSQL acceptance passes the complete account/relay corpus, selected-device
 epochs, fault/nonce/quota boundaries and immutable recipient-certificate archives.
 

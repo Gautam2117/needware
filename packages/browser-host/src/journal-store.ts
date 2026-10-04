@@ -90,6 +90,7 @@ export class EncryptedDocumentStore {
           const currentRoot = root.result as StoredVault | undefined;
           if (!currentRoot || currentRoot.generation !== rootGeneration) throw new Error('Account vault changed; original preserved');
           this.validateRoot(currentRoot);
+          if(currentRoot.rotation)throw new Error('Finish or cancel account key rotation before changing documents');
           const current = previous.result as StoredDocument | undefined; if (current) validate(current);
           if ((current?.generation ?? null) !== expected) throw new Error('Document changed in another tab; original preserved');
           const total = quota(usage.result, account);

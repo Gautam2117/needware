@@ -7,8 +7,9 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
     let owner = AccountVault::create("3104387e-40ac-4a99-8cc2-7b0f0c3b8977")?;
     let key = owner.create_document("e38ad029-7a89-4e77-a84a-f73bf12995a2")?;
     let device = DeviceKeys::create()?;
+    let device_public = device.public()?;
     let recipient = owner
-        .certify_device(device.public()?)?
+        .certify_device(device_public.clone())?
         .verify(owner.context(), &owner.authority()?)?;
     let grant = owner
         .document_membership(&key, &recipient, DocumentRole::Write, 1)?
@@ -40,9 +41,21 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
     let prepared = replica.prepare_epoch(&owner, next, &verified, true)?;
     let rotated = owner.rotate()?;
     let rotation = owner.accepted_rotation_to(&rotated)?;
+    let rotated_certificate = rotated.certify_device(device_public.clone())?;
+    let rotated_recipient = rotated_certificate.verify(rotated.context(), &rotated.authority()?)?;
+    let rotated_approval = serde_json::json!({"certificate": rotated_certificate, "envelope": rotated.enroll_device(&rotated_recipient)?});
+    let retained_device = DeviceKeys::create()?;
+    let retained_public = retained_device.public()?;
+    let retained_previous_certificate = owner.certify_device(retained_public.clone())?;
+    let retained_certificate = rotated.certify_device(retained_public)?;
+    let retained_recipient =
+        retained_certificate.verify(rotated.context(), &rotated.authority()?)?;
+    let retained_approval = serde_json::json!({"certificate": retained_certificate, "envelope": rotated.enroll_device(&retained_recipient)?});
     let fixture = serde_json::json!({ "previous": previous, "next": prepared.replica.binding(),
         "root": owner.context(), "authority": owner.authority()?, "transition": prepared.transition,
-        "membership": membership, "root_rotation": rotation });
+        "membership": membership, "root_rotation": rotation,
+        "previous_certificate": owner.certify_device(device_public)?, "rotated_approval": rotated_approval,
+        "retained_previous_certificate": retained_previous_certificate, "retained_approval": retained_approval });
     std::fs::create_dir_all("artifacts")?;
     std::fs::write(
         "artifacts/epoch-proof-fixture.json",

@@ -1,5 +1,6 @@
 // Only the trusted host/worker may hold this session. Renderer frames receive views and effects.
-import type { BrowserSync, BrowserVault } from 'needware-wasm-runtime';
+import type { BrowserRootRotation, BrowserSync, BrowserVault } from 'needware-wasm-runtime';
+import type { RootJournalCut } from './root-rotation-store';
 import type { EncryptedDocumentStore } from './journal-store';
 interface Binding { document: { document: string }; generation: number; schema_epoch: number }
 interface Journal {
@@ -7,7 +8,7 @@ interface Journal {
   ownerEpoch: number; authority: string; membership: string; held: string; package: string;
   roster: string; frames: string[]; state: string; queued: string[]; cursor: string | null;
   cloud?: CloudArtifact;
-  epoch?: { checkpoint: string; previous: string };
+  epoch?: { checkpoint: string; previous: string; acceptedRoot?: true };
   archive?: string[];
   pendingEpoch?: CloudEpochIntent;
 }
@@ -37,7 +38,7 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
       || (value.cursor !== null && (typeof value.cursor !== 'string' || value.cursor.length > 256))) throw new Error('Invalid document journal; original preserved');
   const binding = JSON.parse(value.binding) as Binding;
   if (binding.document.document !== document) throw new Error('Journal document mismatch');
-  if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== 'checkpoint,previous' || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
+  if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== (value.epoch.acceptedRoot===true?'acceptedRoot,checkpoint,previous':'checkpoint,previous') || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
   if (value.archive !== undefined && (!Array.isArray(value.archive) || value.archive.length > 4 || value.archive.some(item => typeof item !== 'string'))) throw new Error('Invalid retained epoch archive');
   const intentFields=['checkpoint','next','sourceCursor','transition'];
   if(value.pendingEpoch?.recipients!==undefined){
@@ -94,7 +95,7 @@ export class DurableSyncSession {
       session.set_roster(journal.roster);
       if (journal.epoch) {
         const checkpoint = decode(journal.epoch.checkpoint);
-        try { session.install_epoch(checkpoint, journal.epoch.previous); } finally { checkpoint.fill(0); }
+        try { if(journal.epoch.acceptedRoot)session.install_accepted_root_epoch(checkpoint,journal.epoch.previous);else session.install_epoch(checkpoint, journal.epoch.previous); } finally { checkpoint.fill(0); }
       }
       for (const frame of journal.frames) session.receive(frame);
       session.restore_local_state(journal.state);
@@ -173,6 +174,21 @@ export class DurableSyncSession {
       const candidate=this.session.fork_session();try{await this.publish(candidate,previous);}catch(error){candidate.free();throw error;}});
   }
   private requireActiveEpoch(): void {if(this.journal.pendingEpoch)throw new Error('Key rotation is pending. Resume or cancel it before changing this application.');}
+  async prepareLocalRootCut(candidate: BrowserVault, rotation: BrowserRootRotation, consent: boolean): Promise<RootJournalCut> {
+    return this.serial(async () => {
+      if(this.journal.cloud)throw new Error('Cloud document requires an atomic account cloud rotation');
+      if((this.journal.archive?.length??0)>=4)throw new Error('Retained epoch archive limit; original preserved');
+      const {archive:prior,...previous}=this.journal;
+      const retain=(serialized:string):string=>{const historical=parse(encoder.encode(serialized),previous.account,previous.document);historical.held=rotation.rewrap_held_backup(historical.held,JSON.stringify(JSON.parse(historical.binding).document));return JSON.stringify(historical);};
+      const archive=[...(prior??[]).map(retain),retain(JSON.stringify(previous))];
+      const prepared=candidate.prepare_root_document_epoch(this.session,rotation.proof(),consent),checkpoint=prepared.checkpoint();let next:BrowserSync|undefined;
+      try {
+        next=prepared.publish(candidate);next.view();
+        const journal:Journal={...previous,binding:next.binding(),ownerEpoch:JSON.parse(candidate.account_context()).epoch,authority:candidate.account_authority(),membership:next.membership(),held:candidate.held_document_key_backup(previous.document),roster:JSON.stringify([JSON.parse(next.membership())]),frames:[],queued:[],cursor:null,state:next.snapshot(),epoch:{checkpoint:encode(checkpoint),previous:previous.binding,acceptedRoot:true},archive};
+        return {document:previous.document,generation:this.generation,bytes:encoder.encode(JSON.stringify(journal))};
+      }finally{next?.free();checkpoint.fill(0);prepared.free();}
+    });
+  }
   async compactLocal(vault: BrowserVault, consent: boolean): Promise<void> {
     return this.serial(async () => {
       if (this.journal.cloud) throw new Error('Cloud document requires an atomic cloud epoch transition');

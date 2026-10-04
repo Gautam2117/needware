@@ -194,6 +194,51 @@ impl BrowserVault {
             envelope: self.root()?.enroll_device(&verified).map_err(error)?,
         })
     }
+    /// A retained browser verifies the forward chain from its own old root before
+    /// opening its new HPKE approval. Publication remains the host's transaction.
+    pub fn accept_root_rotation(
+        &self,
+        proof: &str,
+        enrollment: &str,
+        expected_context: &str,
+        pinned_authority: &str,
+    ) -> Result<BrowserRootRotation, JsValue> {
+        let proof: RootRotation = parse(proof)?;
+        let previous = self.root()?;
+        let next = proof
+            .verify(previous.context(), &previous.authority().map_err(error)?)
+            .map_err(error)?;
+        let expected = parse(expected_context)?;
+        let pin = authority(pinned_authority)?;
+        if next.context() != &expected || next.public() != &pin {
+            return Err(error("root rotation directory pin mismatch"));
+        }
+        let enrollment: Enrollment = parse(enrollment)?;
+        let device = enrollment
+            .certificate
+            .verify(&expected, &pin)
+            .map_err(error)?;
+        if device.public() != &self.device.public().map_err(error)? {
+            return Err(error("wrong root rotation recipient"));
+        }
+        let root = self
+            .device
+            .open_account(&enrollment.envelope, &expected, &pin)
+            .map_err(error)?;
+        let mut backup = self.local_backup()?;
+        let candidate = Self::from_local_backup(&backup);
+        zeroize::Zeroize::zeroize(&mut backup);
+        let mut candidate = candidate?;
+        let previous = candidate
+            .root
+            .replace(root)
+            .ok_or_else(|| error("account root unavailable"))?;
+        Ok(BrowserRootRotation {
+            previous,
+            candidate,
+            proof,
+        })
+    }
     pub fn accept_enrollment(
         &mut self,
         enrollment: &str,

@@ -1,5 +1,6 @@
 // Trusted-host storage only. App frames must never receive this object or its bytes.
 import { EncryptedDocumentStore } from './journal-store';
+import { EncryptedRootRotationStore, validateRootRotation, type StoredRootRotation } from './root-rotation-store';
 const MAX_BYTES = 2 * 1024 * 1024;
 const encoder = new TextEncoder();
 export interface StoredVault {
@@ -9,6 +10,7 @@ export interface StoredVault {
   key: CryptoKey;
   nonce: Uint8Array<ArrayBuffer>;
   ciphertext: ArrayBuffer;
+  rotation?: StoredRootRotation;
 }
 function request<T>(value: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => { value.onsuccess = () => resolve(value.result); value.onerror = () => reject(value.error ?? new Error('Vault storage failed')); });
@@ -25,6 +27,7 @@ function validate(value: StoredVault): void {
       || !(value.key instanceof CryptoKey) || value.key.extractable || value.key.algorithm.name !== 'AES-GCM'
       || !value.key.usages.includes('encrypt') || !value.key.usages.includes('decrypt')
       || value.nonce.byteLength !== 12 || value.ciphertext.byteLength < 16 || value.ciphertext.byteLength > MAX_BYTES + 16) throw new Error('Invalid encrypted vault record');
+  if(value.rotation!==undefined)validateRootRotation(value.rotation);
 }
 export async function openVaultStore(): Promise<EncryptedVaultStore> {
   if (!globalThis.isSecureContext || !crypto.subtle) throw new Error('Secure browser storage is required');
@@ -43,7 +46,8 @@ export async function openVaultStore(): Promise<EncryptedVaultStore> {
 }
 export class EncryptedVaultStore {
   readonly documents: EncryptedDocumentStore;
-  constructor(private readonly db: IDBDatabase) { this.documents = new EncryptedDocumentStore(db, validate); }
+  readonly rotations: EncryptedRootRotationStore;
+  constructor(private readonly db: IDBDatabase) { this.documents = new EncryptedDocumentStore(db, validate); this.rotations = new EncryptedRootRotationStore(db, validate); }
   close(): void { this.db.close(); }
   private async record(id: string): Promise<StoredVault | undefined> {
     identifier(id);
@@ -61,6 +65,7 @@ export class EncryptedVaultStore {
     const before = await this.record(id);
     if ((before?.generation ?? null) !== expected) throw new Error('Vault changed in another tab; original preserved');
     if (before) validate(before);
+    if(before?.rotation)throw new Error('Finish or cancel account key rotation before changing this vault');
     const generation = (expected ?? 0) + 1;
     if (!Number.isSafeInteger(generation)) throw new Error('Vault generation limit');
     const key = before?.key ?? await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
@@ -75,7 +80,7 @@ export class EncryptedVaultStore {
       const store = tx.objectStore('vaults'); const read = store.get(id);
       read.onsuccess = () => {
         const current = read.result as StoredVault | undefined;
-        if ((current?.generation ?? null) !== expected) { tx.abort(); return; }
+        if ((current?.generation ?? null) !== expected||current?.rotation) { tx.abort(); return; }
         store.put(value);
       };
     });

@@ -30,6 +30,7 @@ declare module 'needware-wasm-runtime' {
     start_document(bytes: Uint8Array, instance: string, scope: string, epoch: number, consent: boolean): BrowserSync;
     prepare_document_epoch(session: BrowserSync, consent: boolean): BrowserEpoch;
     prepare_root_rotation(approved: boolean): BrowserRootRotation;
+    accept_root_rotation(proof: string, enrollment: string, expected_context: string, pinned_authority: string): BrowserRootRotation;
     prepare_root_document_epoch(session: BrowserSync, rotation: string, consent: boolean): BrowserEpoch;
     document_key_backup(document: string): string;
     held_document_key_backup(document: string): string;
