@@ -18,9 +18,11 @@ declare module 'needware-wasm-runtime' {
     static from_local_backup(bytes: Uint8Array): BrowserVault;
     local_backup(): Uint8Array;
     device_public(): string;
+    enrolled(): boolean;
     account_context(): string;
     account_authority(): string;
     device_certificate(): string;
+    account_operation(nonce: string, operation: string, digest: string): string;
     approve_device(recipient: string, approved: boolean): string;
     accept_enrollment(enrollment: string, context: string, pin: string): void;
     create_recovery(approved: boolean): string;

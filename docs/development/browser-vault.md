@@ -3,8 +3,9 @@
 WASM exposes `BrowserVault` and `BrowserSync` as opaque host-owned handles. Secret
 account roots, device seeds and document keys are not serializable public types.
 The generated application frame receives neither these handles nor their backup
-buffers. These APIs are executable boundaries; account screens, recovery UX and
-live relay integration remain unfinished.
+buffers. Account screens now bind roots to verified Better Auth account UUIDs;
+setup, recovery and HPKE device-enrollment UX pass actual three-engine local
+acceptance. Live document relay integration remains unfinished.
 
 The host explicitly approves enrollment/sharing and supplies independently pinned
 account contexts/authority. Enrollment uses signed HPKE transfers; joining a

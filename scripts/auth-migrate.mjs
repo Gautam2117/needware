@@ -14,5 +14,6 @@ try {
   if (process.argv.includes('--emit') && sql.trim()) await writeFile('services/control-plane/migrations/auth-schema.sql', sql);
   await migrations.runMigrations();
   await pool.query(await readFile('services/control-plane/migrations/0001-email-outbox.sql', 'utf8'));
+  await pool.query(await readFile('services/control-plane/migrations/0002-account-vault.sql', 'utf8'));
   console.log('PASS account schema and durable email outbox migrations');
 } finally { await pool.end(); }

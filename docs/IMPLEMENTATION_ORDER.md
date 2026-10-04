@@ -21,8 +21,9 @@ actual local browser acceptance; public integration remains unverified.
    and multi-writer coordination must preserve existing offline/revision behavior.
 4. Cloud identity and persistence: account migrations/authentication, sessions,
    origin/body/rate controls, transactional email and local deletion implemented.
-   Continue encryption-device identity binding, recovery UI, encrypted
-   object storage and authorized sync relay. Authentication alone cannot enroll
+   Account-bound encryption-device setup/enrollment/recovery is implemented locally.
+   Continue atomic rotation/revocation, encrypted object storage and authorized
+   sync relay. Authentication alone cannot enroll
    a device into the encryption vault.
 5. Registry and sharing: immutable revisions, private/unlisted/public URLs,
    encrypted private definitions/assets, lineage/remix, access revocation,

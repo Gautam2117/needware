@@ -1,9 +1,11 @@
 # Client-owned encryption hierarchy
 
 Implemented primitive boundary: `needware-vault`. Owner-signed document memberships
-authorize the `needware-sync` core's read/write roles and generations. Accounts,
-browser vault storage and server-side revocation are not yet wired. Native
-convergence tests do not establish deployed collaboration or recovery UX.
+authorize the `needware-sync` core's read/write roles and generations. Maintained
+accounts, encrypted browser vaults, account-bound cloud root pins/recovery envelopes,
+device enrollment and recovery UI are now wired and tested locally. Server-side
+revocation/rotation and document relay remain pending; local acceptance does not
+establish deployed collaboration.
 
 Each device holds a random 256-bit seed. Domain-separated HKDF derives distinct
 Ed25519 signing and X25519 HPKE inputs. Its public identity contains a UUID and
@@ -37,7 +39,7 @@ checksum detects transcription errors and is not an authentication credential.
 This high-entropy code is not a user password: HKDF derives a recovery wrapping
 key with account/epoch/authority context, and XChaCha20-Poly1305 wraps the account
 root. Recovering verifies that the decrypted root derives the declared authority.
-Only ciphertext envelopes are intended for server storage. No service recovery
+Only ciphertext envelopes are stored by the account service. No service recovery
 secret exists. Losing every trusted device and the code makes recovery impossible.
 Login/password-reset credentials cannot independently unlock the encryption root.
 
@@ -52,7 +54,10 @@ claim they are already encrypted in cloud storage.
 
 Local device locking is available under an independent host-held key. Ciphertext
 is bound to the device identity and format version. Browser nonextractable-key
-storage, unlock lifecycle, backups and deletion remain integration work. Secret
+storage and account-bound backups are implemented. Login gates the trusted account
+screen; unmount frees its Rust handles. Hosted root/device/recovery records cascade
+on verified account deletion, while local applications and saved recovery files
+remain user-owned. Secret
 root/seed/code and decrypted buffers use the existing zeroizing secret wrappers.
 Cryptographic dependencies own their internal temporary buffers; this is not a
 promise of complete process-memory erasure. Client compromise or a malicious
@@ -64,7 +69,7 @@ bindings, re-enroll retained devices, replace recovery envelopes, rotate affecte
 document keys and wrap/share them only with retained members. The cloud layer
 must enforce current epochs and membership for every upload/download. Signed authority-transition records bind the previous pinned authority to the
 next account epoch/authority and reject replay or skipped epochs. The atomic
-cloud transaction and browser recovery UX remain unimplemented. Tests prove new epoch keys reject old ciphertext/key
+cloud rotation transaction remains unimplemented. Tests prove new epoch keys reject old ciphertext/key
 contexts; they do not establish complete operational revocation.
 
 Revocation prevents FUTURE authorized synchronization/access. It cannot remotely
@@ -87,4 +92,5 @@ Wire envelope parsing is limited to 8 KiB, rejects unknown/duplicate fields and
 trailing/malformed JSON, and cryptographic opening checks exact field lengths,
 versions, canonical UUIDs, contexts, epochs and signatures. Random hostile-input
 property tests supplement tamper/recovery/rotation checks. Coverage-guided fuzzing,
-dependency audits and an independent cryptographic review remain required.
+and an independent cryptographic review remain required. Dependency audits run
+locally and in CI without advisory ignores.

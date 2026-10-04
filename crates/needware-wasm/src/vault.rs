@@ -80,6 +80,9 @@ impl BrowserVault {
     pub fn device_public(&self) -> Result<String, JsValue> {
         json(&self.device.public().map_err(error)?)
     }
+    pub fn enrolled(&self) -> bool {
+        self.root.is_some()
+    }
     pub fn account_context(&self) -> Result<String, JsValue> {
         json(self.root()?.context())
     }
@@ -91,6 +94,25 @@ impl BrowserVault {
             &self
                 .root()?
                 .certify_device(self.device.public().map_err(error)?)
+                .map_err(error)?,
+        )
+    }
+    pub fn account_operation(
+        &self,
+        nonce: &str,
+        operation: &str,
+        digest: &str,
+    ) -> Result<String, JsValue> {
+        let root = self.root()?;
+        let verified = root
+            .certify_device(self.device.public().map_err(error)?)
+            .map_err(error)?
+            .verify(root.context(), &root.authority().map_err(error)?)
+            .map_err(error)?;
+        json(
+            &self
+                .device
+                .account_operation(&verified, nonce, parse(operation)?, authority(digest)?)
                 .map_err(error)?,
         )
     }

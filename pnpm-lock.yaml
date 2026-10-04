@@ -34,6 +34,9 @@ importers:
       better-auth:
         specifier: 1.7.7
         version: 1.7.7(next@16.3.8(@babel/core@7.29.7)(@playwright/test@1.63.0)(@types/node@26.6.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.3(@types/node@26.6.4)(vite@8.3.2(@types/node@26.6.4)(esbuild@0.28.2)))
+      canonicalize:
+        specifier: 5.1.0
+        version: 5.1.0
       next:
         specifier: 16.3.8
         version: 16.3.8(@babel/core@7.29.7)(@playwright/test@1.63.0)(@types/node@26.6.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1296,6 +1299,11 @@ packages:
 
   caniuse-lite@1.0.30001814:
     resolution: {integrity: sha512-/Uaf1lAzr59XcMpW0o96WoEfr+VXK2OX4U9AgFoiSHsVJ4HppnIFUjtYzsyDH2+tgANaQb2/oxYGwCPapN1FpA==}
+
+  canonicalize@5.1.0:
+    resolution: {integrity: sha512-bab9+WefZljqQ8jT0qRwVmTyzAUU63K97QIQD3agynIBrb6sa5M2eAy8Hv8K3p4V9+ONVYZKtGYl4Dg+/5Gumw==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   chai@6.3.0:
     resolution: {integrity: sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==}
@@ -3551,6 +3559,8 @@ snapshots:
   callsites@3.1.0: {}
 
   caniuse-lite@1.0.30001814: {}
+
+  canonicalize@5.1.0: {}
 
   chai@6.3.0: {}
 

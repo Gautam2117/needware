@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { createRequire } from 'node:module';
 import { chromium } from '@playwright/test';
 import { loadEnvironment } from './load-environment.mjs';
+import { verifyAccountVault } from './verify_account_vault.mjs';
 loadEnvironment(); mkdirSync('.logs', { recursive: true });
 const listener = createServer();
 await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
@@ -48,7 +49,7 @@ async function stop(child) {
   }
 }
 async function ready() {
-  for (let attempt = 0; attempt < 100; attempt++) {
+  for (let attempt = 0; attempt < 300; attempt++) {
     try { if ((await fetch(`${origin}/account`, { signal: AbortSignal.timeout(500) })).ok) return; } catch { /* Await actual service readiness. */ }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
@@ -65,6 +66,9 @@ async function mailLink(subject) {
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
+  const queue = await pool.query('SELECT attempts,last_error,(lease_until > now()) AS leased FROM needware_email_outbox WHERE recipient=$1', [email]);
+  console.error('Fixture email queue diagnostic', queue.rows);
+  try { console.error('Mail worker diagnostic', readFileSync('.logs/accounts-mail.log', 'utf8').split('\n').slice(-8).join('\n')); } catch { /* No worker log was created. */ }
   throw new Error('Fixture verification email was not captured');
 }
 let browser;
@@ -115,6 +119,7 @@ try {
   await page.getByLabel('Email', { exact: true }).fill(email); await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in to account', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).waitFor();
+  await verifyAccountVault({ page, context, pool, account: userId, origin, email, password });
   await page.screenshot({ path: 'artifacts/account-acceptance.png', fullPage: true });
   const cookies = await context.cookies(); const sessionCookie = cookies.find(value => value.name.endsWith('session_token'));
   assert(sessionCookie?.httpOnly); assert.equal(sessionCookie.sameSite, 'Lax'); assert.equal(sessionCookie.secure, false);
@@ -126,6 +131,7 @@ try {
   await otherCard.getByRole('button', { name: 'Revoke session', exact: true }).click();
   await otherCard.waitFor({ state: 'hidden' });
   assert.equal(await (await other.request.get(`${origin}/api/auth/get-session`)).json(), null);
+  assert.equal((await other.request.get(`${origin}/api/vault`)).status(), 401);
   response = await other.request.post(`${origin}/api/auth/sign-in/email`, { data: { email, password }, headers: { Origin: origin } }); assert.equal(response.status(), 200);
   await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).click();
   await page.getByRole('button', { name: 'Sign in to account', exact: true }).waitFor();
@@ -153,6 +159,9 @@ try {
   assert.equal((await pool.query('SELECT id FROM auth_session WHERE "userId"=$1', [userId])).rowCount, 0);
   assert.equal((await pool.query('SELECT id FROM auth_account WHERE "userId"=$1', [userId])).rowCount, 0);
   assert.equal((await pool.query('SELECT id FROM needware_email_outbox WHERE user_id=$1', [userId])).rowCount, 0);
+  for (const table of ['needware_account_vault', 'needware_vault_device', 'needware_vault_challenge', 'needware_account_limit']) {
+    assert.equal((await pool.query(`SELECT account_id FROM ${table} WHERE account_id=$1`, [userId])).rowCount, 0);
+  }
   // Rate-limit identities cannot be spoofed by forwarding a caller-controlled internal header.
   let limited = false;
   for (let attempt = 0; attempt < 12; attempt++) {

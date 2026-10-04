@@ -14,6 +14,7 @@
     "@better-auth/core": "1.7.7",
     "@needware/ir-types": "workspace:*",
     "better-auth": "1.7.7",
+    "canonicalize": "5.1.0",
     "next": "16.3.8",
     "nodemailer": "10.0.14",
     "pg": "8.23.1",

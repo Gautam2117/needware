@@ -31,10 +31,12 @@ HttpOnly/SameSite cookies and database rate limits. The supported Vercel ingress
 uses its overwritten IP header only with explicit proxy configuration. Other
 ingresses conservatively share a rate-limit bucket until trusted ingress is added.
 
-`pnpm test:accounts` uses a randomly named local recipient and actual Chromium,
-PostgreSQL and Mailpit. It tests signup rollback under refused enqueue, delivery
+`pnpm test:accounts` uses randomly named local recipients, actual Chromium,
+Firefox, WebKit, PostgreSQL and Mailpit. It tests signup rollback under refused enqueue, delivery
 failure/restart, verification, sessions, reset/replay, deletion and request limits.
 It preserves other services, users and shared rate counters. This establishes
-local account behavior; public HTTPS/cookies/email delivery, OAuth, encrypted vault
-identity binding, device-key revocation and cloud-data deletion remain separate
-acceptance gates.
+local account behavior. Account-bound encrypted setup, saved recovery files,
+retained device keys, HPKE enrollment, recovery after key loss and root pinning are
+also exercised across the three engines. See [vault identity](../decisions/0007-account-vault-binding.md).
+Public HTTPS/cookies/email delivery, OAuth, device-key rotation/revocation and
+encrypted document relay remain separate acceptance gates.

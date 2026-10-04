@@ -47,4 +47,6 @@ jobs:
             artifacts/browser-results.json
             test-results/**/error-context.md
             test-results/**/trace.zip
+            .logs/accounts-mail.log
+            .logs/accounts-web.log
           retention-days: 7
