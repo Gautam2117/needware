@@ -4,8 +4,9 @@ Audited 2026-10-04 against main at f82f98b and the working source. The repositor
 has accepted ADRs for packages, browser persistence/frame isolation, reviewed
 revisions, derived fields and client-owned key hierarchy. Security documents now
 record the implemented vault and dependency audit boundaries.
-The executable control plane currently hosts the local compiler only; PostgreSQL
-and Mailpit bootstrap is infrastructure evidence, not account implementation.
+The Rust control plane currently hosts the local compiler. The Next account
+service now uses maintained Better Auth/PostgreSQL with a durable SMTP worker and
+actual local browser acceptance; public integration remains unverified.
 
 1. Runtime language: explicit state/event contracts, checked decimal/date
    operations, derived fields, full action/navigation/effect lifecycle. Complete
@@ -18,8 +19,9 @@ and Mailpit bootstrap is infrastructure evidence, not account implementation.
    independent-client convergence, encrypted change/snapshot transport,
    deduplication, resource bounds and schema epochs. Browser durable journals
    and multi-writer coordination must preserve existing offline/revision behavior.
-4. Cloud identity and persistence: database migrations, authentication,
-   sessions/devices, CSRF/origin enforcement, email boundary, deletion, encrypted
+4. Cloud identity and persistence: account migrations/authentication, sessions,
+   origin/body/rate controls, transactional email and local deletion implemented.
+   Continue encryption-device identity binding, recovery UI, encrypted
    object storage and authorized sync relay. Authentication alone cannot enroll
    a device into the encryption vault.
 5. Registry and sharing: immutable revisions, private/unlisted/public URLs,

@@ -1,6 +1,7 @@
 {
   "name": "@needware/web",
   "private": true,
+  "type": "module",
   "version": "2026.10.0",
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
@@ -10,14 +11,20 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@better-auth/core": "1.7.7",
     "@needware/ir-types": "workspace:*",
+    "better-auth": "1.7.7",
     "next": "16.3.8",
+    "nodemailer": "10.0.14",
+    "pg": "8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1"
   },
   "devDependencies": {
     "@types/node": "26.6.4",
+    "@types/nodemailer": "8.0.2",
+    "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.5",

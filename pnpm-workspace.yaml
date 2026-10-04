@@ -4,6 +4,8 @@ packages:
 allowBuilds:
   esbuild@0.28.2: true
   unrs-resolver@1.12.2: true
+minimumReleaseAgeExclude:
+  - nodemailer@10.0.14
 overrides:
   '@next/eslint-plugin-next@16.3.8>fast-glob': '-'
 packageExtensions:
