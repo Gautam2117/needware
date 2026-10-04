@@ -1,6 +1,5 @@
-//! Reject statically impossible expressions. Undeclared event input remains unknown
-//! and must still pass runtime checks; this is not a complete event-type system.
-use needware_ir::{Application, BinaryOp, Collection, DataType, Expr, Value};
+//! Infer expressions against declared contracts; legacy inputs remain unknown.
+use needware_ir::{Application, BinaryOp, Collection, DataType, Expr, Field, Value};
 use std::collections::BTreeMap;
 use thiserror::Error;
 #[derive(Debug, Clone, PartialEq)]
@@ -143,17 +142,50 @@ fn field(item: &Hint, name: &str) -> Result<Hint, TypeError> {
     }
 }
 pub fn check(e: &Expr, app: &Application, item: Option<&Collection>) -> Result<Hint, TypeError> {
-    infer(e, app, &item.map(collection_hint).unwrap_or(Hint::Null), 0)
+    check_with_event(e, app, item, None)
 }
-fn infer(e: &Expr, app: &Application, item: &Hint, depth: u32) -> Result<Hint, TypeError> {
+pub fn check_with_event(
+    e: &Expr,
+    app: &Application,
+    item: Option<&Collection>,
+    event: Option<&BTreeMap<String, Field>>,
+) -> Result<Hint, TypeError> {
+    infer(
+        e,
+        app,
+        &item.map(collection_hint).unwrap_or(Hint::Null),
+        event,
+        0,
+    )
+}
+fn infer(
+    e: &Expr,
+    app: &Application,
+    item: &Hint,
+    event: Option<&BTreeMap<String, Field>>,
+    depth: u32,
+) -> Result<Hint, TypeError> {
     if depth > 64 {
         return Err(TypeError);
     }
-    let child = |e| infer(e, app, item, depth + 1);
+    let child = |e| infer(e, app, item, event, depth + 1);
     Ok(match e {
         Expr::Literal { value } => literal(value),
-        Expr::Event { .. } => Hint::Unknown,
-        Expr::State { key } => literal(app.state.get(key).ok_or(TypeError)?),
+        Expr::Event { key } => match event {
+            Some(fields) => declared(&fields.get(key).ok_or(TypeError)?.data_type),
+            None if app
+                .runtime_features
+                .iter()
+                .any(|f| f == "typed_contracts_v1") =>
+            {
+                return Err(TypeError);
+            }
+            None => Hint::Unknown,
+        },
+        Expr::State { key } => match app.state_schema.get(key) {
+            Some(field) => declared(&field.data_type),
+            None => literal(app.state.get(key).ok_or(TypeError)?),
+        },
         Expr::Context { .. } => Hint::String,
         Expr::Item { field: name } => field(item, name)?,
         Expr::Collection { name } => {
@@ -262,13 +294,13 @@ fn infer(e: &Expr, app: &Application, item: &Hint, depth: u32) -> Result<Hint, T
             let next_item = element(list.clone())?;
             require(
                 &Hint::Boolean,
-                &infer(predicate, app, &next_item, depth + 1)?,
+                &infer(predicate, app, &next_item, event, depth + 1)?,
             )?;
             list
         }
         Expr::Map { collection, value } => {
             let next_item = element(child(collection)?)?;
-            Hint::List(Box::new(infer(value, app, &next_item, depth + 1)?))
+            Hint::List(Box::new(infer(value, app, &next_item, event, depth + 1)?))
         }
         Expr::Sort {
             collection,

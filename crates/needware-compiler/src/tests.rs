@@ -8,6 +8,20 @@ use tokio::{
     net::TcpListener,
 };
 
+#[test]
+fn typed_contracts_roundtrip_through_the_acyclic_provider_schema()
+-> Result<(), Box<dyn std::error::Error>> {
+    let app = needware_ir::examples::typed_habit_tracker();
+    let schema = WireSchema::new();
+    let encoded = schema.encode(&app)?;
+    let decoded = schema.decode(&encoded)?;
+    assert_eq!(decoded, app);
+    needware_validation::validate(decoded)?;
+    let legacy = needware_ir::examples::habit_tracker();
+    assert_eq!(schema.decode(&schema.encode(&legacy)?)?, legacy);
+    Ok(())
+}
+
 fn config(kind: Kind, endpoint: &str) -> Result<Config, Box<dyn std::error::Error>> {
     Ok(Config {
         kind,

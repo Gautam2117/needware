@@ -8,7 +8,9 @@ let channel: MessagePort | undefined;
 const inputs: Record<string, Value> = {};
 function fire(node: ViewNode) {
   if (!node.action) return;
-  channel?.postMessage({ action: node.action, values: { ...inputs, record_id: { type: 'string', value: node.record ?? crypto.randomUUID() } } });
+  const values: Record<string, Value> = { ...inputs, record_id: { type: 'string', value: node.record ?? crypto.randomUUID() } };
+  const scoped = node.event_fields ? Object.fromEntries(Object.entries(values).filter(([key]) => node.event_fields!.includes(key))) : values;
+  channel?.postMessage({ action: node.action, values: scoped });
 }
 function Node({ node }: { node: ViewNode }) {
   const children = node.children.map(child => <Node key={child.id} node={child} />);

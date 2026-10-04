@@ -2,6 +2,31 @@ import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import type { Value } from '../../packages/ir-types/src/Value';
+test('typed WASM inputs reject malformed events and empty-list state remains typed after reopen', async ({ page }) => {
+  await page.goto('/');
+  const bytes = [...readFileSync('artifacts/revisions/typed.need')];
+  const result = await page.evaluate(async bytes => {
+    const modulePath = '/wasm/needware_wasm.js';
+    const wasm = await import(/* webpackIgnore: true */ modulePath);
+    await wasm.default({ module_or_path: '/wasm/needware_wasm_bg.wasm' });
+    const packageBytes = new Uint8Array(bytes);
+    const runtime = new wasm.BrowserRuntime(packageBytes, undefined, true);
+    const before = runtime.snapshot(); let rejected = 0;
+    for (const values of [{}, { numbers: { type: 'list', value: [{ type: 'boolean', value: true }] } }, { numbers: { type: 'list', value: [] }, extra: { type: 'null' } }]) {
+      try { runtime.dispatch(JSON.stringify({ action: 'set_numbers', values, now: '2026-10-04T00:00:00Z', timezone: 'UTC' })); } catch { rejected++; }
+      if (runtime.snapshot() !== before) throw new Error('Invalid input mutated state');
+    }
+    runtime.dispatch(JSON.stringify({ action: 'set_numbers', values: { numbers: { type: 'list', value: [{ type: 'integer', value: '42' }] } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' }));
+    const saved = runtime.snapshot(); runtime.free();
+    const reopened = new wasm.BrowserRuntime(packageBytes, saved, true);
+    const invalid = JSON.parse(saved); invalid.values.numbers = { type: 'list', value: [{ type: 'string', value: '42' }] };
+    let restoreRejected = false; try { reopened.restore(JSON.stringify(invalid)); } catch { restoreRejected = true; }
+    const unchanged = reopened.snapshot() === saved; reopened.free();
+    return { rejected, restoreRejected, unchanged, saved: JSON.parse(saved) };
+  }, bytes);
+  expect(result.rejected).toBe(3); expect(result.restoreRejected).toBe(true); expect(result.unchanged).toBe(true);
+  expect(result.saved.values.numbers).toEqual({ type: 'list', value: [{ type: 'integer', value: '42' }] });
+});
 async function importPackage(page: Page, name: string, title: string) {
   await page.getByLabel('Import .need').setInputFiles(`artifacts/revisions/${name}.need`);
   await expect(page.getByRole('heading', { name: `Review ${title}`, exact: true })).toBeVisible();

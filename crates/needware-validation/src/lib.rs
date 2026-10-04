@@ -1,4 +1,7 @@
 //! Semantic checks construct the unforgeable validated-application boundary.
+mod contracts;
+use contracts::validate_contracts;
+pub use contracts::validate_event;
 use needware_ir::*;
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
@@ -29,9 +32,15 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
     if app.schema_version != IR_VERSION {
         return Err(fail("schema_version", "unsupported IR version"));
     }
-    if !app.runtime_features.is_empty() {
+    if app
+        .runtime_features
+        .iter()
+        .any(|f| f != "typed_contracts_v1")
+        || app.runtime_features.len() > 1
+    {
         return Err(fail("runtime_features", "unsupported required feature"));
     }
+    validate_contracts(&app)?;
     for (path, id) in [("id", &app.id), ("revision", &app.revision)] {
         if uuid::Uuid::parse_str(id).is_err() {
             return Err(fail(path, "expected UUID"));
@@ -85,7 +94,7 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
                 validate_value(v, field, 0)?;
             }
             if let Some(e) = &field.derived {
-                validate_expr(e, &app, Some(collection), 0)?;
+                validate_expr(e, &app, Some(collection), None, 0)?;
             }
         }
         for index in &collection.indexes {
@@ -94,8 +103,8 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
             }
         }
     }
-    for action in app.actions.values() {
-        validate_action(action, &app, 0)?;
+    for (name, action) in &app.actions {
+        validate_action(action, &app, app.event_schema.get(name), 0)?;
     }
     for migration in &app.migrations {
         for operation in &migration.operations {
@@ -118,7 +127,14 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
         if !app.actions.contains_key(&test.action) {
             return Err(fail("tests", "unknown test action"));
         }
-        validate_expr(&test.assertion, &app, None, 0)?;
+        validate_event(&test.action, &test.event, &app)?;
+        validate_expr(
+            &test.assertion,
+            &app,
+            None,
+            app.event_schema.get(&test.action),
+            0,
+        )?;
     }
     Ok(ValidatedApplication(app))
 }
@@ -343,6 +359,10 @@ pub fn validate_state(state: &State, app: &Application) -> Result<(), Diagnostic
     }
     for (key, v) in &state.values {
         bounded_value(v, 0)?;
+        if let Some(field) = app.state_schema.get(key) {
+            validate_value(v, field, 0)?;
+            continue;
+        }
         let initial = app
             .state
             .get(key)
@@ -366,12 +386,13 @@ fn validate_expr(
     e: &Expr,
     app: &Application,
     item: Option<&Collection>,
+    event: Option<&BTreeMap<String, Field>>,
     depth: u32,
 ) -> Result<(), Diagnostic> {
     if depth > 64 {
         return Err(fail("expression", "depth limit"));
     }
-    let child = |x: &Expr| validate_expr(x, app, item, depth + 1);
+    let child = |x: &Expr| validate_expr(x, app, item, event, depth + 1);
     match e {
         Expr::Literal { value } => bounded_value(value, 0)?,
         Expr::State { key } if !app.state.contains_key(key) => {
@@ -416,18 +437,23 @@ fn validate_expr(
                 Expr::Collection { name } => app.collections.get(name),
                 _ => None,
             };
-            validate_expr(predicate, app, nested, depth + 1)?;
+            validate_expr(predicate, app, nested, event, depth + 1)?;
         }
         Expr::Sort { collection, .. } | Expr::Sum { collection, .. } => child(collection)?,
         _ => {}
     }
     if depth == 0 {
-        needware_expr::typing::check(e, app, item)
+        needware_expr::typing::check_with_event(e, app, item, event)
             .map_err(|_| fail("expression", "statically incompatible types"))?;
     }
     Ok(())
 }
-fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diagnostic> {
+fn validate_action(
+    a: &Action,
+    app: &Application,
+    event: Option<&BTreeMap<String, Field>>,
+    depth: u32,
+) -> Result<(), Diagnostic> {
     if depth > 32 {
         return Err(fail("action", "depth limit"));
     }
@@ -446,9 +472,9 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
                 .collections
                 .get(collection)
                 .ok_or_else(|| fail("action", "unknown collection"))?;
-            validate_expr(id, app, None, 0)?;
+            validate_expr(id, app, None, event, 0)?;
             if !needware_expr::typing::Hint::String.accepts(
-                &needware_expr::typing::check(id, app, None)
+                &needware_expr::typing::check_with_event(id, app, None, event)
                     .map_err(|_| fail("action", "incompatible identifier"))?,
             ) {
                 return Err(fail("action", "record identifier must be a string"));
@@ -464,12 +490,12 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
                 } else {
                     None
                 };
-                validate_expr(e, app, item, 0)?;
+                validate_expr(e, app, item, event, 0)?;
                 let field = schema
                     .fields
                     .get(f)
                     .ok_or_else(|| fail("action", "unknown field"))?;
-                let hint = needware_expr::typing::check(e, app, item)
+                let hint = needware_expr::typing::check_with_event(e, app, item, event)
                     .map_err(|_| fail("action", "incompatible expression types"))?;
                 if !needware_expr::typing::declared(&field.data_type).accepts(&hint) {
                     return Err(fail(
@@ -483,9 +509,9 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
             if !app.collections.contains_key(collection) {
                 return Err(fail("action", "unknown collection"));
             }
-            validate_expr(id, app, None, 0)?;
+            validate_expr(id, app, None, event, 0)?;
             if !needware_expr::typing::Hint::String.accepts(
-                &needware_expr::typing::check(id, app, None)
+                &needware_expr::typing::check_with_event(id, app, None, event)
                     .map_err(|_| fail("action", "incompatible identifier"))?,
             ) {
                 return Err(fail("action", "record identifier must be a string"));
@@ -495,14 +521,19 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
             if !app.state.contains_key(key) {
                 return Err(fail("action", "unknown state"));
             }
-            validate_expr(value, app, None, 0)?;
+            validate_expr(value, app, None, event, 0)?;
             let initial = app
                 .state
                 .get(key)
                 .ok_or_else(|| fail("action", "unknown state"))?;
-            if !matches!(initial, Value::Null)
-                && !needware_expr::typing::literal(initial).accepts(
-                    &needware_expr::typing::check(value, app, None)
+            let expected = app
+                .state_schema
+                .get(key)
+                .map(|f| needware_expr::typing::declared(&f.data_type))
+                .unwrap_or_else(|| needware_expr::typing::literal(initial));
+            if (app.state_schema.contains_key(key) || !matches!(initial, Value::Null))
+                && !expected.accepts(
+                    &needware_expr::typing::check_with_event(value, app, None, event)
                         .map_err(|_| fail("action", "incompatible state expression"))?,
                 )
             {
@@ -514,20 +545,20 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
                 return Err(fail("action", "action count limit"));
             }
             for x in actions {
-                validate_action(x, app, depth + 1)?;
+                validate_action(x, app, event, depth + 1)?;
             }
         }
         Action::Conditional { condition, yes, no } => {
-            validate_expr(condition, app, None, 0)?;
+            validate_expr(condition, app, None, event, 0)?;
             if !needware_expr::typing::Hint::Boolean.accepts(
-                &needware_expr::typing::check(condition, app, None)
+                &needware_expr::typing::check_with_event(condition, app, None, event)
                     .map_err(|_| fail("action", "incompatible condition"))?,
             ) {
                 return Err(fail("action", "condition must be boolean"));
             }
-            validate_action(yes, app, depth + 1)?;
+            validate_action(yes, app, event, depth + 1)?;
             if let Some(no) = no {
-                validate_action(no, app, depth + 1)?;
+                validate_action(no, app, event, depth + 1)?;
             }
         }
         Action::Navigate { screen } if !app.screens.iter().any(|s| &s.id == screen) => {
@@ -540,7 +571,7 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
             if !app.capabilities.iter().any(|c| c.covers(capability)) {
                 return Err(fail("effect", "undeclared capability"));
             }
-            validate_expr(input, app, None, 0)?;
+            validate_expr(input, app, None, event, 0)?;
         }
         _ => {}
     }
@@ -580,7 +611,7 @@ fn validate_node(
         return Err(fail("ui", "unknown action"));
     }
     if let Some(e) = &node.text {
-        validate_expr(e, app, item, 0)?;
+        validate_expr(e, app, item, None, 0)?;
     }
     if node.options.len() > 256 {
         return Err(fail("ui", "option limit"));

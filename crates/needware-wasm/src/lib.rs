@@ -13,7 +13,8 @@ pub fn inspect_package(bytes: &[u8]) -> Result<String, JsValue> {
 #[wasm_bindgen]
 pub fn authored_example() -> Result<Vec<u8>, JsValue> {
     let key = needware_crypto::SecretKey::random().map_err(error)?;
-    needware_package::build(needware_ir::examples::habit_tracker(), vec![], &key).map_err(error)
+    needware_package::build(needware_ir::examples::typed_habit_tracker(), vec![], &key)
+        .map_err(error)
 }
 #[wasm_bindgen]
 pub struct BrowserRuntime {

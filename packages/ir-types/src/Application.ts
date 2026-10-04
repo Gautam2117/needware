@@ -2,9 +2,10 @@
 import type { Action } from "./Action";
 import type { BehaviorTest } from "./BehaviorTest";
 import type { Collection } from "./Collection";
+import type { Field } from "./Field";
 import type { Migration } from "./Migration";
 import type { Screen } from "./Screen";
 import type { Theme } from "./Theme";
 import type { Value } from "./Value";
 
-export type Application = { schema_version: number, runtime_features: Array<string>, id: string, revision: string, parent: string | null, title: string, description: string, locale: string, messages: { [key in string]: { [key in string]: string } }, collections: { [key in string]: Collection }, state: { [key in string]: Value }, screens: Array<Screen>, initial_screen: string, actions: { [key in string]: Action }, capabilities: import('./Capability').Capability[], theme: Theme, migrations: Array<Migration>, tests: Array<BehaviorTest>, };
+export type Application = { schema_version: number, runtime_features: Array<string>, id: string, revision: string, parent: string | null, title: string, description: string, locale: string, messages: { [key in string]: { [key in string]: string } }, collections: { [key in string]: Collection }, state: { [key in string]: Value }, state_schema?: { [key in string]: Field }, event_schema?: { [key in string]: { [key in string]: Field } }, screens: Array<Screen>, initial_screen: string, actions: { [key in string]: Action }, capabilities: import('./Capability').Capability[], theme: Theme, migrations: Array<Migration>, tests: Array<BehaviorTest>, };

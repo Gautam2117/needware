@@ -2,4 +2,4 @@
 import type { Component } from "./Component";
 import type { Style } from "./Style";
 
-export type ViewNode = { id: string, kind: Component, text: string, field: string | null, action: string | null, record: string | null, options: Array<string>, style: Style, children: Array<ViewNode>, };
+export type ViewNode = { id: string, kind: Component, text: string, field: string | null, action: string | null, event_fields: Array<string> | null, record: string | null, options: Array<string>, style: Style, children: Array<ViewNode>, };

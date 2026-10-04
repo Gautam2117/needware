@@ -54,7 +54,14 @@ impl WireSchema {
         &self.provider
     }
     pub fn encode(&self, application: &needware_ir::Application) -> Result<Value, CompileError> {
-        let value = serde_json::to_value(application).map_err(|_| CompileError::InvalidOutput)?;
+        let mut value =
+            serde_json::to_value(application).map_err(|_| CompileError::InvalidOutput)?;
+        // Packages omit empty additive contracts to preserve legacy content identity.
+        // Provider structured output supplies every property, including empty maps.
+        let object = value.as_object_mut().ok_or(CompileError::InvalidOutput)?;
+        for name in ["state_schema", "event_schema"] {
+            object.entry(name).or_insert_with(|| json!({}));
+        }
         let mut tables: BTreeMap<&str, Vec<Value>> =
             TABLES.iter().map(|(_, t)| (*t, vec![])).collect();
         let app = self.encode_at(&value, &self.canonical, &mut tables, 0)?;

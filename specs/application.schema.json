@@ -24,6 +24,15 @@
     "description": {
       "type": "string"
     },
+    "event_schema": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/Field"
+        }
+      }
+    },
     "id": {
       "type": "string"
     },
@@ -79,6 +88,12 @@
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/Value"
+      }
+    },
+    "state_schema": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Field"
       }
     },
     "tests": {

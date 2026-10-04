@@ -1,7 +1,11 @@
+mod contracts_fixture;
 mod revision_fixture;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     match std::env::args().nth(1).as_deref() {
-        Some("revision-fixture") => revision_fixture::generate()?,
+        Some("revision-fixture") => {
+            revision_fixture::generate()?;
+            contracts_fixture::generate()?;
+        }
         Some("contracts") => {
             use ts_rs::TS;
             let target = std::path::Path::new("packages/ir-types/src");
@@ -27,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some("compiler-fixture") => {
             use needware_ir::{BehaviorTest, BinaryOp, Expr, Value};
-            let mut app = needware_ir::examples::habit_tracker();
+            let mut app = needware_ir::examples::typed_habit_tracker();
             app.description =
                 "Authored compiler contract fixture; this is not model-generated output.".into();
             app.tests.push(BehaviorTest {

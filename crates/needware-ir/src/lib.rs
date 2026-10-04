@@ -27,6 +27,10 @@ domain! {
         pub messages: BTreeMap<String, BTreeMap<String,String>>,
         pub collections: BTreeMap<String, Collection>,
         pub state: BTreeMap<String, Value>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        pub state_schema: BTreeMap<String, Field>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        pub event_schema: BTreeMap<String, BTreeMap<String, Field>>,
         pub screens: Vec<Screen>,
         pub initial_screen: String,
         pub actions: BTreeMap<String, Action>,

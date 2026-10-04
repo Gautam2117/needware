@@ -41,6 +41,7 @@ pub struct ViewNode {
     pub text: String,
     pub field: Option<String>,
     pub action: Option<String>,
+    pub event_fields: Option<Vec<String>>,
     pub record: Option<String>,
     pub options: Vec<String>,
     pub style: Style,
@@ -99,6 +100,16 @@ impl Runtime {
         {
             return Err(RuntimeError::Limit);
         }
+        needware_validation::validate_event(&event.action, &event.values, self.application())
+            .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
+        let mut event = event.clone();
+        if let Some(fields) = self.application().event_schema.get(&event.action) {
+            for (key, field) in fields {
+                if matches!(field.data_type, DataType::Optional { .. }) {
+                    event.values.entry(key.clone()).or_insert(Value::Null);
+                }
+            }
+        }
         let action = self
             .application()
             .actions
@@ -115,7 +126,7 @@ impl Runtime {
             self.application(),
             &self.grants,
             &mut next,
-            event,
+            &event,
             &mut effects,
             &mut screen,
             &mut count,
@@ -160,6 +171,7 @@ impl Runtime {
         };
         render(
             &screen.root,
+            app,
             &ctx,
             None,
             &mut Budget::new(1_000_000),
@@ -385,6 +397,7 @@ fn apply(
 }
 fn render(
     node: &Node,
+    app: &Application,
     ctx: &Context<'_>,
     record: Option<&str>,
     budget: &mut Budget,
@@ -416,12 +429,12 @@ fn render(
                 ..*ctx
             };
             for child in &node.children {
-                children.push(render(child, &nested, Some(id), budget, count)?);
+                children.push(render(child, app, &nested, Some(id), budget, count)?);
             }
         }
     } else {
         for child in &node.children {
-            children.push(render(child, ctx, record, budget, count)?);
+            children.push(render(child, app, ctx, record, budget, count)?);
         }
     }
     Ok(ViewNode {
@@ -433,6 +446,11 @@ fn render(
         text,
         field: node.field.clone(),
         action: node.action.clone(),
+        event_fields: node
+            .action
+            .as_ref()
+            .and_then(|a| app.event_schema.get(a))
+            .map(|fields| fields.keys().cloned().collect()),
         record: record.map(str::to_owned),
         options: node.options.clone(),
         style: node.style.clone(),

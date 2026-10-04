@@ -21,6 +21,30 @@ fn node(id: &str, kind: Component, label: Option<Expr>, children: Vec<Node>) -> 
         },
     }
 }
+pub fn typed_habit_tracker() -> Application {
+    let mut app = habit_tracker();
+    app.runtime_features.push("typed_contracts_v1".into());
+    let input = Field {
+        data_type: DataType::String,
+        default: None,
+        max_length: Some(120),
+        minimum: None,
+        maximum: None,
+        derived: None,
+    };
+    app.event_schema = app
+        .actions
+        .keys()
+        .map(|action| {
+            let mut fields = BTreeMap::from([("record_id".into(), input.clone())]);
+            if action == "add" {
+                fields.insert("name".into(), input.clone());
+            }
+            (action.clone(), fields)
+        })
+        .collect();
+    app
+}
 pub fn habit_tracker() -> Application {
     let mut fields = BTreeMap::new();
     fields.insert(
@@ -147,6 +171,8 @@ pub fn habit_tracker() -> Application {
             },
         )]),
         state: BTreeMap::new(),
+        state_schema: BTreeMap::new(),
+        event_schema: BTreeMap::new(),
         screens: vec![Screen {
             id: "home".into(),
             title: "Habits".into(),
