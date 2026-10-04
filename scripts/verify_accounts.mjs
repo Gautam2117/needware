@@ -37,10 +37,14 @@ function start(name, command, args, env = environment) {
   child.stdout.pipe(log); child.stderr.pipe(log); child.closed = new Promise(resolve => child.once('close', resolve)); children.push(child); return child;
 }
 async function stop(child) {
-  if (child.exitCode === null) {
-    if (process.platform !== 'win32') process.kill(-child.pid, 'SIGTERM'); else child.kill('SIGTERM');
+  const signal = value => {
+    try { if (process.platform !== 'win32') process.kill(-child.pid, value); else child.kill(value); }
+    catch (error) { if (error.code !== 'ESRCH') throw error; }
+  };
+  if (child.exitCode === null && child.signalCode === null) {
+    signal('SIGTERM');
     await Promise.race([child.closed, new Promise(resolve => setTimeout(resolve, 5000))]);
-    if (child.exitCode === null) { if (process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); await child.closed; }
+    if (child.exitCode === null && child.signalCode === null) { signal('SIGKILL'); await child.closed; }
   }
 }
 async function ready() {
