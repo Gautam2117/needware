@@ -66,7 +66,18 @@ pub fn canonical<T: Serialize>(value: &T) -> Result<Vec<u8>, PackageError> {
     serde_json_canonicalizer::to_vec(value).map_err(invalid)
 }
 pub fn parse_json<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, PackageError> {
-    if bytes.len() > needware_ir::MAX_IR_BYTES {
+    parse_bounded(bytes, needware_ir::MAX_IR_BYTES)
+}
+/// State snapshots have a separate ceiling from immutable application definitions.
+/// Schema validation remains mandatory when opening the decoded state in a runtime.
+pub fn parse_state(bytes: &[u8]) -> Result<needware_ir::State, PackageError> {
+    parse_bounded(bytes, 16 * 1024 * 1024)
+}
+fn parse_bounded<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    limit: usize,
+) -> Result<T, PackageError> {
+    if bytes.len() > limit {
         return Err(PackageError::Limit);
     }
     let strict: strict_json::Strict = serde_json::from_slice(bytes).map_err(invalid)?;

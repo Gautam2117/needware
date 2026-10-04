@@ -1,6 +1,5 @@
 //! Narrow browser boundary; core semantics stay in native-testable Rust.
 use needware_capabilities::Grants;
-use needware_ir::State;
 use needware_runtime::{Event, Runtime};
 use wasm_bindgen::prelude::*;
 fn error(e: impl std::fmt::Display) -> JsValue {
@@ -37,7 +36,7 @@ impl BrowserRuntime {
         };
         let trusted = p.signers().to_vec();
         let state = state_json
-            .map(|s| needware_package::parse_json::<State>(s.as_bytes()))
+            .map(|s| needware_package::parse_state(s.as_bytes()))
             .transpose()
             .map_err(error)?;
         Ok(Self {
@@ -97,7 +96,7 @@ impl BrowserRuntime {
         serde_json::to_string(self.inner.state()).map_err(error)
     }
     pub fn restore(&mut self, json: &str) -> Result<(), JsValue> {
-        let state = needware_package::parse_json(json.as_bytes()).map_err(error)?;
+        let state = needware_package::parse_state(json.as_bytes()).map_err(error)?;
         self.inner.restore(state).map_err(error)
     }
     pub fn dispatch(&mut self, json: &str) -> Result<String, JsValue> {

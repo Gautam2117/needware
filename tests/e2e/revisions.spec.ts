@@ -1,5 +1,7 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import type { Value } from '../../packages/ir-types/src/Value';
 async function importPackage(page: Page, name: string, title: string) {
   await page.getByLabel('Import .need').setInputFiles(`artifacts/revisions/${name}.need`);
   await expect(page.getByRole('heading', { name: `Review ${title}`, exact: true })).toBeVisible();
@@ -60,4 +62,28 @@ test('stale revision review and wrong parent preserve the durable application', 
   await expect(page.frameLocator('iframe').getByText('Concurrent record', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Recovery history', exact: true }).click();
   await expect(page.getByText('No revision recovery copies yet.')).toBeVisible();
+});
+test('validated WASM state larger than IR reopens and invalid restore preserves state', async ({ page }) => {
+  await page.goto('/');
+  const bytes = [...readFileSync('artifacts/revisions/source.need')];
+  const result = await page.evaluate(async bytes => {
+    const modulePath = '/wasm/needware_wasm.js';
+    const wasm = await import(/* webpackIgnore: true */ modulePath);
+    await wasm.default({ module_or_path: '/wasm/needware_wasm_bg.wasm' });
+    const packageBytes = new Uint8Array(bytes);
+    const info = JSON.parse(wasm.inspect_package(packageBytes));
+    const records: Record<string, Record<string, Value>> = {};
+    for (let i = 0; i < 10000; i++) records[`11111111-1111-4111-8111-${i.toString(16).padStart(12, '0')}`] = { name: { type: 'string', value: 'x'.repeat(120) }, done: { type: 'boolean', value: false }, score: { type: 'integer', value: '0' } };
+    const state = JSON.stringify({ revision: info.application.revision, values: {}, collections: { habits: records } });
+    const first = new wasm.BrowserRuntime(packageBytes, state, true);
+    const saved = first.snapshot(); first.free();
+    const second = new wasm.BrowserRuntime(packageBytes, saved, true);
+    let rejected = false;
+    try { second.restore('{"revision":"a","revision":"b","values":{},"collections":{}}'); } catch { rejected = true; }
+    const unchanged = second.snapshot() === saved;
+    const count = Object.keys(JSON.parse(second.snapshot()).collections.habits).length; second.free();
+    return { bytes: new TextEncoder().encode(saved).length, rejected, unchanged, count };
+  }, bytes);
+  expect(result.bytes).toBeGreaterThan(2 * 1024 * 1024);
+  expect(result.count).toBe(10000); expect(result.rejected).toBe(true); expect(result.unchanged).toBe(true);
 });
