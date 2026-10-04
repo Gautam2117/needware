@@ -4,7 +4,7 @@ Implemented primitive boundary: `needware-vault`. Owner-signed document membersh
 authorize the `needware-sync` core's read/write roles and generations. Maintained
 accounts, encrypted browser vaults, account-bound cloud root pins/recovery envelopes,
 device enrollment and recovery UI are now wired and tested locally. Server-side
-revocation/rotation remain pending. The authorized ciphertext document relay is
+account-root/device revocation remains pending. The authorized ciphertext document relay is
 implemented and locally tested; local acceptance does not
 establish deployed collaboration.
 
@@ -71,9 +71,11 @@ epochs with checked arithmetic. Rotation must atomically publish new authority
 bindings, re-enroll retained devices, replace recovery envelopes, rotate affected
 document keys and wrap/share them only with retained members. The cloud layer
 must enforce current epochs and membership for every upload/download. Signed authority-transition records bind the previous pinned authority to the
-next account epoch/authority and reject replay or skipped epochs. The atomic
-cloud rotation transaction remains unimplemented. Tests prove new epoch keys reject old ciphertext/key
-contexts; they do not establish complete operational revocation.
+next account epoch/authority and reject replay or skipped epochs. Atomic account
+root rotation remains unimplemented. The [cloud document epoch transaction](../decisions/0011-atomic-cloud-document-epochs.md)
+stages fresh keys and resets collaborator grants. Local acceptance proves old
+collaborator keys cannot decrypt the new package and old grants cannot read/write
+the new relay epoch; complete selected-member/device revocation remains pending.
 
 Revocation prevents FUTURE authorized synchronization/access. It cannot remotely
 erase plaintext/encrypted copies a previously authorized device downloaded.

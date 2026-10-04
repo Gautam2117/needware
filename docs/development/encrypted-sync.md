@@ -20,8 +20,8 @@ frame before its durable journal transaction commits.
 
 `checkpoint` encrypts a complete signed history within the same frame limit.
 A newly constructed independent replica restores through `receive`, rather than
-trusting a raw Automerge binary. Large-history chunk manifests and compaction are
-not yet implemented. Current limits: 2 MiB serialized frames, 512 KiB plaintext
+trusting a raw Automerge binary. Owner-authorized compaction uses a separately
+bounded encrypted checkpoint and chunked cloud manifests. Current limits: 2 MiB serialized frames, 512 KiB plaintext
 batch, 256 KiB signed change, 4096 operations/change and changes/frame, 100,000
 operations/16 MiB retained history, 128 predecessors/dependencies and bounded
 typed runtime state. Limits reject oversized work atomically. They are ceilings,
@@ -49,8 +49,10 @@ owner recovery and quota/outbox retention are implemented and locally tested.
 The trusted worker's cloud imports require explicit signer/permission review;
 read-only/absent device grants reject at both server and native runtime boundaries.
 See [relay protocol](../decisions/0009-authorized-ciphertext-relay.md).
-Owner-authorized compaction/fresh keys now run through native/WASM and atomic
-encrypted local journals, with retained signed archives and cold offline recovery.
+Owner-authorized compaction/fresh keys run through native/WASM, atomic encrypted
+local journals and staged PostgreSQL activation, with retained signed archives
+and cold recovery from lost activation acknowledgments.
 See [epoch protocol](../decisions/0010-owner-authorized-document-epochs.md).
-Public deployment, exact physical devices, atomic cloud epoch publication,
-account-root rotation and complete revocation/rebase remain unfinished.
+See [cloud activation](../decisions/0011-atomic-cloud-document-epochs.md). Public
+deployment, exact physical devices, account-root rotation and complete selected
+revocation/rebase remain unfinished.

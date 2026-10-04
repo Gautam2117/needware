@@ -36,7 +36,9 @@ Verified accounts can also open the encrypted application library. A dedicated
 worker commits encrypted package/state journals before publishing runtime views.
 Opt-in synchronization uploads private ciphertext, enforces registered-device and
 owner-signed grants, and retains outgoing changes through failed uploads. Cloud
-package imports require a fresh signer/permission review. See the [relay boundary](docs/decisions/0009-authorized-ciphertext-relay.md) for metadata, limits and remaining revocation/compaction/deployment gates.
+package imports require a fresh signer/permission review. Owner-approved fresh
+document epochs stage under quota, retain encrypted history, activate atomically
+and remove old collaborator grants. See the [relay boundary](docs/decisions/0009-authorized-ciphertext-relay.md) and [cloud epoch protocol](docs/decisions/0011-atomic-cloud-document-epochs.md). Account-root/device revocation, synchronized revision rebase and production deployment remain unfinished.
 
 `pnpm dev` starts the shell and local Rust compiler gateway. Configure an approved provider using `.env.example`; without a provider, generation is unavailable. Creation requires disclosure of the recipient and installation-owned credentials. Four HTTP adapters feed a bounded Rust validation/signing pipeline. `pnpm test:compiler` explicitly starts a free HTTP fixture and verifies the browser wiring; it does not call a model. See [compiler setup and limitations](docs/development/compiler.md). Account services remain under implementation.
 

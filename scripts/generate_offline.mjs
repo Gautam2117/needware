@@ -31,5 +31,12 @@ self.addEventListener('fetch',event=>{
     return hit||fetch(event.request);
   })());
 });
+self.addEventListener('message',event=>{
+  if(event.data?.kind!=='needware-claim-ready-client'||!event.source?.id)return;
+  event.waitUntil((async()=>{
+    const client=await self.clients.get(event.source.id);
+    if(client&&new URL(client.url).origin===self.location.origin)await self.clients.claim();
+  })());
+});
 `);
 console.log(`Production offline cache: ${assets.length} assets; identity ${version}`);

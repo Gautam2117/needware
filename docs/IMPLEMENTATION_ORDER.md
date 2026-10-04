@@ -1,6 +1,6 @@
 # Remaining implementation dependencies
 
-Audited 2026-10-04 against main at f82f98b and the working source. The repository
+Audited 2026-10-04 against main at 7086394 and the verified cloud epoch source. The repository
 has accepted ADRs for packages, browser persistence/frame isolation, reviewed
 revisions, derived fields and client-owned key hierarchy. Security documents now
 record the implemented vault and dependency audit boundaries.
@@ -20,8 +20,10 @@ actual local browser acceptance; public integration remains unverified.
    deduplication, resource bounds and schema epochs. Atomic encrypted browser
    journals and the dedicated encrypted worker/UI now pass local three-engine
    offline, quota, corruption and concurrency acceptance. Continue history
-   atomic cloud epoch publication, cryptographic revocation and synchronized
-   revision review/rebase. Owner-signed native/WASM/local journal compaction now
+   account-root/device cryptographic revocation and synchronized revision
+   review/rebase. Atomic cloud epoch publication now passes actual PostgreSQL
+   fault/lost-ack/quota/archive tests and three-engine owner rotation/recovery.
+   Owner-signed native/WASM/local journal compaction
    retains original history/tombstones and passes cold offline three-engine checks.
    Authorized ciphertext relay, durable chunk checkpoints, explicit sharing,
    reconnect/backoff and separate-account offline convergence pass locally.
@@ -30,7 +32,8 @@ actual local browser acceptance; public integration remains unverified.
    Account-bound encryption-device setup/enrollment/recovery is implemented locally.
    Authorized private package/frame storage and sync relay pass locally, including
    lost upload acknowledgments, deduplication and owner recovery on a new device.
-   Continue atomic rotation/revocation and production storage operations.
+   Continue account-root/device rotation, selected-recipient rewrapping and
+   production storage operations.
    Authentication alone cannot enroll
    a device into the encryption vault.
 5. Registry and sharing: immutable revisions, private/unlisted/public URLs,

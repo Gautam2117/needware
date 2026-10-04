@@ -28,7 +28,7 @@ async function openVault(id: string): Promise<void> {
 }
 async function activate(next: DurableSyncSession, entry: EncryptedEntry): Promise<EncryptedLoaded> {
   const view = JSON.parse(next.view()); await session?.close(); session = next; current = entry; instance = crypto.randomUUID();
-  return { ...entry, instance, view, pendingUploads: next.pending().length, cloudEnabled: next.cloudEnabled() };
+  return { ...entry, instance, view, pendingUploads: next.pending().length, cloudEnabled: next.cloudEnabled(),epochPending:Boolean(next.cloudEpochIntent()),isOwner:JSON.parse(next.binding()).document.account===JSON.parse(vault!.account_context()).account };
 }
 async function execute(command: EncryptedCommand): Promise<unknown> {
   await ready; await openVault(command.account);
@@ -59,10 +59,17 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
     case 'cancel-cloud':proposal?.value.close();proposal=undefined;return null;
     case 'sync':{
       if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');
-      const result=await new DocumentRelay(vault).synchronize(session);return {view:JSON.parse(session.view()),pendingUploads:result.pending,more:result.more,cloudEnabled:session.cloudEnabled()};
+      const result=await new DocumentRelay(vault).synchronize(session);return {view:JSON.parse(session.view()),pendingUploads:result.pending,more:result.more,cloudEnabled:session.cloudEnabled(),epochPending:Boolean(session.cloudEpochIntent())};
+    }
+    case 'epoch-state':if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');return {epochPending:Boolean(session.cloudEpochIntent())};
+    case 'rotate-epoch':case 'cancel-epoch':{
+      if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');const relay=new DocumentRelay(vault);
+      if(command.kind==='rotate-epoch')await relay.rotateEpoch(session,command.consent);else await relay.cancelEpoch(session);
+      return {view:JSON.parse(session.view()),pendingUploads:session.pending().length,cloudEnabled:session.cloudEnabled(),epochPending:Boolean(session.cloudEpochIntent())};
     }
     case 'share':{
       if(!session||!current||command.instance!==instance||!command.consent)throw new Error('Review document sharing first');
+      if(session.cloudEpochIntent())throw new Error('Complete or cancel key rotation before sharing');
       const recipient=JSON.parse(command.certificate);
       const offer=JSON.parse(vault.offer_document(current.document,command.certificate,JSON.stringify(recipient.context),recipient.authority.map((byte:number)=>byte.toString(16).padStart(2,'0')).join(''),command.write,true));
       const relay=new DocumentRelay(vault);await relay.synchronize(session);

@@ -8,6 +8,7 @@ import { frameDocument } from './frame-document';
 import type { ProviderResponse } from '@needware/ir-types/ProviderResponse';
 import type { StageEvent } from '@needware/ir-types/StageEvent';
 import { createApplication } from '../../../packages/browser-host/src/compiler-client';
+import {registerOfflineShell} from '../lib/offline-shell';
 const stageLabels: Record<StageEvent['stage'], string> = { extract_intent: 'Understanding your request', generate_definition: 'Building your application', repair_definition: 'Correcting an invalid definition', validate_definition: 'Checking behavior and permissions', package_verified: 'Ready for your review', cancelled: 'Creation cancelled', failed: 'Creation did not finish' };
 
 class Host {
@@ -49,7 +50,7 @@ export default function Workbench() {
   const [renderer, setRenderer] = useState<{ code: string; hash: string } | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [prompt, setPrompt] = useState(''); const [status, setStatus] = useState('Starting local runtime');
   useEffect(() => {
-    const client = new Host(); host.current = client;
+    const client = new Host(); host.current = client;let active=true;
     fetch('/api/providers').then(response => response.json()).then((data: ProviderResponse) => setProvider(data.provider)).catch(() => { /* Local applications remain usable when generation is unavailable. */ });
     fetch('/frame.js').then(async response => {
       if (!response.ok) throw new Error('Renderer download failed.');
@@ -58,8 +59,8 @@ export default function Workbench() {
       setRenderer({ code, hash: btoa(String.fromCharCode(...new Uint8Array(digest))) });
     }).catch(error => setError(String(error)));
     client.request<LibraryEntry[]>({ kind: 'library' }).then(entries => { setLibrary(entries); setStatus('Local runtime ready'); }).catch(error => { setError(String(error)); setStatus('Storage unavailable'); });
-    if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { /* Offline readiness is shown only after successful caching. */ });
-    return () => { cancellation.current?.abort(); client.close(); host.current = null; };
+    registerOfflineShell().catch(()=>{if(active)setError('Offline shell could not finish caching. Reload while online before disconnecting.');});
+    return () => { active=false;cancellation.current?.abort(); client.close(); host.current = null; };
   }, []);
   async function run(operation: () => Promise<void>) { setBusy(true); setError(''); try { await operation(); } catch (error) { setError(String(error)); } finally { setBusy(false); } }
   async function inspect(bytes: Uint8Array, generated = false) { if (!generated) setGenerationEvents([]); const info = await host.current?.request<PackageInfo>({ kind: 'inspect', bytes }); if (info) { setReview({ info, bytes }); setRevision(null); } }

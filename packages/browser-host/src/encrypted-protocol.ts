@@ -12,6 +12,9 @@ export type EncryptedCommand = { account: string } & (
   | { kind: 'export-state'; instance: string }
   | { kind: 'delete'; document: string }
   | { kind: 'sync'; instance: string }
+  | { kind: 'rotate-epoch'; instance: string; consent: true }
+  | { kind: 'cancel-epoch'; instance: string }
+  | { kind: 'epoch-state'; instance: string }
   | { kind: 'cloud-list' }
   | { kind: 'preview-cloud'; document: string; pin?: string; ownerEpoch?: number; consent: true }
   | { kind: 'accept-cloud'; document: string; consent: true }
@@ -20,5 +23,5 @@ export type EncryptedCommand = { account: string } & (
   | { kind: 'share'; instance: string; certificate: string; write: boolean; consent: true }
 );
 export interface EncryptedEntry { document: string; info: PackageInfo }
-export interface EncryptedLoaded extends EncryptedEntry { instance: string; view: ViewNode; pendingUploads: number; cloudEnabled: boolean }
+export interface EncryptedLoaded extends EncryptedEntry { instance: string; view: ViewNode; pendingUploads: number; cloudEnabled: boolean; epochPending?: boolean; isOwner?: boolean }
 export interface CloudEntry { id: string; binding: { document: { account: string; document: string } }; ready: boolean }

@@ -1,8 +1,8 @@
 # Owner-authorized document epochs
 
-Accepted 2026-10-04. Implemented native/WASM and local journal boundary; atomic
-cloud epoch publication, account-root rotation, schema revisions and the product
-revocation/rebase flow remain unfinished.
+Accepted 2026-10-04. Implemented native/WASM, local journals and staged atomic
+PostgreSQL publication. Account-root rotation, schema revisions and selected
+remaining-device revocation/rebase remain unfinished.
 
 The owner creates an independently random document key. Document key epoch and
 membership generation each advance exactly once. An Ed25519 owner attestation,
@@ -39,6 +39,8 @@ epochs. The journal retains up to four old epochs within existing 32 MiB documen
 and 128 MiB account limits. Reaching these limits preserves existing data and
 rejects the operation; archive export/pruning UX is still pending.
 
-Local compaction rejects cloud-enabled documents. Cloud publication of compacted
-documents is explicitly disabled until staged objects, owner grants, source
-cursor checks and atomic server epoch activation are implemented and accepted.
+Local compaction rejects cloud-enabled documents. They use the separately
+approved [atomic cloud protocol](0011-atomic-cloud-document-epochs.md), including
+a durable encrypted intent, charged staged chunks, source-cursor checks, retained
+server ciphertext archives and fresh owner grants. Publishing an independently
+compacted local document directly into the cloud remains explicitly disabled.

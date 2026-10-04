@@ -22,6 +22,10 @@ def main():
     lines = log.read_text(errors="replace").splitlines()
     print(f"{'PASS' if result.returncode == 0 else 'FAIL'} exit={result.returncode} log={log}")
     if result.returncode:
+        first = next((i for i, line in enumerate(lines) if re.search(r'^(?:Error:|AssertionError|.*Error \[|\s*Traceback \()', line)), None)
+        if first is not None and first < len(lines) - 18:
+            for line in lines[first:first + 8]:
+                print(line[:300])
         for line in lines[-18:]:
             print(line[:300])
     else:

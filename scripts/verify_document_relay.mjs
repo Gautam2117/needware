@@ -3,6 +3,7 @@ import { expect } from '@playwright/test';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
+import {verifyCloudEpochs} from './verify_cloud_epochs.mjs';
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url));
 const {default:canonicalize}=await import(require.resolve('canonicalize'));
 async function rateWindow(pool,account){
@@ -10,7 +11,7 @@ async function rateWindow(pool,account){
   if(current.rowCount&&current.rows[0].count>10){const remaining=Math.max(0,new Date(current.rows[0].reset_at).getTime()-Date.now()+100);
     if(remaining){console.log('Relay acceptance waiting for the existing account quota window');await new Promise(resolve=>setTimeout(resolve,Math.min(remaining,60_000)));}}
 }
-export async function verifyDocumentRelay({page,context,otherPage,otherContext,otherAccount,recoveredPage,pool,account,origin}){
+export async function verifyDocumentRelay({page,context,otherPage,otherContext,otherAccount,recoveredPage,enrolledPage,pool,account,origin}){
   await rateWindow(pool,account);
   execFileSync('cargo',['run','-p','xtask','--','relay-fixture'],{stdio:'inherit'});
   const packageBytes=(await readFile('artifacts/relay-transport-fixture.need')).toString('base64');
@@ -140,6 +141,7 @@ export async function verifyDocumentRelay({page,context,otherPage,otherContext,o
   const offlineWrite=await otherPage.evaluate(async()=>{const r=globalThis.__editableRelay;await r.session.dispatch(JSON.stringify({action:'add',values:{record_id:{type:'string',value:crypto.randomUUID()},name:{type:'string',value:'Independent collaborator offline write'}},now:'2026-10-04T00:00:00Z',timezone:'UTC'}));return {state:r.session.snapshot(),pending:r.session.pending().length};});assert.equal(offlineWrite.pending,1);
   await otherContext.setOffline(false);await otherPage.evaluate(async()=>{const r=globalThis.__editableRelay;await r.relay.synchronize(r.session);});
   const ownerReceived=await page.evaluate(async()=>{const r=globalThis.__needwareRelay;await r.relay.synchronize(r.editable);return r.editable.snapshot();});assert.equal(ownerReceived,offlineWrite.state);
+  await verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPage,pool,account,otherAccount,origin});
   const ledgerBefore=await pool.query('SELECT bytes FROM needware_relay_usage WHERE account_id=$1',[account]);
   const cascadeSize=await pool.query('SELECT metadata_bytes FROM needware_document_member WHERE document_id=$1 AND account_id=$2',[editable.document,otherAccount]);
   assert.ok(cascadeSize.rows[0].metadata_bytes>0);

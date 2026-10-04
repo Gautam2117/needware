@@ -10,6 +10,9 @@ needware-runtime = { path = "../crates/needware-runtime", version = "=2026.10.0"
 needware-compiler = { path = "../crates/needware-compiler", version = "=2026.10.0" }
 needware-package = { path = "../crates/needware-package", version = "=2026.10.0" }
 needware-crypto = { path = "../crates/needware-crypto", version = "=2026.10.0" }
+needware-vault = { path = "../crates/needware-vault", version = "=2026.10.0" }
+needware-sync = { path = "../crates/needware-sync", version = "=2026.10.0" }
+needware-validation = { path = "../crates/needware-validation", version = "=2026.10.0" }
 schemars.workspace = true
 serde_json.workspace = true
 image = { version = "0.25.10", default-features = false, features = ["png"] }

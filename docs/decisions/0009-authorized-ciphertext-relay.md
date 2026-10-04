@@ -50,9 +50,11 @@ usable and durable while the relay is unavailable. Already saved applications
 can run offline; fresh authentication, cloud import and key enrollment require
 connectivity. Login/password reset cannot recover encryption material.
 
-Root/document re-keying, collaborator/device revocation, synchronized revision
-review/rebase and history compaction require their own atomic protocol and remain
-unfinished. A previously authorized device retains copies it already downloaded;
+Document re-keying and bounded compaction use the
+[atomic cloud epoch protocol](0011-atomic-cloud-document-epochs.md). It resets
+collaborator grants under an independent fresh document key and retains encrypted
+archives. Account-root/device revocation, selected remaining-recipient rewrapping
+and synchronized revision review/rebase remain unfinished. A previously authorized device retains copies it already downloaded;
 future ciphertext exclusion requires a new independent document key. Public
 deployment, real mail/provider acceptance and exact physical devices are separate
 gates, not established by local/CI acceptance.

@@ -121,7 +121,7 @@ export async function verifyAccountVault({ page, context, pool, account, origin,
     await collaborator.page.getByLabel('I saved my recovery file outside this browser').check();
     await collaborator.page.getByRole('button',{name:'Confirm encrypted account setup',exact:true}).click();
     await expect(collaborator.page.getByText('Encryption keys are ready on this browser.',{exact:true})).toBeVisible();
-    await verifyDocumentRelay({ page, context, otherPage: collaborator.page, otherContext: collaborator.context, otherAccount: collaborator.account, recoveredPage: recovered.view, pool, account, origin });
+    await verifyDocumentRelay({ page, context, otherPage: collaborator.page, otherContext: collaborator.context, otherAccount: collaborator.account, recoveredPage: recovered.view, enrolledPage:enrolled.view, pool, account, origin });
     console.log('PASS real account-bound Chromium/Firefox/WebKit encrypted setup, retained device keys, HPKE enrollment, recovery after local key loss, signed one-use cloud challenges, replay/tamper/root pin/CSRF/duplicate-JSON boundaries');
   } finally {
     for (const other of contexts) await other.request.post(`${origin}/api/auth/sign-out`, { data: {}, headers: { Origin: origin } });

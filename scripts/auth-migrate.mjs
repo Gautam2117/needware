@@ -17,6 +17,7 @@ try {
   await pool.query(await readFile('services/control-plane/migrations/0001-email-outbox.sql', 'utf8'));
   await pool.query(await readFile('services/control-plane/migrations/0002-account-vault.sql', 'utf8'));
   await pool.query(await readFile('services/control-plane/migrations/0003-document-relay.sql', 'utf8'));
+  await pool.query(await readFile('services/control-plane/migrations/0004-document-epochs.sql', 'utf8'));
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

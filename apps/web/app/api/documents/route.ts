@@ -3,12 +3,13 @@ import canonicalize from 'canonicalize';
 import type { PoolClient } from 'pg';
 import { accountRequest, canonicalBody, cloudFailure, cloudResponse, CloudError } from '../../../lib/cloud-request';
 import { object, operationProof, certificate, context, publicKey, bytes, uuid } from '../../../lib/vault-proof';
-import { binding, ciphertext, membership, type Binding, type Membership } from '../../../lib/document-proof';
+import { binding, ciphertext, membership, type Membership } from '../../../lib/document-proof';
+import {epochAction,readEpoch,type RelayDocument} from '../../../lib/document-epoch-store';
 export const runtime = 'nodejs';
 const hash = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 const same = (left: unknown, right: unknown) => canonicalize(left) === canonicalize(right);
 const encodedSize = (value: unknown) => Buffer.byteLength(canonicalize(value)!);
-type DocumentRow = { id: string; owner_id: string; binding: Binding; authority: Buffer; root_epoch: number; descriptor: Record<string, unknown>; package_digest: string; package_bytes: number; ready: boolean; storage_bytes: string; next_sequence: string };
+type DocumentRow = RelayDocument;
 function envelope(value: unknown, grant: Membership, recipient: ReturnType<typeof certificate>): void {
   const fields = object(value,['kind','value']);
   if (fields.kind === 'held') {
@@ -88,10 +89,11 @@ export async function POST(request: Request) {
         const member=await client.query(`SELECT membership,key_envelope FROM needware_document_member
           WHERE document_id=$1 AND account_id=$2 AND device_id=$3 AND NOT revoked`,[document,account,device]);
         const owner=doc.owner_id===account && doc.authority.equals(Buffer.from(proof.certificate.authority)) && Number(doc.root_epoch)===proof.certificate.context.epoch;
-        if(!member.rowCount && !(owner && ['grant','recover','delete'].includes(payload.action)))throw new CloudError(403,'This device has no current document grant');
+        if(!member.rowCount && !(owner && ['grant','recover','delete','epoch_status','epoch_cancel','epoch_archive','epoch_archive_download'].includes(payload.action)))throw new CloudError(403,'This device has no current document grant');
         const grant=member.rowCount?membership(member.rows[0].membership,doc.binding,doc.authority,Number(doc.root_epoch)):undefined;
         if(grant && !same(grant.device,proof.certificate.device))throw new CloudError(403,'Document device mismatch');
-        switch(payload.action){
+        if(payload.action.startsWith('epoch_'))data=await epochAction(client,doc,payload,{account,device,certificate:proof.certificate,owner,grant},charge,envelope);
+        else switch(payload.action){
           case 'recover':{
             object(payload,['action','document']);if(!owner)throw new CloudError(403,'Pinned document owner required');
             const held=await client.query(`SELECT key_envelope FROM needware_document_member WHERE document_id=$1 AND account_id=$2 AND key_envelope->>'kind'='held' LIMIT 1`,[document,account]);
@@ -125,12 +127,14 @@ export async function POST(request: Request) {
             const batch: string[]=[];let total=0;let cursor=payload.cursor;
             for(const row of frames.rows){const length=Buffer.byteLength(row.frame);if(total+length>2500000)break;batch.push(row.frame);total+=length;cursor=String(row.sequence);}
             const roster=await client.query('SELECT membership FROM needware_document_member WHERE document_id=$1 AND NOT revoked ORDER BY device_id',[document]);
-            data={descriptor:doc.descriptor,membership:member.rows[0].membership,key_envelope:member.rows[0].key_envelope,roster:roster.rows.map(row=>row.membership),frames:batch,cursor,more:Number(cursor)<Number(doc.next_sequence)};break;
+            data={descriptor:doc.descriptor,epoch:await readEpoch(client,doc),membership:member.rows[0].membership,key_envelope:member.rows[0].key_envelope,roster:roster.rows.map(row=>row.membership),frames:batch,cursor,more:Number(cursor)<Number(doc.next_sequence)};break;
           }
           case 'download':{
             object(payload,['action','document','index']);if(!doc.ready)throw new CloudError(409,'Encrypted package upload incomplete');
             if(!Number.isInteger(payload.index)||Number(payload.index)<0||Number(payload.index)>=Math.ceil(doc.package_bytes/1048576))throw new CloudError(400,'Invalid encrypted package chunk');
-            const chunk=await client.query('SELECT ciphertext FROM needware_document_chunk WHERE document_id=$1 AND chunk_index=$2',[document,payload.index]);
+            const chunk=doc.binding.generation===1
+              ?await client.query('SELECT ciphertext FROM needware_document_chunk WHERE document_id=$1 AND chunk_index=$2',[document,payload.index])
+              :await client.query('SELECT ciphertext FROM needware_document_epoch_chunk WHERE document_id=$1 AND generation=$2 AND kind=\'package\' AND chunk_index=$3',[document,doc.binding.generation,payload.index]);
             if(!chunk.rowCount)throw new CloudError(404,'Encrypted package chunk unavailable');data={index:payload.index,ciphertext:chunk.rows[0].ciphertext.toString('base64')};break;
           }
           case 'upload':{

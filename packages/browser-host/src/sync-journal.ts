@@ -9,9 +9,11 @@ interface Journal {
   cloud?: CloudArtifact;
   epoch?: { checkpoint: string; previous: string };
   archive?: string[];
+  pendingEpoch?: CloudEpochIntent;
 }
+export interface CloudEpochIntent { next: string; transition: unknown; checkpoint: { digest: string; bytes: number }; sourceCursor: string }
 export interface CloudArtifact { descriptor: { binding: unknown; configuration: string; package_digest: string; package_bytes: number }; ciphertext: string; membership: unknown; key_envelope: unknown; uploadedChunks?: number }
-export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact } }
+export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact; epoch?: {checkpoint:string;previous:string} } }
 const encoder = new TextEncoder(); const decoder = new TextDecoder('utf-8', { fatal: true });
 function encode(bytes: Uint8Array): string {
   const parts: string[] = [];
@@ -26,6 +28,7 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
   if (value?.cloud !== undefined) fields.push('cloud'); fields.sort();
   if (value?.epoch !== undefined) fields.push('epoch');
   if (value?.archive !== undefined) fields.push('archive'); fields.sort();
+  if (value?.pendingEpoch !== undefined) fields.push('pendingEpoch'); fields.sort();
   if (!value || Object.keys(value).sort().join(',') !== fields.join(',') || value.version !== 1 || value.account !== account || value.document !== document
       || !Number.isSafeInteger(value.ownerEpoch) || value.ownerEpoch < 1
       || !['authority','binding','held','membership','package','roster','scope','state'].every(key => typeof value[key as keyof Journal] === 'string')
@@ -35,6 +38,7 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
   if (binding.document.document !== document) throw new Error('Journal document mismatch');
   if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== 'checkpoint,previous' || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
   if (value.archive !== undefined && (!Array.isArray(value.archive) || value.archive.length > 4 || value.archive.some(item => typeof item !== 'string'))) throw new Error('Invalid retained epoch archive');
+  if (value.pendingEpoch !== undefined && (!value.pendingEpoch || Object.keys(value.pendingEpoch).sort().join(',') !== 'checkpoint,next,sourceCursor,transition' || typeof value.pendingEpoch.next !== 'string' || encoder.encode(value.pendingEpoch.next).length > 32*1024*1024 || typeof value.pendingEpoch.sourceCursor !== 'string' || !/^(0|[1-9][0-9]{0,5})$/.test(value.pendingEpoch.sourceCursor) || typeof value.pendingEpoch.checkpoint?.digest !== 'string' || !/^[0-9a-f]{64}$/.test(value.pendingEpoch.checkpoint.digest) || !Number.isInteger(value.pendingEpoch.checkpoint.bytes) || value.pendingEpoch.checkpoint.bytes < 40 || value.pendingEpoch.checkpoint.bytes > 16777256)) throw new Error('Invalid durable epoch intent');
   return value;
 }
 export class DurableSyncSession {
@@ -54,7 +58,7 @@ export class DurableSyncSession {
     const journal: Journal = { version: 1, account: options.account, document, binding, scope: options.scope, ownerEpoch: options.ownerEpoch,
       authority: options.authority, membership: session.membership(), held: vault.held_document_key_backup(document), package: encode(packageBytes),
       roster: options.roster, frames, state: session.snapshot(), queued: options.imported ? [] : [...frames], cursor: options.imported?.cursor ?? null,
-      ...(options.imported ? { cloud: options.imported.cloud } : {}) };
+      ...(options.imported ? { cloud: options.imported.cloud, ...(options.imported.epoch ? {epoch:options.imported.epoch} : {}) } : {}) };
     const bytes = encoder.encode(JSON.stringify(journal));
     let generation: number;
     try { generation = await store.save(options.account, document, bytes, null, options.rootGeneration); } finally { bytes.fill(0); }
@@ -105,6 +109,52 @@ export class DurableSyncSession {
   cursor(): string | null { this.assertOpen(); return this.journal.cursor; }
   binding(): string { this.assertOpen(); return this.journal.binding; }
   cloudEnabled(): boolean { this.assertOpen(); return Boolean(this.journal.cloud); }
+  cloudEpochIntent(): CloudEpochIntent | undefined { this.assertOpen();return this.journal.pendingEpoch?structuredClone(this.journal.pendingEpoch):undefined; }
+  async stageCloudEpoch(vault: BrowserVault, consent: boolean): Promise<CloudEpochIntent> {
+    return this.serial(async () => {
+      if(this.journal.pendingEpoch)return structuredClone(this.journal.pendingEpoch);
+      if(!this.journal.cloud||this.journal.queued.length||this.journal.cursor===null)throw new Error('Finish encrypted cloud synchronization before approving a new epoch');
+      if((this.journal.archive?.length??0)>=4)throw new Error('Retained epoch archive limit; original preserved');
+      const prepared=vault.prepare_document_epoch(this.session,consent),candidate=prepared.preview(),checkpoint=prepared.checkpoint();
+      const packageBytes=decode(this.journal.package);let content:Uint8Array|undefined,configuration:Uint8Array|undefined;
+      try{
+        const {archive:prior,...previous}=this.journal;
+        const next:Journal={...previous,binding:candidate.binding(),membership:candidate.membership(),held:prepared.held_backup(),
+          roster:JSON.stringify([JSON.parse(candidate.membership())]),frames:[],queued:[],cursor:'0',state:candidate.snapshot(),
+          epoch:{checkpoint:encode(checkpoint),previous:this.journal.binding},archive:[...(prior??[]),JSON.stringify(previous)]};
+        content=candidate.seal_payload(packageBytes,`NEEDWARE-CLOUD-PACKAGE-v1:${next.document}`);
+        const configBytes=encoder.encode(JSON.stringify({binding:next.binding,scope:next.scope,ownerEpoch:next.ownerEpoch,authority:next.authority}));
+        try{configuration=candidate.seal_payload(configBytes,`NEEDWARE-CLOUD-CONFIGURATION-v1:${next.document}`);}finally{configBytes.fill(0);}
+        const digest=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes)))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+        next.cloud={descriptor:{binding:JSON.parse(next.binding),configuration:encode(configuration),package_digest:await digest(content),package_bytes:content.length},ciphertext:encode(content),membership:JSON.parse(next.membership),key_envelope:{kind:'held',value:JSON.parse(next.held)},uploadedChunks:Math.ceil(content.length/1048576)};
+        const intent:CloudEpochIntent={next:JSON.stringify(next),transition:JSON.parse(prepared.transition()),checkpoint:{digest:await digest(checkpoint),bytes:checkpoint.length},sourceCursor:this.journal.cursor};
+        const old=this.session.fork_session();try{await this.publish(old,{...this.journal,pendingEpoch:intent});}catch(error){old.free();throw error;}
+        return structuredClone(intent);
+      }finally{packageBytes.fill(0);content?.fill(0);configuration?.fill(0);checkpoint.fill(0);candidate.free();prepared.free();}
+    });
+  }
+  async finishCloudEpoch(vault: BrowserVault): Promise<void> {
+    return this.serial(async()=>{
+      const intent=this.journal.pendingEpoch;if(!intent)throw new Error('Durable epoch intent unavailable');
+      const nextBytes=encoder.encode(intent.next);let next:Journal;try{next=parse(nextBytes,this.journal.account,this.journal.document);}finally{nextBytes.fill(0);}
+      if(next.pendingEpoch||!next.epoch||!next.cloud)throw new Error('Invalid staged epoch journal');
+      const backup=vault.local_backup();let staged:BrowserVault,probe:BrowserVault;
+      try{staged=(vault.constructor as typeof BrowserVault).from_local_backup(backup);probe=(vault.constructor as typeof BrowserVault).from_local_backup(backup);}finally{backup.fill(0);}
+      const packageBytes=decode(next.package),checkpoint=decode(next.epoch.checkpoint);let candidate:BrowserSync|undefined;
+      try{
+        staged.forget_document(next.document);staged.restore_held_document_key(next.held,JSON.stringify(JSON.parse(next.binding).document));
+        candidate=staged.open_shared_document(packageBytes,next.document,next.membership,next.ownerEpoch,next.authority,JSON.parse(next.binding).generation,next.scope,JSON.parse(next.binding).schema_epoch,true);
+        if(candidate.binding()!==next.binding)throw new Error('Epoch package binding mismatch');candidate.set_roster(next.roster);candidate.install_epoch(checkpoint,next.epoch.previous);
+        candidate.restore_local_state(next.state);candidate.activate_document_key(probe);candidate.view();
+        await this.publish(candidate,next);candidate=undefined;this.session.activate_document_key(vault);
+      }finally{packageBytes.fill(0);checkpoint.fill(0);candidate?.free();staged.free();probe.free();}
+    });
+  }
+  async cancelCloudEpoch(): Promise<void> {
+    return this.serial(async()=>{if(!this.journal.pendingEpoch)return;const {pendingEpoch:removed,...previous}=this.journal;void removed;
+      const candidate=this.session.fork_session();try{await this.publish(candidate,previous);}catch(error){candidate.free();throw error;}});
+  }
+  private requireActiveEpoch(): void {if(this.journal.pendingEpoch)throw new Error('Key rotation is pending. Resume or cancel it before changing this application.');}
   async compactLocal(vault: BrowserVault, consent: boolean): Promise<void> {
     return this.serial(async () => {
       if (this.journal.cloud) throw new Error('Cloud document requires an atomic cloud epoch transition');
@@ -138,6 +188,7 @@ export class DurableSyncSession {
   }
   async prepareCloud(): Promise<CloudArtifact> {
     return this.serial(async () => {
+      this.requireActiveEpoch();
       if (this.journal.cloud) return structuredClone(this.journal.cloud);
       if (this.journal.epoch) throw new Error('Compacted document requires the cloud epoch publication protocol');
       const candidate = this.session.fork_session(); const packageBytes = decode(this.journal.package);
@@ -158,6 +209,7 @@ export class DurableSyncSession {
   }
   async receiveWithRoster(frames: readonly string[], cursor: string, roster: string): Promise<number> {
     return this.serial(async () => {
+      this.requireActiveEpoch();
       if (frames.length > 256 || cursor.length > 256) throw new Error('Relay batch limit');
       const candidate = this.session.fork_session(); let received = 0;
       try {
@@ -175,6 +227,7 @@ export class DurableSyncSession {
   }
   async dispatch(event: string): Promise<string> {
     return this.serial(async () => {
+      this.requireActiveEpoch();
       const candidate = this.session.fork_session();
       try {
         const known = this.session.known(); const effects = candidate.dispatch(event);
@@ -187,6 +240,7 @@ export class DurableSyncSession {
   }
   async receive(frames: readonly string[], cursor: string | null): Promise<number> {
     return this.serial(async () => {
+      this.requireActiveEpoch();
       if (frames.length > 256 || (cursor !== null && (typeof cursor !== 'string' || cursor.length > 256))) throw new Error('Relay batch limit');
       const candidate = this.session.fork_session(); let received = 0;
       try {
@@ -197,6 +251,7 @@ export class DurableSyncSession {
   }
   async acknowledge(frames: readonly string[]): Promise<void> {
     return this.serial(async () => {
+      this.requireActiveEpoch();
       if (frames.length > 256 || frames.some(frame => !this.journal.queued.includes(frame))) throw new Error('Unknown upload acknowledgment');
       const acknowledged = new Set(frames); const candidate = this.session.fork_session();
       try { await this.publish(candidate, { ...this.journal, queued: this.journal.queued.filter(frame => !acknowledged.has(frame)) }); }
