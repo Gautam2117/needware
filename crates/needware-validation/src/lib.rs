@@ -1,5 +1,6 @@
 //! Semantic checks construct the unforgeable validated-application boundary.
 mod contracts;
+pub mod derived;
 use contracts::validate_contracts;
 pub use contracts::validate_event;
 use needware_ir::*;
@@ -32,11 +33,15 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
     if app.schema_version != IR_VERSION {
         return Err(fail("schema_version", "unsupported IR version"));
     }
-    if app
-        .runtime_features
-        .iter()
-        .any(|f| !["typed_contracts_v1", "exact_arithmetic_v1"].contains(&f.as_str()))
-        || app.runtime_features.iter().collect::<BTreeSet<_>>().len() != app.runtime_features.len()
+    if app.runtime_features.iter().any(|f| {
+        ![
+            "typed_contracts_v1",
+            "exact_arithmetic_v1",
+            "derived_fields_v1",
+        ]
+        .contains(&f.as_str())
+    }) || app.runtime_features.iter().collect::<BTreeSet<_>>().len()
+        != app.runtime_features.len()
     {
         return Err(fail("runtime_features", "unsupported required feature"));
     }
@@ -85,6 +90,7 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
         if !identifier(name) || collection.fields.is_empty() || collection.fields.len() > 128 {
             return Err(fail("collections", "invalid collection"));
         }
+        derived::order(collection)?;
         for (name, field) in &collection.fields {
             if !identifier(name) || name == "_id" {
                 return Err(fail("fields", "invalid or reserved field identifier"));
@@ -94,7 +100,23 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
                 validate_value(v, field, 0)?;
             }
             if let Some(e) = &field.derived {
+                if !app
+                    .runtime_features
+                    .iter()
+                    .any(|f| f == "derived_fields_v1")
+                {
+                    return Err(fail("derived", "derived fields require derived_fields_v1"));
+                }
                 validate_expr(e, &app, Some(collection), None, 0)?;
+                if !needware_expr::typing::declared(&field.data_type).accepts(
+                    &needware_expr::typing::check(e, &app, Some(collection))
+                        .map_err(|_| fail("derived", "invalid expression type"))?,
+                ) {
+                    return Err(fail(
+                        "derived",
+                        "expression does not match derived field type",
+                    ));
+                }
             }
         }
         for index in &collection.indexes {
@@ -167,6 +189,12 @@ fn validate_type(t: &DataType, app: &Application, depth: u32) -> Result<(), Diag
                 return Err(fail("record", "field limit"));
             }
             for f in fields.values() {
+                if f.derived.is_some() {
+                    return Err(fail(
+                        "record",
+                        "derived fields belong to top-level collection records",
+                    ));
+                }
                 validate_type(&f.data_type, app, depth + 1)?;
             }
         }
@@ -385,6 +413,7 @@ pub fn validate_state(state: &State, app: &Application) -> Result<(), Diagnostic
     {
         return Err(fail("state", "state byte limit"));
     }
+    derived::verify(app, state)?;
     Ok(())
 }
 fn validate_expr(

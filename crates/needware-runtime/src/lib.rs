@@ -393,6 +393,30 @@ fn apply(
             });
         }
     }
+    if matches!(
+        a,
+        Action::Create { .. } | Action::Update { .. } | Action::Delete { .. } | Action::Set { .. }
+    ) {
+        let collections: Vec<_> = app
+            .collections
+            .iter()
+            .filter(|(_, c)| c.fields.values().any(|f| f.derived.is_some()))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if !collections.is_empty() {
+            permission(
+                app,
+                grants,
+                &Capability::Storage {
+                    synchronized: false,
+                    write: true,
+                    collections,
+                },
+            )?;
+            needware_validation::derived::materialize(app, state, budget)
+                .map_err(expression_error)?;
+        }
+    }
     Ok(())
 }
 fn render(

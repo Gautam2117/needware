@@ -12,3 +12,6 @@ A package revision is immutable. State revision must match its application defin
 
 `exact_arithmetic_v1` enables exact fixed-scale decimals and millisecond date/time
 arithmetic. Inexact, overflowing or incompatible operations reject transactionally.
+
+`derived_fields_v1` enables deterministic acyclic top-level record projections.
+Persisted state must carry exactly the recomputed derived values.

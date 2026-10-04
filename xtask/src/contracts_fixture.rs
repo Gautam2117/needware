@@ -3,6 +3,32 @@ use std::collections::BTreeMap;
 pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = needware_ir::examples::typed_habit_tracker();
     app.runtime_features.push("exact_arithmetic_v1".into());
+    app.runtime_features.push("derived_fields_v1".into());
+    let derived = Field {
+        data_type: DataType::String,
+        default: None,
+        minimum: None,
+        maximum: None,
+        max_length: None,
+        derived: Some(Expr::Concat {
+            values: vec![
+                Expr::Item {
+                    field: "name".into(),
+                },
+                Expr::Literal {
+                    value: Value::String(" · ".into()),
+                },
+                Expr::State {
+                    key: "balance".into(),
+                },
+            ],
+        }),
+    };
+    app.collections
+        .get_mut("habits")
+        .ok_or("habits")?
+        .fields
+        .insert("label".into(), derived);
     let amount = Field {
         data_type: DataType::Decimal { scale: 2 },
         default: None,

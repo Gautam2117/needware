@@ -32,12 +32,18 @@ impl Runtime {
                 "revision parent does not match the active package".into(),
             ));
         }
-        let migration = needware_migrations::Plan::between(self.application(), target_app)
+        let mut migration = needware_migrations::Plan::between(self.application(), target_app)
             .and_then(|plan| plan.preview(&self.state))
             .map_err(|e| match e {
                 needware_migrations::MigrationError::Limit => RuntimeError::Limit,
                 other => RuntimeError::Invalid(other.to_string()),
             })?;
+        needware_validation::derived::materialize(
+            target_app,
+            &mut migration.state,
+            &mut needware_expr::Budget::new(1_000_000),
+        )
+        .map_err(super::expression_error)?;
         needware_validation::validate_state(&migration.state, target_app)
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
         let mut review = b"needware revision review v1\0".to_vec();

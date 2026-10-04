@@ -17,6 +17,7 @@ test('typed WASM inputs reject malformed events and empty-list state remains typ
       if (runtime.snapshot() !== before) throw new Error('Invalid input mutated state');
     }
     runtime.dispatch(JSON.stringify({ action: 'set_numbers', values: { numbers: { type: 'list', value: [{ type: 'integer', value: '42' }] } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' }));
+    runtime.dispatch(JSON.stringify({ action: 'add', values: { record_id: { type: 'string', value: '11111111-1111-4111-8111-111111111111' }, name: { type: 'string', value: 'read' } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' }));
     runtime.dispatch(JSON.stringify({ action: 'add_amount', values: { amount: { type: 'decimal', value: { coefficient: '75', scale: 2 } } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' }));
     const decimalState = runtime.snapshot(); let precisionRejected = false;
     try { runtime.dispatch(JSON.stringify({ action: 'divide_amount', values: { amount: { type: 'decimal', value: { coefficient: '300', scale: 2 } } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' })); } catch { precisionRejected = true; }
@@ -25,12 +26,16 @@ test('typed WASM inputs reject malformed events and empty-list state remains typ
     const reopened = new wasm.BrowserRuntime(packageBytes, saved, true);
     const invalid = JSON.parse(saved); invalid.values.numbers = { type: 'list', value: [{ type: 'string', value: '42' }] };
     let restoreRejected = false; try { reopened.restore(JSON.stringify(invalid)); } catch { restoreRejected = true; }
+    const tampered = JSON.parse(saved); tampered.collections.habits['11111111-1111-4111-8111-111111111111'].label = { type: 'string', value: 'spoof' };
+    let derivedRejected = false; try { reopened.restore(JSON.stringify(tampered)); } catch { derivedRejected = true; }
     const unchanged = reopened.snapshot() === saved; reopened.free();
-    return { rejected, restoreRejected, unchanged, saved: JSON.parse(saved) };
+    return { rejected, restoreRejected, derivedRejected, unchanged, saved: JSON.parse(saved) };
   }, bytes);
   expect(result.rejected).toBe(3); expect(result.restoreRejected).toBe(true); expect(result.unchanged).toBe(true);
   expect(result.saved.values.numbers).toEqual({ type: 'list', value: [{ type: 'integer', value: '42' }] });
   expect(result.saved.values.balance).toEqual({ type: 'decimal', value: { coefficient: '200', scale: 2 } });
+  expect(result.derivedRejected).toBe(true);
+  expect(result.saved.collections.habits['11111111-1111-4111-8111-111111111111'].label).toEqual({ type: 'string', value: 'read · 2.00' });
 });
 async function importPackage(page: Page, name: string, title: string) {
   await page.getByLabel('Import .need').setInputFiles(`artifacts/revisions/${name}.need`);

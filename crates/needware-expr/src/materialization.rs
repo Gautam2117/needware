@@ -3,7 +3,8 @@ use needware_ir::Value;
 use std::{collections::BTreeMap, io::Write};
 
 impl Budget {
-    pub(crate) fn bytes(&mut self, bytes: usize) -> Result<(), EvalError> {
+    /// Charge a trusted host allocation against the same event allowance.
+    pub fn bytes(&mut self, bytes: usize) -> Result<(), EvalError> {
         if bytes > self.materialized {
             self.materialized = 0;
             return Err(EvalError::Limit);
@@ -39,7 +40,8 @@ impl Budget {
         }
         Ok(())
     }
-    pub(crate) fn record(
+    /// Charge a record before a trusted host clones its owned data.
+    pub fn record(
         &mut self,
         values: &BTreeMap<String, Value>,
         depth: u32,
