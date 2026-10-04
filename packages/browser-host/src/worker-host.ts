@@ -9,7 +9,7 @@ export class WorkerHost<Command> {
     this.port.onmessage = (event: MessageEvent<WorkerReply>) => {
       const response = event.data; const request = this.pending.get(response.id);
       if (!request) return; clearTimeout(request.timer); this.pending.delete(response.id);
-      if (response.ok) request.resolve(response.data); else request.reject(new Error(response.error ?? 'Runtime operation failed'));
+      if (response.ok) request.resolve(response.data); else request.reject(Object.assign(new Error(response.error ?? 'Runtime operation failed'),{retryAfter:response.retryAfter,status:response.status}));
     };
   }
   request<T>(command: Command): Promise<T> {

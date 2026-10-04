@@ -57,9 +57,9 @@ async function ready() {
   }
   throw new Error('Account server did not start; see private .logs/accounts-web.log');
 }
-async function mailLink(subject) {
+async function mailLink(subject, recipient = email) {
   for (let attempt = 0; attempt < 300; attempt++) {
-    const response = await fetch(`http://127.0.0.1:58025/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`);
+    const response = await fetch(`http://127.0.0.1:58025/api/v1/search?query=${encodeURIComponent(`to:${recipient}`)}`);
     const list = await response.json(); const message = list.messages.find(value => value.Subject === subject);
     if (message) {
       const detail = await (await fetch(`http://127.0.0.1:58025/api/v1/message/${message.ID}`)).json();
@@ -68,12 +68,13 @@ async function mailLink(subject) {
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  const queue = await pool.query('SELECT attempts,last_error,(lease_until > now()) AS leased FROM needware_email_outbox WHERE recipient=$1', [email]);
+  const queue = await pool.query('SELECT attempts,last_error,(lease_until > now()) AS leased FROM needware_email_outbox WHERE recipient=$1', [recipient]);
   console.error('Fixture email queue diagnostic', queue.rows);
   try { console.error('Mail worker diagnostic', readFileSync('.logs/accounts-mail.log', 'utf8').split('\n').slice(-8).join('\n')); } catch { /* No worker log was created. */ }
   throw new Error('Fixture verification email was not captured');
 }
 let browser;
+const collaboratorEmails = [];
 try {
   let web = start('web', 'pnpm', ['--filter', '@needware/web', 'start', '--port', String(port)]); await ready();
   browser = await chromium.launch(); const context = await browser.newContext(); const page = await context.newPage();
@@ -121,7 +122,16 @@ try {
   await page.getByLabel('Email', { exact: true }).fill(email); await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in to account', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out everywhere', exact: true }).waitFor();
-  await verifyAccountVault({ page, context, pool, account: userId, origin, email, password });
+  const createCollaborator=async browser=>{
+    const recipient=`collaborator-${crypto.randomUUID()}@example.invalid`;collaboratorEmails.push(recipient);
+    const password=crypto.randomUUID()+crypto.randomUUID();const context=await browser.newContext();
+    const signup=await context.request.post(`${origin}/api/auth/sign-up/email`,{data:{name:'Independent collaborator acceptance',email:recipient,password},headers:{Origin:origin}});assert.equal(signup.status(),200);
+    const page=await context.newPage();await page.goto(await mailLink('Verify your Needware email',recipient));
+    const login=await context.request.post(`${origin}/api/auth/sign-in/email`,{data:{email:recipient,password},headers:{Origin:origin}});assert.equal(login.status(),200);
+    const identity=await(await context.request.get(`${origin}/api/auth/get-session`)).json();assert(identity.user.emailVerified);
+    await page.goto(`${origin}/account`);return {page,context,account:identity.user.id};
+  };
+  await verifyAccountVault({ page, context, pool, account: userId, origin, email, password, createCollaborator });
   await page.screenshot({ path: 'artifacts/account-acceptance.png', fullPage: true });
   const cookies = await context.cookies(); const sessionCookie = cookies.find(value => value.name.endsWith('session_token'));
   assert(sessionCookie?.httpOnly); assert.equal(sessionCookie.sameSite, 'Lax'); assert.equal(sessionCookie.secure, false);
@@ -161,9 +171,12 @@ try {
   assert.equal((await pool.query('SELECT id FROM auth_session WHERE "userId"=$1', [userId])).rowCount, 0);
   assert.equal((await pool.query('SELECT id FROM auth_account WHERE "userId"=$1', [userId])).rowCount, 0);
   assert.equal((await pool.query('SELECT id FROM needware_email_outbox WHERE user_id=$1', [userId])).rowCount, 0);
-  for (const table of ['needware_account_vault', 'needware_vault_device', 'needware_vault_challenge', 'needware_account_limit']) {
+  for (const table of ['needware_account_vault', 'needware_vault_device', 'needware_vault_challenge', 'needware_account_limit', 'needware_document_member', 'needware_relay_usage']) {
     assert.equal((await pool.query(`SELECT account_id FROM ${table} WHERE account_id=$1`, [userId])).rowCount, 0);
   }
+  assert.equal((await pool.query('SELECT id FROM needware_document WHERE owner_id=$1', [userId])).rowCount, 0);
+  assert.equal((await pool.query('SELECT f.document_id FROM needware_document_frame f LEFT JOIN needware_document d ON d.id=f.document_id WHERE d.id IS NULL')).rowCount, 0);
+  assert.equal((await pool.query('SELECT c.document_id FROM needware_document_chunk c LEFT JOIN needware_document d ON d.id=c.document_id WHERE d.id IS NULL')).rowCount, 0);
   // Rate-limit identities cannot be spoofed by forwarding a caller-controlled internal header.
   let limited = false;
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -177,5 +190,7 @@ try {
   if (browser) await browser.close();
   for (const child of children.reverse()) await stop(child);
   // This cleanup is confined to the randomly named fixture created by this run.
-  await pool.query('DELETE FROM auth_user WHERE email=$1', [email]); await pool.end();
+  await pool.query('DELETE FROM auth_user WHERE email=$1', [email]);
+  for(const recipient of collaboratorEmails)await pool.query('DELETE FROM auth_user WHERE email=$1',[recipient]);
+  await pool.end();
 }

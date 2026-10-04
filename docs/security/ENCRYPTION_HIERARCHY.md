@@ -4,7 +4,8 @@ Implemented primitive boundary: `needware-vault`. Owner-signed document membersh
 authorize the `needware-sync` core's read/write roles and generations. Maintained
 accounts, encrypted browser vaults, account-bound cloud root pins/recovery envelopes,
 device enrollment and recovery UI are now wired and tested locally. Server-side
-revocation/rotation and document relay remain pending; local acceptance does not
+revocation/rotation remain pending. The authorized ciphertext document relay is
+implemented and locally tested; local acceptance does not
 establish deployed collaboration.
 
 Each device holds a random 256-bit seed. Domain-separated HKDF derives distinct
@@ -46,11 +47,13 @@ Login/password-reset credentials cannot independently unlock the encryption root
 Document payload encryption uses XChaCha20-Poly1305 with fresh random 192-bit
 nonces. Domain-separated authenticated data includes the complete document
 context and bounded caller metadata; purpose/schema/revision/message identities
-must be supplied by the future sync/package protocol. Payloads are limited to
+are supplied by the sync/private-package protocol. Payloads are limited to
 32 MiB and metadata to 1 KiB. Authentication fails for modified ciphertext,
-metadata or another document key. Private definitions/assets and state will use
-these envelopes at their actual storage/sync boundary; this document does not
-claim they are already encrypted in cloud storage.
+metadata or another document key. Private definitions/assets and shared state use
+these envelopes at the implemented PostgreSQL storage/relay boundary; actual local
+PostgreSQL checks inspect ciphertext and exercise independent decryption/merging.
+Device-local state remains exclusively in encrypted browser journals. Public
+production storage/acceptance is still unverified.
 
 Local device locking is available under an independent host-held key. Ciphertext
 is bound to the device identity and format version. Browser nonextractable-key

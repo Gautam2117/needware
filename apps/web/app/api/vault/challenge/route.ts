@@ -3,9 +3,9 @@ import { object } from '../../../../lib/vault-proof';
 export const runtime = 'nodejs';
 export async function POST(request: Request) {
   try {
-    const { session, pool } = await accountRequest(request, true);
     const body = object(await canonicalBody(request), ['operation']);
-    if (!['create_vault', 'register_device'].includes(String(body.operation))) throw new CloudError(400, 'Invalid device operation');
+    if (!['create_vault', 'register_device', 'relay_document'].includes(String(body.operation))) throw new CloudError(400, 'Invalid device operation');
+    const { session, pool } = await accountRequest(request, body.operation !== 'relay_document');
     const client = await pool.connect();
     try {
       await client.query('BEGIN');

@@ -17,7 +17,7 @@ export type Command =
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
   | { kind: 'delete'; id: string }
   | { kind: 'export-state' };
-export interface WorkerReply { id: number; ok: boolean; data?: unknown; error?: string }
+export interface WorkerReply { id: number; ok: boolean; data?: unknown; error?: string; retryAfter?: number; status?: number }
 export interface Loaded { instance: string; info: PackageInfo; view: ViewNode; storage: string }
 export function frameEvent(value: unknown): value is { action: string; values: Record<string, Value> } {
   if (!value || typeof value !== 'object') return false;

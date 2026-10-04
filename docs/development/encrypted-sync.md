@@ -44,4 +44,10 @@ account, offline concurrent fields, same-field winners, concurrent record creati
 delete-vs-edit, retries/missing history, ciphertext/signature/role attacks, hostile
 authenticated changes, replay/dedup, snapshot reopen with a fresh actor, local-only
 exclusion, derived recomputation, context/epoch mismatch and hostile-byte properties.
-Browser, network, quota/crash and deployment acceptance remain pending.
+Encrypted browser journals, actual PostgreSQL/HTTP encrypted object/frame relay,
+owner recovery and quota/outbox retention are implemented and locally tested.
+The trusted worker's cloud imports require explicit signer/permission review;
+read-only/absent device grants reject at both server and native runtime boundaries.
+See [relay protocol](../decisions/0009-authorized-ciphertext-relay.md).
+Public deployment, exact physical devices, compaction and full re-key/rebase remain
+unfinished.

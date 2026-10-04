@@ -4,6 +4,8 @@ import { DurableSyncSession } from './sync-journal';
 import type { EncryptedCommand, EncryptedLoaded, EncryptedEntry } from './encrypted-protocol';
 import type { PackageInfo, WorkerReply } from './protocol';
 import { requireSupported } from '../../renderer/src/registry';
+import { DocumentRelay, RelayFailure, type PreparedImport } from './relay-client';
+let proposal: { document: string; value: PreparedImport; info: PackageInfo } | undefined;
 let store: EncryptedVaultStore; let vault: BrowserVault | undefined;
 let account: string | undefined; let rootGeneration = 0;
 let session: DurableSyncSession | undefined; let current: EncryptedEntry | undefined; let instance = '';
@@ -16,6 +18,7 @@ function info(bytes: Uint8Array): PackageInfo {
 }
 async function openVault(id: string): Promise<void> {
   if (id === account && vault) return;
+  proposal?.value.close(); proposal = undefined;
   await session?.close(); session = undefined; current = undefined; vault?.free(); vault = undefined; account = undefined;
   const root = await store.load(id);
   if (!root) throw new Error('Set up encrypted storage in your account before opening encrypted applications.');
@@ -25,7 +28,7 @@ async function openVault(id: string): Promise<void> {
 }
 async function activate(next: DurableSyncSession, entry: EncryptedEntry): Promise<EncryptedLoaded> {
   const view = JSON.parse(next.view()); await session?.close(); session = next; current = entry; instance = crypto.randomUUID();
-  return { ...entry, instance, view, pendingUploads: next.pending().length };
+  return { ...entry, instance, view, pendingUploads: next.pending().length, cloudEnabled: next.cloudEnabled() };
 }
 async function execute(command: EncryptedCommand): Promise<unknown> {
   await ready; await openVault(command.account);
@@ -33,6 +36,39 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
   switch (command.kind) {
     case 'example': return authored_sync_example();
     case 'inspect': return info(command.bytes);
+    case 'collaboration-identity': return {format:'needware-collaboration-device-v1',certificate:JSON.parse(vault.device_certificate())};
+    case 'cloud-list': return new DocumentRelay(vault).list();
+    case 'preview-cloud': {
+      if(!command.consent)throw new Error('Document owner review is required');
+      proposal?.value.close();proposal=undefined;
+      const relay=new DocumentRelay(vault);const owned=(await relay.list()).find(entry=>entry.id===command.document);
+      if(!owned)throw new Error('Cloud document unavailable');
+      const own=(owned.binding as {document:{account:string}}).document.account===command.account;
+      if(own)await relay.recoverOwnerGrant(command.document);
+      const pin=own?vault.account_authority():command.pin;const ownerEpoch=own?JSON.parse(vault.account_context()).epoch:command.ownerEpoch;
+      if(!pin||!ownerEpoch)throw new Error('Use the document invitation to verify its owner before importing');
+      const value=await relay.prepareImport(store.documents,command.account,rootGeneration,command.document,pin,ownerEpoch,true);
+      try{const inspected=value.inspect(info);proposal={document:command.document,value,info:inspected};return {document:command.document,info:inspected};}
+      catch(error){value.close();throw error;}
+    }
+    case 'accept-cloud':{
+      if(!command.consent||!proposal||proposal.document!==command.document)throw new Error('Review this cloud package before importing');
+      const review=proposal;proposal=undefined;
+      try{return await activate(await review.value.commit(),{document:review.document,info:review.info});}finally{review.value.close();}
+    }
+    case 'cancel-cloud':proposal?.value.close();proposal=undefined;return null;
+    case 'sync':{
+      if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');
+      const result=await new DocumentRelay(vault).synchronize(session);return {view:JSON.parse(session.view()),pendingUploads:result.pending,more:result.more,cloudEnabled:session.cloudEnabled()};
+    }
+    case 'share':{
+      if(!session||!current||command.instance!==instance||!command.consent)throw new Error('Review document sharing first');
+      const recipient=JSON.parse(command.certificate);
+      const offer=JSON.parse(vault.offer_document(current.document,command.certificate,JSON.stringify(recipient.context),recipient.authority.map((byte:number)=>byte.toString(16).padStart(2,'0')).join(''),command.write,true));
+      const relay=new DocumentRelay(vault);await relay.synchronize(session);
+      await relay.request({action:'grant',document:current.document,recipient,membership:offer.membership,key_envelope:{kind:'offer',value:offer}});
+      const bound=JSON.parse(session.binding());return {format:'needware-document-invitation-v1',document:current.document,context:bound.document,authority:vault.account_authority(),ownerEpoch:JSON.parse(vault.account_context()).epoch,role:command.write?'write':'read'};
+    }
     case 'list': {
       const entries: EncryptedEntry[] = [];
       for (const document of await store.documents.list(command.account)) entries.push({ document, info: await DurableSyncSession.inspect(store.documents, command.account, document, info) });
@@ -79,6 +115,6 @@ self.onmessage = (event: MessageEvent<{ id: number; command: EncryptedCommand }>
   const { id, command } = event.data;
   queue = queue.then(async () => {
     try { self.postMessage({ id, ok: true, data: await execute(command) } satisfies WorkerReply); }
-    catch (error) { self.postMessage({ id, ok: false, error: String(error) } satisfies WorkerReply); }
+    catch (error) { self.postMessage({ id, ok: false, error: String(error), ...(error instanceof RelayFailure?{status:error.status,retryAfter:error.retryAfter}:{}) } satisfies WorkerReply); }
   });
 };

@@ -5,6 +5,7 @@ use super::*;
 pub enum AccountOperationKind {
     CreateVault,
     RegisterDevice,
+    RelayDocument,
 }
 
 /// Device possession proof; the service independently expires and consumes its nonce.

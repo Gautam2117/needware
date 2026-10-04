@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { firefox, webkit, expect } from '@playwright/test';
 import { createRequire } from 'node:module';
+import { verifyDocumentRelay } from './verify_document_relay.mjs';
 const require = createRequire(new URL('../apps/web/package.json', import.meta.url));
 const { default: canonicalize } = await import(require.resolve('canonicalize'));
 async function downloaded(page, button) {
@@ -9,7 +10,7 @@ async function downloaded(page, button) {
   const file = await event; return await readFile(await file.path());
 }
 const jsonFile = (name, buffer) => ({ name, mimeType: 'application/json', buffer });
-export async function verifyAccountVault({ page, context, pool, account, origin, email, password }) {
+export async function verifyAccountVault({ page, context, pool, account, origin, email, password, createCollaborator }) {
   const clients = []; const contexts = []; const sent = [];
   page.on('request', request => { if (request.url() === `${origin}/api/vault` && request.method() === 'POST') sent.push(request.postData()); });
   try {
@@ -114,6 +115,13 @@ export async function verifyAccountVault({ page, context, pool, account, origin,
     await expect(app.getByText('Verified account encrypted application', { exact: true })).toBeVisible();
     await page.screenshot({ path: 'artifacts/encrypted-account-application.png', fullPage: true });
     await page.goto(`${origin}/account`); await expect(page.getByText('Owner Chromium', { exact: true })).toBeVisible();
+    const collaborator=await createCollaborator(browsers[0]);contexts.push(collaborator.context);
+    await collaborator.page.getByRole('button',{name:'Set up encrypted account',exact:true}).click();
+    await downloaded(collaborator.page,'Download recovery file');
+    await collaborator.page.getByLabel('I saved my recovery file outside this browser').check();
+    await collaborator.page.getByRole('button',{name:'Confirm encrypted account setup',exact:true}).click();
+    await expect(collaborator.page.getByText('Encryption keys are ready on this browser.',{exact:true})).toBeVisible();
+    await verifyDocumentRelay({ page, context, otherPage: collaborator.page, otherContext: collaborator.context, otherAccount: collaborator.account, recoveredPage: recovered.view, pool, account, origin });
     console.log('PASS real account-bound Chromium/Firefox/WebKit encrypted setup, retained device keys, HPKE enrollment, recovery after local key loss, signed one-use cloud challenges, replay/tamper/root pin/CSRF/duplicate-JSON boundaries');
   } finally {
     for (const other of contexts) await other.request.post(`${origin}/api/auth/sign-out`, { data: {}, headers: { Origin: origin } });

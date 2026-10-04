@@ -32,6 +32,9 @@ declare module 'needware-wasm-runtime' {
     held_document_key_backup(document: string): string;
     has_document(document: string): boolean;
     forget_document(document: string): void;
+    open_document_payload(document: string, bytes: Uint8Array, metadata: string): Uint8Array;
+    own_document_membership(document: string, generation: number): string;
+    accept_document_key(offer: string, expected: string, ownerEpoch: number, pin: string, generation: number, consent: boolean): void;
     restore_held_document_key(backup: string, context: string): void;
     restore_document_key(backup: string, context: string): void;
     open_document(bytes: Uint8Array, document: string, scope: string, epoch: number, generation: number, consent: boolean): BrowserSync;

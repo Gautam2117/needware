@@ -6,8 +6,10 @@ interface Journal {
   version: 1; account: string; document: string; binding: string; scope: string;
   ownerEpoch: number; authority: string; membership: string; held: string; package: string;
   roster: string; frames: string[]; state: string; queued: string[]; cursor: string | null;
+  cloud?: CloudArtifact;
 }
-export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string }
+export interface CloudArtifact { descriptor: { binding: unknown; configuration: string; package_digest: string; package_bytes: number }; ciphertext: string; membership: unknown; key_envelope: unknown; uploadedChunks?: number }
+export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact } }
 const encoder = new TextEncoder(); const decoder = new TextDecoder('utf-8', { fatal: true });
 function encode(bytes: Uint8Array): string {
   const parts: string[] = [];
@@ -19,6 +21,7 @@ function exportFrames(session: BrowserSync, known: string): string[] { return (J
 function parse(bytes: Uint8Array, account: string, document: string): Journal {
   const value = JSON.parse(decoder.decode(bytes)) as Journal;
   const fields = ['account','authority','binding','cursor','document','frames','held','membership','ownerEpoch','package','queued','roster','scope','state','version'];
+  if (value?.cloud !== undefined) fields.push('cloud'); fields.sort();
   if (!value || Object.keys(value).sort().join(',') !== fields.join(',') || value.version !== 1 || value.account !== account || value.document !== document
       || !Number.isSafeInteger(value.ownerEpoch) || value.ownerEpoch < 1
       || !['authority','binding','held','membership','package','roster','scope','state'].every(key => typeof value[key as keyof Journal] === 'string')
@@ -44,7 +47,8 @@ export class DurableSyncSession {
     const frames = exportFrames(session, '[]');
     const journal: Journal = { version: 1, account: options.account, document, binding, scope: options.scope, ownerEpoch: options.ownerEpoch,
       authority: options.authority, membership: session.membership(), held: vault.held_document_key_backup(document), package: encode(packageBytes),
-      roster: options.roster, frames, state: session.snapshot(), queued: [...frames], cursor: null };
+      roster: options.roster, frames, state: session.snapshot(), queued: options.imported ? [] : [...frames], cursor: options.imported?.cursor ?? null,
+      ...(options.imported ? { cloud: options.imported.cloud } : {}) };
     const bytes = encoder.encode(JSON.stringify(journal));
     let generation: number;
     try { generation = await store.save(options.account, document, bytes, null, options.rootGeneration); } finally { bytes.fill(0); }
@@ -56,6 +60,7 @@ export class DurableSyncSession {
     let journal: Journal;
     try { journal = parse(saved.bytes, account, document); } finally { saved.bytes.fill(0); }
     const binding = JSON.parse(journal.binding) as Binding;
+    if (JSON.parse(vault.account_context()).account !== account) throw new Error('Vault account mismatch');
     if (!vault.has_document(document)) vault.restore_held_document_key(journal.held, JSON.stringify(binding.document));
     const packageBytes = decode(journal.package); let session: BrowserSync;
     try { session = vault.open_shared_document(packageBytes, document, journal.membership, journal.ownerEpoch, journal.authority, binding.generation, journal.scope, binding.schema_epoch, true); }
@@ -79,6 +84,46 @@ export class DurableSyncSession {
   snapshot(): string { this.assertOpen(); return this.session.snapshot(); }
   pending(): readonly string[] { this.assertOpen(); return [...this.journal.queued]; }
   cursor(): string | null { this.assertOpen(); return this.journal.cursor; }
+  binding(): string { this.assertOpen(); return this.journal.binding; }
+  cloudEnabled(): boolean { this.assertOpen(); return Boolean(this.journal.cloud); }
+  async uploadedChunk(count: number): Promise<void> {
+    return this.serial(async () => {
+      const cloud=this.journal.cloud;
+      if(!cloud||!Number.isInteger(count)||count<0||count>Math.ceil(cloud.descriptor.package_bytes/1048576))throw new Error('Invalid package upload checkpoint');
+      const candidate=this.session.fork_session();
+      try{await this.publish(candidate,{...this.journal,cloud:{...cloud,uploadedChunks:count}});}catch(error){candidate.free();throw error;}
+    });
+  }
+  async prepareCloud(): Promise<CloudArtifact> {
+    return this.serial(async () => {
+      if (this.journal.cloud) return structuredClone(this.journal.cloud);
+      const candidate = this.session.fork_session(); const packageBytes = decode(this.journal.package);
+      const metadata = `NEEDWARE-CLOUD-PACKAGE-v1:${this.journal.document}`;
+      let content: Uint8Array; let configuration: Uint8Array | undefined;
+      try {
+        content = candidate.seal_payload(packageBytes, metadata);
+        const configurationBytes = encoder.encode(JSON.stringify({ binding: this.journal.binding, scope: this.journal.scope, ownerEpoch: this.journal.ownerEpoch, authority: this.journal.authority }));
+        try { configuration = candidate.seal_payload(configurationBytes, `NEEDWARE-CLOUD-CONFIGURATION-v1:${this.journal.document}`); }
+        finally { configurationBytes.fill(0); }
+        const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(content));
+        const cloud: CloudArtifact = { descriptor: { binding: JSON.parse(this.journal.binding), configuration: encode(configuration), package_digest: [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2,'0')).join(''), package_bytes: content.length },
+          ciphertext: encode(content), membership: JSON.parse(this.journal.membership), key_envelope: { kind: 'held', value: JSON.parse(this.journal.held) } };
+        await this.publish(candidate, { ...this.journal, cloud }); return structuredClone(cloud);
+      } catch (error) { candidate.free(); throw error; }
+      finally { packageBytes.fill(0); configuration?.fill(0); }
+    });
+  }
+  async receiveWithRoster(frames: readonly string[], cursor: string, roster: string): Promise<number> {
+    return this.serial(async () => {
+      if (frames.length > 256 || cursor.length > 256) throw new Error('Relay batch limit');
+      const candidate = this.session.fork_session(); let received = 0;
+      try {
+        candidate.set_roster(roster);
+        for (const frame of frames) received += candidate.receive(frame);
+        await this.publish(candidate, { ...this.journal, cursor, roster }); return received;
+      } catch (error) { candidate.free(); throw error; }
+    });
+  }
   private assertOpen(): void { if (this.closed) throw new Error('Document session closed'); }
   private serial<T>(run: () => Promise<T>): Promise<T> {
     if (this.closing) return Promise.reject(new Error('Document session closing'));

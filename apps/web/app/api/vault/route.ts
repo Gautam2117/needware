@@ -17,6 +17,7 @@ export async function POST(request: Request) {
     const { session, pool } = await accountRequest(request, true);
     const body = object(await canonicalBody(request), ['proof', 'payload']);
     const proof = operationProof(body.proof, session.user.id, body.payload);
+    if (proof.operation === 'relay_document') throw new CloudError(400, 'Use the document relay for this operation');
     const payload = object(body.payload, proof.operation === 'create_vault' ? ['label', 'recovery'] : ['label']);
     if (typeof payload.label !== 'string' || !payload.label.trim() || payload.label.length > 80) throw new CloudError(400, 'Device name must have 1 to 80 characters');
     const envelope = proof.operation === 'create_vault' ? recovery(payload.recovery, proof.certificate) : undefined;

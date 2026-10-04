@@ -32,6 +32,12 @@ Bootstrap starts digest-pinned PostgreSQL and a local mail inbox with preserved 
 
 The browser can run the authored habit tracker or import signed `.need` packages after explicit signer/permission review. Rust/WASM executes mutations; SQLite/OPFS coordinates writers, with an explicit IndexedDB fallback. A production build caches its shell/runtime for offline reopen. Package and plaintext state exports are separate. The current host accepts local-storage applications and rejects unsupported renderer components before startup.
 
+Verified accounts can also open the encrypted application library. A dedicated
+worker commits encrypted package/state journals before publishing runtime views.
+Opt-in synchronization uploads private ciphertext, enforces registered-device and
+owner-signed grants, and retains outgoing changes through failed uploads. Cloud
+package imports require a fresh signer/permission review. See the [relay boundary](docs/decisions/0009-authorized-ciphertext-relay.md) for metadata, limits and remaining revocation/compaction/deployment gates.
+
 `pnpm dev` starts the shell and local Rust compiler gateway. Configure an approved provider using `.env.example`; without a provider, generation is unavailable. Creation requires disclosure of the recipient and installation-owned credentials. Four HTTP adapters feed a bounded Rust validation/signing pipeline. `pnpm test:compiler` explicitly starts a free HTTP fixture and verifies the browser wiring; it does not call a model. See [compiler setup and limitations](docs/development/compiler.md). Account services remain under implementation.
 
 ## Engineering boundaries

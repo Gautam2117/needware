@@ -277,6 +277,78 @@ impl BrowserVault {
     pub fn forget_document(&mut self, document: &str) {
         self.documents.remove(document);
     }
+    pub fn open_document_payload(
+        &self,
+        document: &str,
+        ciphertext: &[u8],
+        metadata: &str,
+    ) -> Result<Vec<u8>, JsValue> {
+        self.documents
+            .get(document)
+            .ok_or_else(|| error("document key unavailable"))?
+            .open(ciphertext, metadata.as_bytes())
+            .map_err(error)
+            .map(|bytes| bytes.to_vec())
+    }
+    pub fn own_document_membership(
+        &self,
+        document: &str,
+        generation: u32,
+    ) -> Result<String, JsValue> {
+        let key = self
+            .documents
+            .get(document)
+            .ok_or_else(|| error("document key unavailable"))?;
+        let root = self.root()?;
+        let recipient = root
+            .certify_device(self.device.public().map_err(error)?)
+            .map_err(error)?
+            .verify(root.context(), &root.authority().map_err(error)?)
+            .map_err(error)?;
+        json(
+            &root
+                .document_membership(key, &recipient, DocumentRole::Write, generation)
+                .map_err(error)?,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn accept_document_key(
+        &mut self,
+        offer: &str,
+        expected: &str,
+        owner_epoch: u32,
+        pin: &str,
+        generation: u32,
+        consent: bool,
+    ) -> Result<(), JsValue> {
+        if !consent {
+            return Err(error("document sharing consent required"));
+        }
+        self.root()?;
+        let expected: KeyContext = parse(expected)?;
+        let id = expected
+            .document
+            .as_ref()
+            .ok_or_else(|| error("invalid document context"))?;
+        if self.documents.len() >= 256 || self.documents.contains_key(id) {
+            return Err(error("existing keys preserved or key limit"));
+        }
+        let offer: Offer = parse(offer)?;
+        let pin = authority(pin)?;
+        let member = offer
+            .membership
+            .verify(&expected, owner_epoch, &pin, generation)
+            .map_err(error)?;
+        if member.device() != &self.device.public().map_err(error)? {
+            return Err(error("wrong document recipient"));
+        }
+        let key = self
+            .device
+            .open_document(&offer.envelope, &expected, owner_epoch, &pin)
+            .map_err(error)?;
+        self.documents.insert(id.clone(), key);
+        Ok(())
+    }
     pub fn restore_held_document_key(
         &mut self,
         backup: &str,
@@ -653,7 +725,7 @@ impl BrowserSync {
         Ok(())
     }
     pub fn restore_local_state(&mut self, state: &str) -> Result<(), JsValue> {
-        let state = parse(state)?;
+        let state = needware_package::parse_state(state.as_bytes()).map_err(error)?;
         let mut runtime = self.runtime.clone();
         runtime.restore(state).map_err(error)?;
         self.replica
@@ -666,7 +738,11 @@ impl BrowserSync {
         json(&self.runtime.view().map_err(error)?)
     }
     pub fn set_roster(&mut self, roster: &str) -> Result<(), JsValue> {
-        let memberships: Vec<DocumentMembership> = parse(roster)?;
+        if roster.len() > 256 * 1024 {
+            return Err(error("roster size limit"));
+        }
+        let memberships: Vec<DocumentMembership> =
+            needware_package::parse_json(roster.as_bytes()).map_err(error)?;
         if memberships.len() > 256 {
             return Err(error("member limit"));
         }

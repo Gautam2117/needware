@@ -32,14 +32,14 @@ export async function accountRequest(request: Request, fresh = false) {
   if (!limited.rowCount) throw new CloudError(429, 'Account request limit; try again shortly');
   return { session, pool };
 }
-export async function canonicalBody(request: Request): Promise<unknown> {
+export async function canonicalBody(request: Request, limit = 32 * 1024): Promise<unknown> {
   if (request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') throw new CloudError(415, 'JSON requests are required');
   const reader = request.body?.getReader(); if (!reader) throw new CloudError(400, 'Request body is required');
   const chunks: Uint8Array[] = []; let length = 0;
   for (;;) {
     const next = await reader.read(); if (next.done) break;
     length += next.value.byteLength;
-    if (length > 32 * 1024) { await reader.cancel(); throw new CloudError(413, 'Vault request size limit'); }
+    if (length > limit) { await reader.cancel(); throw new CloudError(413, 'Cloud request size limit'); }
     chunks.push(next.value);
   }
   try {

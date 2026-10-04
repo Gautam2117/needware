@@ -2983,6 +2983,7 @@ dependencies = [
 name = "xtask"
 version = "2026.10.0"
 dependencies = [
+ "image",
  "needware-capabilities",
  "needware-compiler",
  "needware-crypto",

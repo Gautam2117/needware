@@ -20,12 +20,16 @@ actual local browser acceptance; public integration remains unverified.
    deduplication, resource bounds and schema epochs. Atomic encrypted browser
    journals and the dedicated encrypted worker/UI now pass local three-engine
    offline, quota, corruption and concurrency acceptance. Continue history
-   compaction, relay/backoff and synchronized revision review/rebase.
+   compaction, cryptographic revocation and synchronized revision review/rebase.
+   Authorized ciphertext relay, durable chunk checkpoints, explicit sharing,
+   reconnect/backoff and separate-account offline convergence pass locally.
 4. Cloud identity and persistence: account migrations/authentication, sessions,
    origin/body/rate controls, transactional email and local deletion implemented.
    Account-bound encryption-device setup/enrollment/recovery is implemented locally.
-   Continue atomic rotation/revocation, encrypted object storage and authorized
-   sync relay. Authentication alone cannot enroll
+   Authorized private package/frame storage and sync relay pass locally, including
+   lost upload acknowledgments, deduplication and owner recovery on a new device.
+   Continue atomic rotation/revocation and production storage operations.
+   Authentication alone cannot enroll
    a device into the encryption vault.
 5. Registry and sharing: immutable revisions, private/unlisted/public URLs,
    encrypted private definitions/assets, lineage/remix, access revocation,

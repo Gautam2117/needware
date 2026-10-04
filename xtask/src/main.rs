@@ -1,7 +1,9 @@
 mod contracts_fixture;
+mod relay_fixture;
 mod revision_fixture;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     match std::env::args().nth(1).as_deref() {
+        Some("relay-fixture") => relay_fixture::generate()?,
         Some("revision-fixture") => {
             revision_fixture::generate()?;
             contracts_fixture::generate()?;
