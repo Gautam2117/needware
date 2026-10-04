@@ -1,11 +1,14 @@
 import { build } from 'esbuild';
-import { mkdir, cp, readdir, readFile } from 'node:fs/promises';
+import { mkdir, cp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { singleFlightWasm } from './single-flight-wasm.mjs';
 import { execFileSync } from 'node:child_process';
 const root = process.cwd();
 const publicDir = `${root}/apps/web/public`;
 await mkdir(`${publicDir}/wasm`, { recursive: true });
 execFileSync('cargo', ['build', '-p', 'needware-wasm', '--target', 'wasm32-unknown-unknown', '--release'], { stdio: 'inherit' });
 execFileSync('wasm-bindgen', ['target/wasm32-unknown-unknown/release/needware_wasm.wasm', '--target', 'web', '--out-dir', `${publicDir}/wasm`], { stdio: 'inherit' });
+const wasmGlue = `${publicDir}/wasm/needware_wasm.js`;
+await writeFile(wasmGlue, singleFlightWasm(await readFile(wasmGlue, 'utf8')));
 await build({ entryPoints: ['packages/browser-host/src/worker.ts'], outfile: `${publicDir}/runtime-worker.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', alias: { 'needware-wasm-runtime': '/wasm/needware_wasm.js' }, external: ['/wasm/*'], minify: true });
 await build({ entryPoints: ['packages/browser-host/src/encrypted-worker.ts'], outfile: `${publicDir}/encrypted-worker.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', alias: { 'needware-wasm-runtime': '/wasm/needware_wasm.js' }, external: ['/wasm/*'], minify: true });
 await build({ entryPoints: ['packages/runtime-frame/src/frame.tsx'], outfile: `${publicDir}/frame.js`, bundle: true, format: 'iife', platform: 'browser', target: 'es2022', minify: true, define: { 'process.env.NODE_ENV': '"production"' } });
