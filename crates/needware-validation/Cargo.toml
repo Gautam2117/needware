@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 [dependencies]
 needware-ir = { path = "../needware-ir" }
+needware-expr = { path = "../needware-expr" }
 needware-capabilities = { path = "../needware-capabilities" }
 needware-migrations = { path = "../needware-migrations" }
 serde.workspace = true

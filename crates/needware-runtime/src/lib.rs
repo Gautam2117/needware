@@ -290,7 +290,12 @@ fn apply(
                     collections: vec![collection.clone()],
                 },
             )?;
-            let id = value(id, state, event, None, app, budget)?.text();
+            let Value::String(id) = value(id, state, event, None, app, budget)? else {
+                return Err(RuntimeError::Invalid("record id must be a string".into()));
+            };
+            if uuid::Uuid::parse_str(&id).is_err() {
+                return Err(RuntimeError::Invalid("record id must be UUID".into()));
+            }
             state
                 .collections
                 .get_mut(collection)

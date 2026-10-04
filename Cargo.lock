@@ -1304,6 +1304,7 @@ version = "2026.10.0"
 dependencies = [
  "chrono",
  "needware-capabilities",
+ "needware-expr",
  "needware-ir",
  "needware-migrations",
  "serde",

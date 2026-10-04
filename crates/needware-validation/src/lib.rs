@@ -45,8 +45,15 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
         || app.collections.len() > 64
         || app.actions.len() > 256
         || app.capabilities.len() > 64
+        || app.state.len() > 128
     {
         return Err(fail("application", "resource limit exceeded"));
+    }
+    for (key, value) in &app.state {
+        if !identifier(key) {
+            return Err(fail("state", "invalid key"));
+        }
+        bounded_value(value, 0)?;
     }
     let mut screens = BTreeSet::new();
     let mut nodes = BTreeSet::new();
@@ -55,7 +62,7 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
         if !screens.insert(&screen.id) {
             return Err(fail("screens", "duplicate screen identifier"));
         }
-        validate_node(&screen.root, &app, &mut nodes, &mut count, 0)?;
+        validate_node(&screen.root, &app, &mut nodes, &mut count, 0, None)?;
     }
     if !screens.contains(&app.initial_screen) {
         return Err(fail("initial_screen", "unknown screen"));
@@ -106,9 +113,6 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
                 validate_value(default, field, 0)?;
             }
         }
-    }
-    for value in app.state.values() {
-        bounded_value(value, 0)?;
     }
     for test in &app.tests {
         if !app.actions.contains_key(&test.action) {
@@ -337,8 +341,17 @@ pub fn validate_state(state: &State, app: &Application) -> Result<(), Diagnostic
     if state.values.keys().collect::<Vec<_>>() != app.state.keys().collect::<Vec<_>>() {
         return Err(fail("state", "state namespace mismatch"));
     }
-    for v in state.values.values() {
+    for (key, v) in &state.values {
         bounded_value(v, 0)?;
+        let initial = app
+            .state
+            .get(key)
+            .ok_or_else(|| fail("state", "unknown key"))?;
+        if !matches!(initial, Value::Null)
+            && !needware_expr::typing::literal(initial).accepts(&needware_expr::typing::literal(v))
+        {
+            return Err(fail("state", "value changes its inferred type"));
+        }
     }
     if serde_json::to_vec(state)
         .map_err(|_| fail("state", "serialization failed"))?
@@ -399,10 +412,18 @@ fn validate_expr(
             value: predicate,
         } => {
             child(collection)?;
-            child(predicate)?;
+            let nested = match collection.as_ref() {
+                Expr::Collection { name } => app.collections.get(name),
+                _ => None,
+            };
+            validate_expr(predicate, app, nested, depth + 1)?;
         }
         Expr::Sort { collection, .. } | Expr::Sum { collection, .. } => child(collection)?,
         _ => {}
+    }
+    if depth == 0 {
+        needware_expr::typing::check(e, app, item)
+            .map_err(|_| fail("expression", "statically incompatible types"))?;
     }
     Ok(())
 }
@@ -425,14 +446,37 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
                 .collections
                 .get(collection)
                 .ok_or_else(|| fail("action", "unknown collection"))?;
-            validate_expr(id, app, Some(schema), 0)?;
+            validate_expr(id, app, None, 0)?;
+            if !needware_expr::typing::Hint::String.accepts(
+                &needware_expr::typing::check(id, app, None)
+                    .map_err(|_| fail("action", "incompatible identifier"))?,
+            ) {
+                return Err(fail("action", "record identifier must be a string"));
+            }
             for (f, e) in values {
                 if !schema.fields.contains_key(f)
                     || schema.fields.get(f).is_some_and(|f| f.derived.is_some())
                 {
                     return Err(fail("action", "unknown or derived target field"));
                 }
-                validate_expr(e, app, Some(schema), 0)?;
+                let item = if matches!(a, Action::Update { .. }) {
+                    Some(schema)
+                } else {
+                    None
+                };
+                validate_expr(e, app, item, 0)?;
+                let field = schema
+                    .fields
+                    .get(f)
+                    .ok_or_else(|| fail("action", "unknown field"))?;
+                let hint = needware_expr::typing::check(e, app, item)
+                    .map_err(|_| fail("action", "incompatible expression types"))?;
+                if !needware_expr::typing::declared(&field.data_type).accepts(&hint) {
+                    return Err(fail(
+                        "action",
+                        "expression result does not match field type",
+                    ));
+                }
             }
         }
         Action::Delete { collection, id } => {
@@ -440,12 +484,30 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
                 return Err(fail("action", "unknown collection"));
             }
             validate_expr(id, app, None, 0)?;
+            if !needware_expr::typing::Hint::String.accepts(
+                &needware_expr::typing::check(id, app, None)
+                    .map_err(|_| fail("action", "incompatible identifier"))?,
+            ) {
+                return Err(fail("action", "record identifier must be a string"));
+            }
         }
         Action::Set { key, value } => {
             if !app.state.contains_key(key) {
                 return Err(fail("action", "unknown state"));
             }
             validate_expr(value, app, None, 0)?;
+            let initial = app
+                .state
+                .get(key)
+                .ok_or_else(|| fail("action", "unknown state"))?;
+            if !matches!(initial, Value::Null)
+                && !needware_expr::typing::literal(initial).accepts(
+                    &needware_expr::typing::check(value, app, None)
+                        .map_err(|_| fail("action", "incompatible state expression"))?,
+                )
+            {
+                return Err(fail("action", "expression result changes state type"));
+            }
         }
         Action::Sequence { actions } | Action::Parallel { actions } => {
             if actions.len() > 256 || matches!(a, Action::Parallel { .. }) && actions.len() > 4 {
@@ -457,6 +519,12 @@ fn validate_action(a: &Action, app: &Application, depth: u32) -> Result<(), Diag
         }
         Action::Conditional { condition, yes, no } => {
             validate_expr(condition, app, None, 0)?;
+            if !needware_expr::typing::Hint::Boolean.accepts(
+                &needware_expr::typing::check(condition, app, None)
+                    .map_err(|_| fail("action", "incompatible condition"))?,
+            ) {
+                return Err(fail("action", "condition must be boolean"));
+            }
             validate_action(yes, app, depth + 1)?;
             if let Some(no) = no {
                 validate_action(no, app, depth + 1)?;
@@ -484,6 +552,7 @@ fn validate_node(
     ids: &mut BTreeSet<String>,
     count: &mut u32,
     depth: u32,
+    item: Option<&Collection>,
 ) -> Result<(), Diagnostic> {
     *count += 1;
     if *count > 4096 || depth > 32 {
@@ -492,14 +561,18 @@ fn validate_node(
     if !identifier(&node.id) || !ids.insert(node.id.clone()) {
         return Err(fail("ui", "invalid/duplicate component identifier"));
     }
-    let item = if let Some(c) = &node.collection {
+    let children_item = if matches!(node.kind, Component::List | Component::Table) {
+        let c = node
+            .collection
+            .as_ref()
+            .ok_or_else(|| fail("ui", "list missing collection"))?;
         Some(
             app.collections
                 .get(c)
                 .ok_or_else(|| fail("ui", "unknown collection"))?,
         )
     } else {
-        None
+        item
     };
     if let Some(a) = &node.action
         && !app.actions.contains_key(a)
@@ -513,7 +586,7 @@ fn validate_node(
         return Err(fail("ui", "option limit"));
     }
     for child in &node.children {
-        validate_node(child, app, ids, count, depth + 1)?;
+        validate_node(child, app, ids, count, depth + 1, children_item)?;
     }
     Ok(())
 }

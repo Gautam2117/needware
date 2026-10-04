@@ -1,6 +1,7 @@
 //! Deterministic expression evaluation with explicit context and bounded work.
 mod materialization;
 mod ordering;
+pub mod typing;
 pub use materialization::display;
 use needware_ir::{BinaryOp, ContextKey, Expr, State, Value};
 use std::collections::BTreeMap;

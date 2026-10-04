@@ -267,3 +267,43 @@ fn copied_value_limit_rolls_back_prior_mutations() -> Result<(), Box<dyn std::er
     );
     Ok(())
 }
+#[test]
+fn dynamically_wrong_state_type_and_delete_identifier_roll_back()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut app = habit_tracker();
+    app.state
+        .insert("counter".into(), Value::Integer("0".into()));
+    app.actions.insert(
+        "dynamic".into(),
+        Action::Sequence {
+            actions: vec![
+                Action::Set {
+                    key: "counter".into(),
+                    value: Expr::Literal {
+                        value: Value::Integer("1".into()),
+                    },
+                },
+                Action::Set {
+                    key: "counter".into(),
+                    value: Expr::Event {
+                        key: "wrong".into(),
+                    },
+                },
+            ],
+        },
+    );
+    let mut r = runtime(app)?;
+    let mut input = event("dynamic", "");
+    input
+        .values
+        .insert("wrong".into(), Value::String("bad".into()));
+    assert!(r.dispatch(&input).is_err());
+    assert_eq!(r.state().values["counter"], Value::Integer("0".into()));
+    input.action = "remove".into();
+    input
+        .values
+        .insert("record_id".into(), Value::Map(BTreeMap::new()));
+    assert!(r.dispatch(&input).is_err());
+    assert_eq!(r.state().values["counter"], Value::Integer("0".into()));
+    Ok(())
+}

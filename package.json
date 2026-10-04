@@ -7,7 +7,7 @@
   "scripts": {
     "build:browser": "python3 scripts/token_guard.py run 'node scripts/build_browser.mjs'",
     "build": "pnpm build:browser && pnpm --filter @needware/web build && node scripts/generate_offline.mjs",
-    "test:e2e": "python3 scripts/token_guard.py run 'pnpm exec playwright test'",
+    "test:e2e": "python3 scripts/token_guard.py run 'cargo run -p xtask -- revision-fixture && pnpm exec playwright test'",
     "test:compiler": "python3 scripts/token_guard.py run 'node scripts/verify_compiler.mjs'",
     "dev": "pnpm build:browser && node scripts/dev.mjs",
     "doctor": "python3 scripts/doctor.py",
