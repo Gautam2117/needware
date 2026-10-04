@@ -3,9 +3,11 @@ export interface Persistence {
   list(): Promise<LibraryEntry[]>;
   get(id: string): Promise<LibraryEntry | undefined>;
   put(value: LibraryEntry, expected: number): Promise<void>;
+  revise(value: LibraryEntry, before: LibraryEntry): Promise<void>;
+  history(id: string): Promise<LibraryEntry[]>;
   delete(id: string): Promise<void>;
 }
-type Operation = { kind: 'list' } | { kind: 'get' | 'delete'; application: string } | { kind: 'put'; entry: LibraryEntry; expected: number };
+type Operation = { kind: 'list' } | { kind: 'get' | 'delete' | 'history'; application: string } | { kind: 'put'; entry: LibraryEntry; expected: number } | { kind: 'revise'; entry: LibraryEntry; before: LibraryEntry };
 type Request = { kind: 'storage-request'; id: string; operation: Operation };
 type Reply = { kind: 'storage-reply'; id: string; ok: boolean; data?: unknown; error?: string };
 export async function coordinatedSqlite(factory: () => Promise<Persistence>): Promise<Persistence> {
@@ -20,6 +22,7 @@ export async function coordinatedSqlite(factory: () => Promise<Persistence>): Pr
     switch (operation.kind) {
       case 'list': return owner.list(); case 'get': return owner.get(operation.application);
       case 'delete': return owner.delete(operation.application); case 'put': return owner.put(operation.entry, operation.expected);
+      case 'history': return owner.history(operation.application); case 'revise': return owner.revise(operation.entry, operation.before);
     }
   };
   bus.onmessage = (event: MessageEvent<Request | Reply>) => {
@@ -31,7 +34,7 @@ export async function coordinatedSqlite(factory: () => Promise<Persistence>): Pr
       let reply: Reply;
       try { reply = { kind: 'storage-reply', id: message.id, ok: true, data: await execute(message.operation) }; }
       catch (error) { reply = { kind: 'storage-reply', id: message.id, ok: false, error: String(error) }; }
-      if (message.operation.kind === 'put' || message.operation.kind === 'delete') { completed.set(message.id, reply); if (completed.size > 128) completed.delete(completed.keys().next().value ?? ''); }
+      if (message.operation.kind === 'put' || message.operation.kind === 'delete' || message.operation.kind === 'revise') { completed.set(message.id, reply); if (completed.size > 128) completed.delete(completed.keys().next().value ?? ''); }
       bus.postMessage(reply);
     });
   };
@@ -62,6 +65,8 @@ export async function coordinatedSqlite(factory: () => Promise<Persistence>): Pr
     list: async () => await request({ kind: 'list' }) as LibraryEntry[],
     get: async application => await request({ kind: 'get', application }) as LibraryEntry | undefined,
     put: async (entry, expected) => { await request({ kind: 'put', entry, expected }); },
+    revise: async (entry, before) => { await request({ kind: 'revise', entry, before }); },
+    history: async application => await request({ kind: 'history', application }) as LibraryEntry[],
     delete: async application => { await request({ kind: 'delete', application }); },
   };
 }

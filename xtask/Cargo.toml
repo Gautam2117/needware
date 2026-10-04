@@ -8,6 +8,8 @@ needware-ir = { path = "../crates/needware-ir" }
 needware-capabilities = { path = "../crates/needware-capabilities" }
 needware-runtime = { path = "../crates/needware-runtime" }
 needware-compiler = { path = "../crates/needware-compiler" }
+needware-package = { path = "../crates/needware-package" }
+needware-crypto = { path = "../crates/needware-crypto" }
 schemars.workspace = true
 serde_json.workspace = true
 ts-rs = "12.0.1"

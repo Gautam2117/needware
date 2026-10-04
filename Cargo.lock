@@ -1246,6 +1246,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "ts-rs",
  "uuid",
 ]
 
@@ -2698,7 +2699,9 @@ version = "2026.10.0"
 dependencies = [
  "needware-capabilities",
  "needware-compiler",
+ "needware-crypto",
  "needware-ir",
+ "needware-package",
  "needware-runtime",
  "schemars",
  "serde_json",

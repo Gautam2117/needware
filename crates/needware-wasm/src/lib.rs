@@ -1,4 +1,5 @@
 //! Narrow browser boundary; core semantics stay in native-testable Rust.
+use needware_capabilities::Grants;
 use needware_ir::State;
 use needware_runtime::{Event, Runtime};
 use wasm_bindgen::prelude::*;
@@ -18,6 +19,7 @@ pub fn authored_example() -> Result<Vec<u8>, JsValue> {
 #[wasm_bindgen]
 pub struct BrowserRuntime {
     inner: Runtime,
+    pending: Option<(needware_runtime::RevisionPreview, Grants)>,
 }
 #[wasm_bindgen]
 impl BrowserRuntime {
@@ -40,6 +42,52 @@ impl BrowserRuntime {
             .map_err(error)?;
         Ok(Self {
             inner: Runtime::load(p, state, grants, &trusted).map_err(error)?,
+            pending: None,
+        })
+    }
+    pub fn preview_revision(
+        &mut self,
+        bytes: &[u8],
+        signer_consent: bool,
+    ) -> Result<String, JsValue> {
+        self.pending = None;
+        if !signer_consent {
+            return Err(error("signer review required"));
+        }
+        let package = needware_package::verify(bytes).map_err(error)?;
+        let grants = Grants {
+            application: package.application().application().id.clone(),
+            revision: package.application().application().revision.clone(),
+            capabilities: package.application().application().capabilities.clone(),
+        };
+        let trusted = package.signers().to_vec();
+        let preview = self
+            .inner
+            .preview_revision(package, &trusted)
+            .map_err(error)?;
+        let report = serde_json::to_string(preview.report()).map_err(error)?;
+        self.pending = Some((preview, grants));
+        Ok(report)
+    }
+    pub fn approve_revision(
+        &mut self,
+        review: &str,
+        destructive: bool,
+        permissions: bool,
+    ) -> Result<BrowserRuntime, JsValue> {
+        let (preview, grants) = self
+            .pending
+            .take()
+            .ok_or_else(|| error("revision review required"))?;
+        if !preview.report().permissions_added.is_empty() && !permissions {
+            return Err(error("permission review required"));
+        }
+        let inner = preview
+            .approve(&self.inner, review, grants, destructive)
+            .map_err(error)?;
+        Ok(Self {
+            inner,
+            pending: None,
         })
     }
     pub fn view(&self) -> Result<String, JsValue> {

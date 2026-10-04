@@ -18,7 +18,7 @@ pub enum MigrationError {
     #[error("migration expression failed: {0}")]
     Expression(String),
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct Impact {
     pub operation: String,
     pub collection: String,
@@ -27,7 +27,8 @@ pub struct Impact {
     pub affected_records: u32,
     pub destructive: bool,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+#[ts(rename = "MigrationReport")]
 pub struct Report {
     pub from_revision: String,
     pub to_revision: String,

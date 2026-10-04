@@ -16,4 +16,8 @@ The successful apply command identifies the retained snapshot generation. Retain
 needware revision-rollback new.need old.need local.sqlite --trust SIGNER_HEX --snapshot 1 --expected-generation 2 --accept-rollback
 ```
 
-Rollback verifies the previous package, validates the snapshot against it, checks the current generation and saves the current state before restoration. It does not delete later edits from history. These commands operate on native SQLite state; browser revision activation remains pending.
+Rollback verifies the previous package, validates the snapshot against it, checks the current generation and saves the current state before restoration. It does not delete later edits from history. Native commands operate on SQLite state; keep previous package files with your backups.
+
+In the browser, import a signed child revision of an application already in your local library. Review the signer, then choose **Trust signer and review revision**. Review the data operations and permission changes; approve destructive changes explicitly before activation. A stale review is rejected, requiring a new preview. **Recovery history** in the trusted viewer restores a retained package and its saved data after confirmation, preserving the current package/data as another recovery copy. These copies stay on the device, count toward a 128 MiB limit and are removed when the local application is deleted. Export important data because browser storage can be evicted.
+
+Generate public fixture-only signed packages with `cargo run -p xtask -- revision-fixture`, then run `pnpm exec playwright test revisions.spec.ts` against a production build. Fixture output is labeled and does not invoke a model.

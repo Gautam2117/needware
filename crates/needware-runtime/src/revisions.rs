@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 pub struct RevisionReport {
     pub review_digest: String,
     pub source_package: String,

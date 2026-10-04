@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
-import type { Command, LibraryEntry, Loaded, PackageInfo, WorkerReply } from '../../../packages/browser-host/src/protocol';
+import type { Command, LibraryEntry, Loaded, PackageInfo, RevisionReport, WorkerReply } from '../../../packages/browser-host/src/protocol';
+import RevisionReview from './revision-review';
 import Sandbox from './sandbox';
 import type { ProviderResponse } from '@needware/ir-types/ProviderResponse';
 import type { StageEvent } from '@needware/ir-types/StageEvent';
@@ -43,6 +44,8 @@ export default function Workbench() {
   const [generationEvents, setGenerationEvents] = useState<StageEvent[]>([]);
   const [library, setLibrary] = useState<LibraryEntry[]>([]); const [review, setReview] = useState<{ info: PackageInfo; bytes: Uint8Array } | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null); const [view, setView] = useState<ViewNode | null>(null);
+  const [revision, setRevision] = useState<RevisionReport | null>(null);
+  const [history, setHistory] = useState<LibraryEntry[] | null>(null);
   const [renderer, setRenderer] = useState<{ code: string; hash: string } | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [prompt, setPrompt] = useState(''); const [status, setStatus] = useState('Starting local runtime');
   useEffect(() => {
@@ -59,7 +62,7 @@ export default function Workbench() {
     return () => { cancellation.current?.abort(); client.close(); host.current = null; };
   }, []);
   async function run(operation: () => Promise<void>) { setBusy(true); setError(''); try { await operation(); } catch (error) { setError(String(error)); } finally { setBusy(false); } }
-  async function inspect(bytes: Uint8Array, generated = false) { if (!generated) setGenerationEvents([]); const info = await host.current?.request<PackageInfo>({ kind: 'inspect', bytes }); if (info) setReview({ info, bytes }); }
+  async function inspect(bytes: Uint8Array, generated = false) { if (!generated) setGenerationEvents([]); const info = await host.current?.request<PackageInfo>({ kind: 'inspect', bytes }); if (info) { setReview({ info, bytes }); setRevision(null); } }
   async function generate() {
     if (!provider || !sendConsent) throw new Error('Review the generation recipient before continuing.');
     const controller = new AbortController(); cancellation.current = controller; setCreating(true);
@@ -68,7 +71,21 @@ export default function Workbench() {
     catch (error) { if (controller.signal.aborted) throw new Error('Creation cancelled.'); throw error; }
     finally { cancellation.current = null; setGenerationStage(''); setCreating(false); }
   }
-  async function open(bytes: Uint8Array) { const result = await host.current?.request<Loaded>({ kind: 'load', bytes, consent: true }); if (result) { setLoaded(result); setView(result.view); setReview(null); setStatus(result.storage); const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); if (entries) setLibrary(entries); } }
+  async function show(result: Loaded) { setLoaded(result); setView(result.view); setReview(null); setRevision(null); setHistory(null); setStatus(result.storage); const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); if (entries) setLibrary(entries); }
+  async function open(bytes: Uint8Array) {
+    const info = await host.current?.request<PackageInfo>({ kind: 'inspect', bytes });
+    const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' });
+    const old = entries?.find(e => e.id === info?.application.id);
+    if (old && old.digest !== info?.digest) { const report = await host.current?.request<RevisionReport>({ kind: 'preview-revision', bytes, consent: true }); if (report) setRevision(report); return; }
+    const result = await host.current?.request<Loaded>({ kind: 'load', bytes, consent: true }); if (result) await show(result);
+  }
+  async function activate(destructive: boolean, permissions: boolean) { if (!revision) return; const result = await host.current?.request<Loaded>({ kind: 'activate-revision', review: revision.review_digest, destructive, permissions }); if (result) await show(result); }
+  async function recover(snapshot: LibraryEntry) {
+    if (!window.confirm('Restore this package and its saved data? Later data will be replaced; a recovery copy of the current state will be saved.')) return;
+    const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); const old = entries?.find(e => e.id === snapshot.id);
+    if (!old) throw new Error('Application no longer exists.');
+    const result = await host.current?.request<Loaded>({ kind: 'rollback', id: snapshot.id, snapshot: snapshot.generation, expected: old.generation, consent: true }); if (result) await show(result);
+  }
   async function remove(id: string) { if (!window.confirm('Delete this application and all its local data? Export anything you want to keep first.')) return; await host.current?.request({ kind: 'delete', id }); const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); if (entries) setLibrary(entries); if (loaded?.info.application.id === id) { setLoaded(null); setView(null); } }
   const frame = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${renderer?.hash}'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'"><style>${frameStyle}</style></head><body><div id="root"></div><script>${renderer?.code ?? ''}</script></body></html>`;
   return <><header><strong>needware<span aria-hidden="true"> /</span></strong><span>Software when you need it.</span></header><main id="main">
@@ -81,8 +98,10 @@ export default function Workbench() {
     {creating && <button onClick={() => cancellation.current?.abort()}>Cancel creation</button>}
     {!!generationEvents.length && <details><summary>Creation checks</summary><ol>{generationEvents.map((event, index) => <li key={index}>{stageLabels[event.stage] ?? 'Creation event'} · {event.elapsed_ms} ms</li>)}</ol></details>}
     <div role="status" aria-live="polite">{busy ? generationStage || 'Verifying application…' : status}</div>{error && <p className="notice error" role="alert">{error}</p>}
-    {review && <section className="review" aria-labelledby="review-title"><h2 id="review-title">Review {review.info.application.title}</h2><p>Package integrity and signature verified. Review this signer before trusting the application.</p><code>{review.info.signers.join(', ')}</code><p>Requested permissions:</p><ul>{review.info.application.capabilities.map((cap, i) => <li key={i}>{cap.kind === 'storage' ? `Read${cap.write ? ' and write' : ''} this application's ${cap.collections.join(', ')} data ${cap.synchronized ? 'with synchronization' : 'on this device'}.` : JSON.stringify(cap)}</li>)}</ul><div className="toolbar"><button className="primary" disabled={busy} onClick={() => run(() => open(review.bytes))}>Trust signer and run application</button><button onClick={() => setReview(null)}>Cancel</button></div><details><summary>Inspect application definition</summary><pre>{JSON.stringify(review.info.application, null, 2)}</pre></details></section>}
-    {loaded && renderer && <section className="viewer" aria-label="Application viewer"><div className="security-bar"><strong>{loaded.info.application.title}</strong><p>Needware trusted shell · Local application · {loaded.storage}</p><code>Digest {loaded.info.digest}</code><div className="toolbar"><button onClick={() => { const entry = library.find(a => a.id === loaded.info.application.id); if (entry) download(`${entry.title}.need`, new Uint8Array(entry.bytes), 'application/vnd.needware.package'); }}>Export package</button><button onClick={() => run(async () => { const state = await host.current?.request<string>({ kind: 'export-state' }); if (state) download('needware-state.json', state, 'application/json'); })}>Export plaintext data</button><button onClick={() => run(() => remove(loaded.info.application.id))}>Delete local application</button></div></div><Sandbox key={loaded.instance} title={loaded.info.application.title} document={frame} view={view ?? loaded.view} error={setError} dispatch={(action, values) => { host.current?.request<ViewNode>({ kind: 'dispatch', instance: loaded.instance, action, values }).then(setView).catch(error => setError(String(error))); }} /></section>}
+    {revision && <RevisionReview key={revision.review_digest} report={revision} busy={busy} activate={(destructive, permissions) => { void run(() => activate(destructive, permissions)); }} cancel={() => { setRevision(null); setReview(null); }} />}
+    {history && <section aria-label="Recovery history"><h2>Recovery history</h2><p>Each copy contains its package and data from before activation or rollback.</p>{history.length ? history.map(entry => <article key={entry.generation}><strong>{entry.title}</strong><p>Saved generation {entry.generation} · {entry.digest}</p><button disabled={busy} onClick={() => run(() => recover(entry))}>Restore generation {entry.generation}</button></article>) : <p>No revision recovery copies yet.</p>}</section>}
+    {review && !revision && <section className="review" aria-labelledby="review-title"><h2 id="review-title">Review {review.info.application.title}</h2><p>Package integrity and signature verified. Review this signer before trusting the application.</p><code>{review.info.signers.join(', ')}</code><p>Requested permissions:</p><ul>{review.info.application.capabilities.map((cap, i) => <li key={i}>{cap.kind === 'storage' ? `Read${cap.write ? ' and write' : ''} this application's ${cap.collections.join(', ')} data ${cap.synchronized ? 'with synchronization' : 'on this device'}.` : JSON.stringify(cap)}</li>)}</ul><div className="toolbar"><button className="primary" disabled={busy} onClick={() => run(() => open(review.bytes))}>{library.some(e => e.id === review.info.application.id && e.digest !== review.info.digest) ? 'Trust signer and review revision' : 'Trust signer and run application'}</button><button onClick={() => setReview(null)}>Cancel</button></div><details><summary>Inspect application definition</summary><pre>{JSON.stringify(review.info.application, null, 2)}</pre></details></section>}
+    {loaded && renderer && <section className="viewer" aria-label="Application viewer"><div className="security-bar"><strong>{loaded.info.application.title}</strong><p>Needware trusted shell · Local application · {loaded.storage}</p><code>Digest {loaded.info.digest}</code><div className="toolbar"><button onClick={() => { const entry = library.find(a => a.id === loaded.info.application.id); if (entry) download(`${entry.title}.need`, new Uint8Array(entry.bytes), 'application/vnd.needware.package'); }}>Export package</button><button onClick={() => run(async () => { const state = await host.current?.request<string>({ kind: 'export-state' }); if (state) download('needware-state.json', state, 'application/json'); })}>Export plaintext data</button><button disabled={busy} onClick={() => run(async () => { const entries = await host.current?.request<LibraryEntry[]>({ kind: 'history', id: loaded.info.application.id }); if (entries) setHistory(entries); })}>Recovery history</button><button onClick={() => run(() => remove(loaded.info.application.id))}>Delete local application</button></div></div><Sandbox key={loaded.instance} title={loaded.info.application.title} document={frame} view={view ?? loaded.view} error={setError} dispatch={(action, values) => { host.current?.request<ViewNode>({ kind: 'dispatch', instance: loaded.instance, action, values }).then(setView).catch(error => setError(String(error))); }} /></section>}
     <section aria-labelledby="library-title"><h2 id="library-title">On this device</h2>{library.length ? <div className="library">{library.map(entry => <article className="app-card" key={entry.id}><strong>{entry.title}</strong><p>Signed package · Local data</p><button disabled={busy} onClick={() => run(() => open(entry.bytes))}>Open {entry.title}</button></article>)}</div> : <p>Your applications will appear here after you run them.</p>}</section>
     <footer>Local data stays in this browser. Browser storage can be cleared or evicted; export a copy of anything important. Offline use requires the shell and runtime to finish caching.</footer>
   </main></>;

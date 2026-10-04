@@ -8,6 +8,8 @@ declare module 'needware-wasm-runtime' {
     snapshot(): string;
     dispatch(event: string): string;
     restore(state: string): void;
+    preview_revision(bytes: Uint8Array, consent: boolean): string;
+    approve_revision(review: string, destructive: boolean, permissions: boolean): BrowserRuntime;
     free(): void;
   }
 }

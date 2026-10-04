@@ -1,5 +1,7 @@
+mod revision_fixture;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     match std::env::args().nth(1).as_deref() {
+        Some("revision-fixture") => revision_fixture::generate()?,
         Some("contracts") => {
             use ts_rs::TS;
             let target = std::path::Path::new("packages/ir-types/src");
@@ -11,6 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             needware_runtime::ViewNode::export_all(&config)?;
             needware_runtime::Event::export_all(&config)?;
             needware_runtime::Effect::export_all(&config)?;
+            needware_runtime::RevisionReport::export_all(&config)?;
             needware_compiler::protocol::CompileRequest::export_all(&config)?;
             needware_compiler::protocol::CompileMessage::export_all(&config)?;
             needware_compiler::protocol::ProviderResponse::export_all(&config)?;

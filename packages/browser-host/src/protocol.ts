@@ -1,6 +1,8 @@
 import type { Application } from '@needware/ir-types/Application';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { Value } from '@needware/ir-types/Value';
+import type { RevisionReport } from '@needware/ir-types/RevisionReport';
+export type { RevisionReport };
 export interface PackageInfo { application: Application; digest: string; signers: string[] }
 export interface LibraryEntry { id: string; title: string; digest: string; bytes: Uint8Array; state: string; generation: number; consent: boolean }
 export type Command =
@@ -8,6 +10,10 @@ export type Command =
   | { kind: 'inspect'; bytes: Uint8Array }
   | { kind: 'library' }
   | { kind: 'load'; bytes: Uint8Array; consent: true }
+  | { kind: 'preview-revision'; bytes: Uint8Array; consent: true }
+  | { kind: 'activate-revision'; review: string; destructive: boolean; permissions: boolean }
+  | { kind: 'history'; id: string }
+  | { kind: 'rollback'; id: string; snapshot: number; expected: number; consent: true }
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
   | { kind: 'delete'; id: string }
   | { kind: 'export-state' };
