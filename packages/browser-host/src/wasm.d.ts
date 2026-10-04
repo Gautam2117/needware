@@ -28,6 +28,7 @@ declare module 'needware-wasm-runtime' {
     create_recovery(approved: boolean): string;
     recover(code: string, envelope: string, context: string, pin: string): void;
     start_document(bytes: Uint8Array, instance: string, scope: string, epoch: number, consent: boolean): BrowserSync;
+    prepare_document_epoch(session: BrowserSync, consent: boolean): BrowserEpoch;
     document_key_backup(document: string): string;
     held_document_key_backup(document: string): string;
     has_document(document: string): boolean;
@@ -45,6 +46,9 @@ declare module 'needware-wasm-runtime' {
   }
   export class BrowserSync {
     fork_session(): BrowserSync;
+    activate_document_key(vault: BrowserVault): void;
+    matches_epoch_cut(transition: string): boolean;
+    install_epoch(checkpoint: Uint8Array, previousBinding: string): string;
     seal_payload(bytes: Uint8Array, metadata: string): Uint8Array;
     open_payload(bytes: Uint8Array, metadata: string): Uint8Array;
     binding(): string;
@@ -59,6 +63,15 @@ declare module 'needware-wasm-runtime' {
     checkpoint(): string;
     receive(frame: string): number;
     dispatch(event: string): string;
+    free(): void;
+  }
+  export class BrowserEpoch {
+    preview(): BrowserSync;
+    held_backup(): string;
+    checkpoint(): Uint8Array;
+    transition(): string;
+    archive(): string;
+    publish(vault: BrowserVault): BrowserSync;
     free(): void;
   }
 }

@@ -20,7 +20,9 @@ actual local browser acceptance; public integration remains unverified.
    deduplication, resource bounds and schema epochs. Atomic encrypted browser
    journals and the dedicated encrypted worker/UI now pass local three-engine
    offline, quota, corruption and concurrency acceptance. Continue history
-   compaction, cryptographic revocation and synchronized revision review/rebase.
+   atomic cloud epoch publication, cryptographic revocation and synchronized
+   revision review/rebase. Owner-signed native/WASM/local journal compaction now
+   retains original history/tombstones and passes cold offline three-engine checks.
    Authorized ciphertext relay, durable chunk checkpoints, explicit sharing,
    reconnect/backoff and separate-account offline convergence pass locally.
 4. Cloud identity and persistence: account migrations/authentication, sessions,

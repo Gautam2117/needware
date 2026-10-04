@@ -1,4 +1,4 @@
-import { test as base } from '@playwright/test';
+import { test as base, type Page } from '@playwright/test';
 import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 export const test = base.extend<{ offlineServer: { url: string; stop(): Promise<void> } }>({
@@ -19,3 +19,17 @@ export const test = base.extend<{ offlineServer: { url: string; stop(): Promise<
   },
 });
 export { expect } from '@playwright/test';
+export async function waitForOfflineReady(page: Page): Promise<void> {
+  try { await page.waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, {timeout:45_000}); }
+  catch (error) {
+    const status = await page.evaluate(async () => ({
+      secure: isSecureContext, online: navigator.onLine,
+      registrations: (await navigator.serviceWorker.getRegistrations()).map(registration => ({
+        scope: registration.scope, active: registration.active?.state,
+        waiting: registration.waiting?.state, installing: registration.installing?.state,
+      })),
+      caches: await caches.keys(),
+    }));
+    throw new Error(`Offline cache activation failed: ${JSON.stringify(status)}`, {cause:error});
+  }
+}

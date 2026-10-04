@@ -49,5 +49,8 @@ owner recovery and quota/outbox retention are implemented and locally tested.
 The trusted worker's cloud imports require explicit signer/permission review;
 read-only/absent device grants reject at both server and native runtime boundaries.
 See [relay protocol](../decisions/0009-authorized-ciphertext-relay.md).
-Public deployment, exact physical devices, compaction and full re-key/rebase remain
-unfinished.
+Owner-authorized compaction/fresh keys now run through native/WASM and atomic
+encrypted local journals, with retained signed archives and cold offline recovery.
+See [epoch protocol](../decisions/0010-owner-authorized-document-epochs.md).
+Public deployment, exact physical devices, atomic cloud epoch publication,
+account-root rotation and complete revocation/rebase remain unfinished.

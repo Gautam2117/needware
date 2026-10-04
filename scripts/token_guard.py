@@ -6,6 +6,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 def main():
     parser = argparse.ArgumentParser()
@@ -15,8 +16,8 @@ def main():
     logs = pathlib.Path(".logs")
     logs.mkdir(exist_ok=True)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-    log = logs / f"{stamp}.log"
-    with log.open("w") as stream:
+    with tempfile.NamedTemporaryFile(mode="w", dir=logs, prefix=f"{stamp}-", suffix=".log", delete=False) as stream:
+        log = logs / pathlib.Path(stream.name).name
         result = subprocess.run(args.command, shell=True, stdout=stream, stderr=subprocess.STDOUT)
     lines = log.read_text(errors="replace").splitlines()
     print(f"{'PASS' if result.returncode == 0 else 'FAIL'} exit={result.returncode} log={log}")

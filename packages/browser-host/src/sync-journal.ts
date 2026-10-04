@@ -7,6 +7,8 @@ interface Journal {
   ownerEpoch: number; authority: string; membership: string; held: string; package: string;
   roster: string; frames: string[]; state: string; queued: string[]; cursor: string | null;
   cloud?: CloudArtifact;
+  epoch?: { checkpoint: string; previous: string };
+  archive?: string[];
 }
 export interface CloudArtifact { descriptor: { binding: unknown; configuration: string; package_digest: string; package_bytes: number }; ciphertext: string; membership: unknown; key_envelope: unknown; uploadedChunks?: number }
 export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact } }
@@ -22,6 +24,8 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
   const value = JSON.parse(decoder.decode(bytes)) as Journal;
   const fields = ['account','authority','binding','cursor','document','frames','held','membership','ownerEpoch','package','queued','roster','scope','state','version'];
   if (value?.cloud !== undefined) fields.push('cloud'); fields.sort();
+  if (value?.epoch !== undefined) fields.push('epoch');
+  if (value?.archive !== undefined) fields.push('archive'); fields.sort();
   if (!value || Object.keys(value).sort().join(',') !== fields.join(',') || value.version !== 1 || value.account !== account || value.document !== document
       || !Number.isSafeInteger(value.ownerEpoch) || value.ownerEpoch < 1
       || !['authority','binding','held','membership','package','roster','scope','state'].every(key => typeof value[key as keyof Journal] === 'string')
@@ -29,6 +33,8 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
       || (value.cursor !== null && (typeof value.cursor !== 'string' || value.cursor.length > 256))) throw new Error('Invalid document journal; original preserved');
   const binding = JSON.parse(value.binding) as Binding;
   if (binding.document.document !== document) throw new Error('Journal document mismatch');
+  if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== 'checkpoint,previous' || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
+  if (value.archive !== undefined && (!Array.isArray(value.archive) || value.archive.length > 4 || value.archive.some(item => typeof item !== 'string'))) throw new Error('Invalid retained epoch archive');
   return value;
 }
 export class DurableSyncSession {
@@ -61,15 +67,28 @@ export class DurableSyncSession {
     try { journal = parse(saved.bytes, account, document); } finally { saved.bytes.fill(0); }
     const binding = JSON.parse(journal.binding) as Binding;
     if (JSON.parse(vault.account_context()).account !== account) throw new Error('Vault account mismatch');
-    if (!vault.has_document(document)) vault.restore_held_document_key(journal.held, JSON.stringify(binding.document));
-    const packageBytes = decode(journal.package); let session: BrowserSync;
-    try { session = vault.open_shared_document(packageBytes, document, journal.membership, journal.ownerEpoch, journal.authority, binding.generation, journal.scope, binding.schema_epoch, true); }
-    finally { packageBytes.fill(0); }
+    const temporaryBackup = vault.local_backup();
+    let stagedVault: BrowserVault;
+    try { stagedVault = (vault.constructor as typeof BrowserVault).from_local_backup(temporaryBackup); }
+    finally { temporaryBackup.fill(0); }
+    let packageBytes: Uint8Array | undefined; let session: BrowserSync;
+    try {
+      packageBytes = decode(journal.package);
+      stagedVault.forget_document(document);
+      stagedVault.restore_held_document_key(journal.held, JSON.stringify(binding.document));
+      session = stagedVault.open_shared_document(packageBytes, document, journal.membership, journal.ownerEpoch, journal.authority, binding.generation, journal.scope, binding.schema_epoch, true);
+    }
+    finally { packageBytes?.fill(0); stagedVault.free(); }
     try {
       if (session.binding() !== journal.binding) throw new Error('Package binding mismatch');
       session.set_roster(journal.roster);
+      if (journal.epoch) {
+        const checkpoint = decode(journal.epoch.checkpoint);
+        try { session.install_epoch(checkpoint, journal.epoch.previous); } finally { checkpoint.fill(0); }
+      }
       for (const frame of journal.frames) session.receive(frame);
       session.restore_local_state(journal.state);
+      session.activate_document_key(vault);
       return new DurableSyncSession(store, session, journal, saved.generation, saved.rootGeneration);
     } catch (error) { session.free(); throw error; }
   }
@@ -86,6 +105,29 @@ export class DurableSyncSession {
   cursor(): string | null { this.assertOpen(); return this.journal.cursor; }
   binding(): string { this.assertOpen(); return this.journal.binding; }
   cloudEnabled(): boolean { this.assertOpen(); return Boolean(this.journal.cloud); }
+  async compactLocal(vault: BrowserVault, consent: boolean): Promise<void> {
+    return this.serial(async () => {
+      if (this.journal.cloud) throw new Error('Cloud document requires an atomic cloud epoch transition');
+      if ((this.journal.archive?.length ?? 0) >= 4) throw new Error('Retained epoch archive limit; original preserved');
+      const prepared = vault.prepare_document_epoch(this.session, consent);
+      const candidate = prepared.preview();
+      const checkpoint = prepared.checkpoint();
+      const { archive: prior, ...previous } = this.journal;
+      const journal: Journal = { ...previous, binding: candidate.binding(), membership: candidate.membership(),
+        held: prepared.held_backup(), roster: JSON.stringify([JSON.parse(candidate.membership())]),
+        frames: [], queued: [], cursor: null, state: candidate.snapshot(),
+        epoch: { checkpoint: encode(checkpoint), previous: this.journal.binding },
+        archive: [...(prior ?? []), JSON.stringify(previous)] };
+      let committed = false;
+      try {
+        candidate.view();
+        await this.publish(candidate, journal);
+        committed = true;
+        const originalStagedSession = prepared.publish(vault); originalStagedSession.free();
+      } catch (error) { if (!committed) candidate.free(); throw error; }
+      finally { checkpoint.fill(0); prepared.free(); }
+    });
+  }
   async uploadedChunk(count: number): Promise<void> {
     return this.serial(async () => {
       const cloud=this.journal.cloud;
@@ -97,6 +139,7 @@ export class DurableSyncSession {
   async prepareCloud(): Promise<CloudArtifact> {
     return this.serial(async () => {
       if (this.journal.cloud) return structuredClone(this.journal.cloud);
+      if (this.journal.epoch) throw new Error('Compacted document requires the cloud epoch publication protocol');
       const candidate = this.session.fork_session(); const packageBytes = decode(this.journal.package);
       const metadata = `NEEDWARE-CLOUD-PACKAGE-v1:${this.journal.document}`;
       let content: Uint8Array; let configuration: Uint8Array | undefined;

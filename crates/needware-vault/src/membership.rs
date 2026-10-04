@@ -20,6 +20,12 @@ pub struct DocumentMembership {
 #[derive(Clone)]
 pub struct VerifiedMembership(DocumentMembership);
 impl VerifiedMembership {
+    pub fn authority(&self) -> &[u8; 32] {
+        &self.0.authority
+    }
+    pub fn root_epoch(&self) -> u32 {
+        self.0.root_epoch
+    }
     pub fn device(&self) -> &DevicePublic {
         &self.0.device
     }

@@ -3,7 +3,7 @@ mod local;
 use super::error;
 use needware_capabilities::{Capability, Grants};
 use needware_crypto::SecretKey;
-use needware_sync::{EncryptedFrame, Replica, Scope};
+use needware_sync::{EncryptedFrame, EpochTrust, Replica, Scope};
 use needware_vault::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -526,7 +526,7 @@ impl BrowserVault {
                 .map_err(error)?,
             membership: self
                 .root()?
-                .document_membership(key, &recipient, role, 1)
+                .document_membership(key, &recipient, role, key.context().epoch)
                 .map_err(error)?,
         })
     }
@@ -627,6 +627,135 @@ pub struct BrowserSync {
     authority: [u8; 32],
 }
 #[wasm_bindgen]
+pub struct BrowserEpoch {
+    previous: KeyContext,
+    next_key: Option<DocumentKey>,
+    session: Option<BrowserSync>,
+    held: HeldDocumentKey,
+    checkpoint: Vec<u8>,
+    transition: DocumentTransition,
+    archive: Vec<EncryptedFrame>,
+}
+#[wasm_bindgen]
+impl BrowserEpoch {
+    pub fn preview(&self) -> Result<BrowserSync, JsValue> {
+        self.session
+            .as_ref()
+            .ok_or_else(|| error("epoch already published"))?
+            .fork_session()
+    }
+    pub fn held_backup(&self) -> Result<String, JsValue> {
+        json(&self.held)
+    }
+    pub fn checkpoint(&self) -> Vec<u8> {
+        self.checkpoint.clone()
+    }
+    pub fn transition(&self) -> Result<String, JsValue> {
+        json(&self.transition)
+    }
+    pub fn archive(&self) -> Result<String, JsValue> {
+        json(&self.archive)
+    }
+    /// Trusted host calls only after its durable transaction succeeds.
+    pub fn publish(&mut self, vault: &mut BrowserVault) -> Result<BrowserSync, JsValue> {
+        let id = self
+            .previous
+            .document
+            .as_ref()
+            .ok_or_else(|| error("invalid epoch document"))?;
+        let current = vault
+            .documents
+            .get(id)
+            .ok_or_else(|| error("original key unavailable"))?;
+        if current.context() != &self.previous
+            || vault.root()?.context() != &self.transition.root
+            || vault.root()?.authority().map_err(error)? != self.transition.authority
+            || self.session.is_none()
+            || self.next_key.is_none()
+        {
+            return Err(error("epoch source changed; original preserved"));
+        }
+        let key = self
+            .next_key
+            .take()
+            .ok_or_else(|| error("epoch already published"))?;
+        vault.documents.insert(id.clone(), key);
+        self.session
+            .take()
+            .ok_or_else(|| error("epoch already published"))
+    }
+}
+#[wasm_bindgen]
+impl BrowserVault {
+    pub fn prepare_document_epoch(
+        &self,
+        session: &mut BrowserSync,
+        consent: bool,
+    ) -> Result<BrowserEpoch, JsValue> {
+        let previous = session.replica.binding().document.clone();
+        let key = self
+            .documents
+            .get(
+                previous
+                    .document
+                    .as_ref()
+                    .ok_or_else(|| error("invalid document"))?,
+            )
+            .ok_or_else(|| error("document key unavailable"))?;
+        if key.context() != &previous {
+            return Err(error("document epoch changed"));
+        }
+        let next = key.rotate().map_err(error)?;
+        let root = self.root()?;
+        let device = root
+            .certify_device(self.device.public().map_err(error)?)
+            .map_err(error)?
+            .verify(root.context(), &root.authority().map_err(error)?)
+            .map_err(error)?;
+        let generation = session
+            .replica
+            .binding()
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| error("generation exhausted"))?;
+        let membership = root
+            .document_membership(&next, &device, DocumentRole::Write, generation)
+            .map_err(error)?;
+        let verified = membership
+            .verify(
+                next.context(),
+                root.context().epoch,
+                &root.authority().map_err(error)?,
+                generation,
+            )
+            .map_err(error)?;
+        let prepared = session
+            .replica
+            .prepare_epoch(root, next.fork_session(), &verified, consent)
+            .map_err(error)?;
+        let mut runtime = session.runtime.clone();
+        runtime
+            .restore(prepared.replica.state().clone())
+            .map_err(error)?;
+        Ok(BrowserEpoch {
+            previous,
+            held: root.wrap_held_document(&next).map_err(error)?,
+            next_key: Some(next),
+            session: Some(BrowserSync {
+                replica: prepared.replica,
+                runtime,
+                membership,
+                roster: vec![verified],
+                owner_epoch: root.context().epoch,
+                authority: root.authority().map_err(error)?,
+            }),
+            checkpoint: prepared.checkpoint,
+            transition: prepared.transition,
+            archive: prepared.archive,
+        })
+    }
+}
+#[wasm_bindgen]
 impl BrowserSync {
     pub fn fork_session(&self) -> Result<BrowserSync, JsValue> {
         Ok(Self {
@@ -637,6 +766,76 @@ impl BrowserSync {
             owner_epoch: self.owner_epoch,
             authority: self.authority,
         })
+    }
+    pub fn activate_document_key(&self, vault: &mut BrowserVault) -> Result<(), JsValue> {
+        if self.membership.device != vault.device.public().map_err(error)? {
+            return Err(error("document session belongs to another device"));
+        }
+        let context = &self.replica.binding().document;
+        let id = context
+            .document
+            .as_ref()
+            .ok_or_else(|| error("invalid document context"))?;
+        if let Some(existing) = vault.documents.get(id) {
+            if existing.context().account != context.account
+                || existing.context().epoch > context.epoch
+            {
+                return Err(error("older document key cannot replace current epoch"));
+            }
+        } else if vault.documents.len() >= 256 {
+            return Err(error("document key limit"));
+        }
+        let held = self.replica.wrap_held_key(vault.root()?).map_err(error)?;
+        let key = vault
+            .root()?
+            .unwrap_held_document(&held, context)
+            .map_err(error)?;
+        if let Some(existing) = vault.documents.get(id)
+            && existing.context() == context
+        {
+            let probe = existing
+                .seal(b"existing document key", b"same epoch key check")
+                .map_err(error)?;
+            key.open(&probe, b"same epoch key check").map_err(error)?;
+        }
+        vault.documents.insert(id.clone(), key);
+        Ok(())
+    }
+    pub fn matches_epoch_cut(&self, transition: &str) -> Result<bool, JsValue> {
+        self.replica
+            .matches_epoch_cut(&parse(transition)?)
+            .map_err(error)
+    }
+    pub fn install_epoch(
+        &mut self,
+        checkpoint: &[u8],
+        previous_binding: &str,
+    ) -> Result<String, JsValue> {
+        let previous: needware_sync::Binding = parse(previous_binding)?;
+        let root = KeyContext {
+            version: 1,
+            kind: KeyKind::AccountRoot,
+            account: self.replica.binding().document.account.clone(),
+            document: None,
+            epoch: self.owner_epoch,
+        };
+        let mut candidate = self.replica.fork_session().map_err(error)?;
+        let transition = candidate
+            .install_epoch(
+                checkpoint,
+                EpochTrust {
+                    previous: &previous,
+                    root: &root,
+                    authority: &self.authority,
+                    roster: &self.roster,
+                },
+            )
+            .map_err(error)?;
+        let mut runtime = self.runtime.clone();
+        runtime.restore(candidate.state().clone()).map_err(error)?;
+        self.replica = candidate;
+        self.runtime = runtime;
+        json(&transition)
     }
     pub fn seal_payload(&self, bytes: &[u8], metadata: &str) -> Result<Vec<u8>, JsValue> {
         self.replica

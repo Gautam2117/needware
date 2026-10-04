@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, waitForOfflineReady } from './fixtures';
 async function trustedVault(page: import('@playwright/test').Page): Promise<string> {
   return page.evaluate(async () => {
     const wasmPath='/wasm/needware_wasm.js';const storePath='/vault-store.js';
@@ -42,7 +42,7 @@ test('device-local application state is encrypted and restored without entering 
   const frame=page.frameLocator('iframe');await frame.getByLabel('Habit name').fill('Never enters shared history');
   await frame.getByRole('button',{name:'Add habit',exact:true}).click();await expect(frame.getByText('Never enters shared history',{exact:true})).toBeVisible();
   await expect(page.getByText('Encrypted browser storage · 0 pending changes',{exact:true})).toBeVisible();
-  await page.waitForFunction(()=>navigator.serviceWorker.controller!==null);await offlineServer.stop();await page.reload();
+  await waitForOfflineReady(page);await offlineServer.stop();await page.reload();
   await page.getByRole('button',{name:'Open Habit tracker',exact:true}).click();await expect(frame.getByText('Never enters shared history',{exact:true})).toBeVisible();
   await expect(page.getByText('Encrypted browser storage · 0 pending changes',{exact:true})).toBeVisible();
 });

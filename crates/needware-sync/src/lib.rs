@@ -1,5 +1,7 @@
 //! Authenticated encrypted Automerge state projection; transport/storage are host boundaries.
+mod epoch;
 mod mapping;
+pub use epoch::{EpochCheckpoint, EpochTrust, PreparedEpoch};
 #[cfg(test)]
 mod tests;
 mod wire;
@@ -56,6 +58,8 @@ pub struct Replica {
     key: DocumentKey,
     device: DeviceKeys,
     writable: bool,
+    authority: [u8; 32],
+    root_epoch: u32,
     doc: AutoCommit,
     state: State,
     log: BTreeMap<ChangeHash, wire::SignedChange>,
@@ -81,6 +85,8 @@ impl Replica {
             key: self.key.fork_session(),
             device: self.device.fork_session(),
             writable: self.writable,
+            authority: self.authority,
+            root_epoch: self.root_epoch,
             doc,
             state: self.state.clone(),
             log: self.log.clone(),
@@ -159,6 +165,8 @@ impl Replica {
             key,
             device,
             writable: membership.role() == DocumentRole::Write,
+            authority: *membership.authority(),
+            root_epoch: membership.root_epoch(),
             doc,
             state,
             log: BTreeMap::new(),
@@ -282,7 +290,13 @@ impl Replica {
         frame: &EncryptedFrame,
         roster: &[VerifiedMembership],
     ) -> Result<usize> {
-        let entries = frame.open(&self.binding, &self.key)?;
+        self.receive_entries(frame.open(&self.binding, &self.key)?, roster)
+    }
+    fn receive_entries(
+        &mut self,
+        entries: Vec<wire::SignedChange>,
+        roster: &[VerifiedMembership],
+    ) -> Result<usize> {
         let mut log = self.log.clone();
         let mut changes = Vec::new();
         let mut sequences = BTreeMap::new();
@@ -296,6 +310,8 @@ impl Replica {
                 .ok_or(SyncError::Authorization)?;
             if member.document() != self.key.context()
                 || member.generation() != self.binding.generation
+                || member.authority() != &self.authority
+                || member.root_epoch() != self.root_epoch
                 || member.role() != DocumentRole::Write
             {
                 return Err(SyncError::Authorization);
