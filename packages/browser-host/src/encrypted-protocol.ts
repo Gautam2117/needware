@@ -12,7 +12,8 @@ export type EncryptedCommand = { account: string } & (
   | { kind: 'export-state'; instance: string }
   | { kind: 'delete'; document: string }
   | { kind: 'sync'; instance: string }
-  | { kind: 'rotate-epoch'; instance: string; consent: true }
+  | { kind: 'rotate-epoch'; instance: string; consent: true; retained?: {certificate:string;write:boolean}[] }
+  | { kind: 'epoch-recipients'; instance: string }
   | { kind: 'cancel-epoch'; instance: string }
   | { kind: 'epoch-state'; instance: string }
   | { kind: 'cloud-list' }
@@ -25,3 +26,4 @@ export type EncryptedCommand = { account: string } & (
 export interface EncryptedEntry { document: string; info: PackageInfo }
 export interface EncryptedLoaded extends EncryptedEntry { instance: string; view: ViewNode; pendingUploads: number; cloudEnabled: boolean; epochPending?: boolean; isOwner?: boolean }
 export interface CloudEntry { id: string; binding: { document: { account: string; document: string } }; ready: boolean }
+export interface EpochRecipientChoice { device_id:string;account_id:string;label:string;certificate:unknown;membership?: {role:string} }

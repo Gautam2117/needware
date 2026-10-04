@@ -3,7 +3,7 @@ mod local;
 use super::error;
 use needware_capabilities::{Capability, Grants};
 use needware_crypto::SecretKey;
-use needware_sync::{EncryptedFrame, EpochTrust, Replica, Scope};
+use needware_sync::{EncryptedFrame, EpochTrust, Replica, RootEpochTrust, Scope};
 use needware_vault::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,6 +56,38 @@ pub struct BrowserVault {
     root: Option<AccountVault>,
     documents: BTreeMap<String, DocumentKey>,
 }
+#[wasm_bindgen]
+pub struct BrowserRootRotation {
+    previous: AccountVault,
+    candidate: BrowserVault,
+    proof: RootRotation,
+}
+#[wasm_bindgen]
+impl BrowserRootRotation {
+    /// The source stays live until the host commits every document and the cloud root together.
+    pub fn preview(&self) -> Result<BrowserVault, JsValue> {
+        let mut backup = self.candidate.local_backup()?;
+        let candidate = BrowserVault::from_local_backup(&backup);
+        zeroize::Zeroize::zeroize(&mut backup);
+        candidate
+    }
+    pub fn proof(&self) -> Result<String, JsValue> {
+        json(&self.proof)
+    }
+    pub fn rewrap_held_backup(&self, held: &str, context: &str) -> Result<String, JsValue> {
+        let key = self
+            .previous
+            .unwrap_held_document(&parse(held)?, &parse(context)?)
+            .map_err(error)?;
+        json(
+            &self
+                .candidate
+                .root()?
+                .wrap_held_document(&key)
+                .map_err(error)?,
+        )
+    }
+}
 impl BrowserVault {
     fn root(&self) -> Result<&AccountVault, JsValue> {
         self.root
@@ -75,6 +107,32 @@ impl BrowserVault {
                 .transpose()
                 .map_err(error)?,
             documents: BTreeMap::new(),
+        })
+    }
+    pub fn prepare_root_rotation(&self, approved: bool) -> Result<BrowserRootRotation, JsValue> {
+        if !approved {
+            return Err(error("explicit root rotation approval required"));
+        }
+        let mut backup = self.local_backup()?;
+        let cloned = BrowserVault::from_local_backup(&backup);
+        zeroize::Zeroize::zeroize(&mut backup);
+        let previous = cloned?
+            .root
+            .ok_or_else(|| error("account root unavailable"))?;
+        let next = previous.rotate().map_err(error)?;
+        let proof = previous.accepted_rotation_to(&next).map_err(error)?;
+        Ok(BrowserRootRotation {
+            previous,
+            candidate: BrowserVault {
+                device: copy_device(&self.device)?,
+                root: Some(next),
+                documents: self
+                    .documents
+                    .iter()
+                    .map(|(id, key)| (id.clone(), key.fork_session()))
+                    .collect(),
+            },
+            proof,
         })
     }
     pub fn device_public(&self) -> Result<String, JsValue> {
@@ -638,6 +696,49 @@ pub struct BrowserEpoch {
 }
 #[wasm_bindgen]
 impl BrowserEpoch {
+    /// Issue the staged key only to an explicitly approved, independently pinned recipient.
+    pub fn offer_document(
+        &self,
+        vault: &BrowserVault,
+        recipient_certificate: &str,
+        recipient_context: &str,
+        recipient_authority: &str,
+        write: bool,
+        approved: bool,
+    ) -> Result<String, JsValue> {
+        if !approved {
+            return Err(error("explicit retained recipient approval required"));
+        }
+        let root = vault.root()?;
+        if root.context() != &self.transition.root
+            || root.authority().map_err(error)? != self.transition.authority
+        {
+            return Err(error("staged epoch owner authority mismatch"));
+        }
+        let key = self
+            .next_key
+            .as_ref()
+            .ok_or_else(|| error("epoch already published"))?;
+        let certificate: DeviceCertificate = parse(recipient_certificate)?;
+        let recipient = certificate
+            .verify(&parse(recipient_context)?, &authority(recipient_authority)?)
+            .map_err(error)?;
+        json(&Offer {
+            envelope: root.share_document(key, &recipient).map_err(error)?,
+            membership: root
+                .document_membership(
+                    key,
+                    &recipient,
+                    if write {
+                        DocumentRole::Write
+                    } else {
+                        DocumentRole::Read
+                    },
+                    self.transition.next_generation,
+                )
+                .map_err(error)?,
+        })
+    }
     pub fn preview(&self) -> Result<BrowserSync, JsValue> {
         self.session
             .as_ref()
@@ -692,6 +793,24 @@ impl BrowserVault {
         session: &mut BrowserSync,
         consent: bool,
     ) -> Result<BrowserEpoch, JsValue> {
+        self.prepare_authorized_epoch(session, None, consent)
+    }
+    pub fn prepare_root_document_epoch(
+        &self,
+        session: &mut BrowserSync,
+        rotation: &str,
+        consent: bool,
+    ) -> Result<BrowserEpoch, JsValue> {
+        self.prepare_authorized_epoch(session, Some(&parse(rotation)?), consent)
+    }
+}
+impl BrowserVault {
+    fn prepare_authorized_epoch(
+        &self,
+        session: &mut BrowserSync,
+        rotation: Option<&RootRotation>,
+        consent: bool,
+    ) -> Result<BrowserEpoch, JsValue> {
         let previous = session.replica.binding().document.clone();
         let key = self
             .documents
@@ -729,10 +848,19 @@ impl BrowserVault {
                 generation,
             )
             .map_err(error)?;
-        let prepared = session
-            .replica
-            .prepare_epoch(root, next.fork_session(), &verified, consent)
-            .map_err(error)?;
+        let prepared = match rotation {
+            Some(rotation) => session.replica.prepare_root_epoch(
+                root,
+                rotation,
+                next.fork_session(),
+                &verified,
+                consent,
+            ),
+            None => session
+                .replica
+                .prepare_epoch(root, next.fork_session(), &verified, consent),
+        }
+        .map_err(error)?;
         let mut runtime = session.runtime.clone();
         runtime
             .restore(prepared.replica.state().clone())
@@ -806,6 +934,15 @@ impl BrowserSync {
             .matches_epoch_cut(&parse(transition)?)
             .map_err(error)
     }
+    pub fn matches_root_epoch_cut(
+        &self,
+        transition: &str,
+        rotation: &str,
+    ) -> Result<bool, JsValue> {
+        self.replica
+            .matches_root_epoch_cut(&parse(transition)?, &parse(rotation)?)
+            .map_err(error)
+    }
     pub fn install_epoch(
         &mut self,
         checkpoint: &[u8],
@@ -822,6 +959,76 @@ impl BrowserSync {
         let mut candidate = self.replica.fork_session().map_err(error)?;
         let transition = candidate
             .install_epoch(
+                checkpoint,
+                EpochTrust {
+                    previous: &previous,
+                    root: &root,
+                    authority: &self.authority,
+                    roster: &self.roster,
+                },
+            )
+            .map_err(error)?;
+        let mut runtime = self.runtime.clone();
+        runtime.restore(candidate.state().clone()).map_err(error)?;
+        self.replica = candidate;
+        self.runtime = runtime;
+        json(&transition)
+    }
+    pub fn install_root_epoch(
+        &mut self,
+        checkpoint: &[u8],
+        previous_binding: &str,
+        previous_root: &str,
+        previous_authority: &str,
+    ) -> Result<String, JsValue> {
+        let previous: needware_sync::Binding = parse(previous_binding)?;
+        let old_root: KeyContext = parse(previous_root)?;
+        let old_authority = authority(previous_authority)?;
+        let root = KeyContext {
+            version: 1,
+            kind: KeyKind::AccountRoot,
+            account: self.replica.binding().document.account.clone(),
+            document: None,
+            epoch: self.owner_epoch,
+        };
+        let mut candidate = self.replica.fork_session().map_err(error)?;
+        let transition = candidate
+            .install_root_epoch(
+                checkpoint,
+                RootEpochTrust {
+                    epoch: EpochTrust {
+                        previous: &previous,
+                        root: &root,
+                        authority: &self.authority,
+                        roster: &self.roster,
+                    },
+                    previous_root: &old_root,
+                    previous_authority: &old_authority,
+                },
+            )
+            .map_err(error)?;
+        let mut runtime = self.runtime.clone();
+        runtime.restore(candidate.state().clone()).map_err(error)?;
+        self.replica = candidate;
+        self.runtime = runtime;
+        json(&transition)
+    }
+    pub fn install_accepted_root_epoch(
+        &mut self,
+        checkpoint: &[u8],
+        previous_binding: &str,
+    ) -> Result<String, JsValue> {
+        let previous: needware_sync::Binding = parse(previous_binding)?;
+        let root = KeyContext {
+            version: 1,
+            kind: KeyKind::AccountRoot,
+            account: self.replica.binding().document.account.clone(),
+            document: None,
+            epoch: self.owner_epoch,
+        };
+        let mut candidate = self.replica.fork_session().map_err(error)?;
+        let transition = candidate
+            .install_accepted_root_epoch(
                 checkpoint,
                 EpochTrust {
                     previous: &previous,

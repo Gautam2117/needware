@@ -1,7 +1,7 @@
 //! Authenticated encrypted Automerge state projection; transport/storage are host boundaries.
 mod epoch;
 mod mapping;
-pub use epoch::{EpochCheckpoint, EpochTrust, PreparedEpoch};
+pub use epoch::{EpochCheckpoint, EpochTrust, PreparedEpoch, RootEpochTrust};
 #[cfg(test)]
 mod tests;
 mod wire;

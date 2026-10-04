@@ -2,6 +2,151 @@ use super::*;
 use needware_vault::DocumentMembership;
 
 #[test]
+fn accepted_root_epoch_requires_both_pins_and_excludes_old_root_holders() -> TestResult {
+    let mut world = world(&[DocumentRole::Write, DocumentRole::Read, DocumentRole::Write])?;
+    create(&mut world.clients[0], "Before owner device revocation")?;
+    let previous = world.clients[0].binding().clone();
+    let old_frames = world.clients[0].export(&BTreeSet::new())?;
+    for frame in &old_frames {
+        world.clients[2].receive(frame, &world.roster)?;
+    }
+    let root = world.owner.rotate()?;
+    let rotation = world.owner.accepted_rotation_to(&root)?;
+    let key = world.key.rotate()?;
+    let grant = |index: usize, role| -> TestResult<VerifiedMembership> {
+        let recipient = root
+            .certify_device(world.clients[index].device.public()?)?
+            .verify(root.context(), &root.authority()?)?;
+        Ok(root
+            .document_membership(&key, &recipient, role, 2)?
+            .verify(key.context(), 2, &root.authority()?, 2)?)
+    };
+    let owner_grant = grant(0, DocumentRole::Write)?;
+    let retained_grant = grant(1, DocumentRole::Read)?;
+    assert!(
+        world.clients[0]
+            .prepare_epoch(&root, key.fork_session(), &owner_grant, true)
+            .is_err()
+    );
+    let prepared = world.clients[0].prepare_root_epoch(
+        &root,
+        &rotation,
+        key.fork_session(),
+        &owner_grant,
+        true,
+    )?;
+    assert!(world.clients[0].matches_root_epoch_cut(&prepared.transition, &rotation)?);
+    assert!(
+        world.clients[0]
+            .matches_epoch_cut(&prepared.transition)
+            .is_err()
+    );
+    create(
+        &mut world.clients[2],
+        "Revoked offline work outside the cut",
+    )?;
+    assert!(!world.clients[2].matches_root_epoch_cut(&prepared.transition, &rotation)?);
+    let mut retained = receiver(&world, &key, &retained_grant, 1)?;
+    let roster = [owner_grant, retained_grant];
+    let trust = || EpochTrust {
+        previous: &previous,
+        root: root.context(),
+        authority: &prepared.transition.authority,
+        roster: &roster,
+    };
+    assert!(
+        retained
+            .install_epoch(&prepared.checkpoint, trust())
+            .is_err()
+    );
+    assert!(retained.known().is_empty());
+    let wrong = [0; 32];
+    assert!(
+        retained
+            .install_root_epoch(
+                &prepared.checkpoint,
+                RootEpochTrust {
+                    epoch: trust(),
+                    previous_root: world.owner.context(),
+                    previous_authority: &wrong
+                }
+            )
+            .is_err()
+    );
+    assert!(retained.known().is_empty());
+    retained.install_root_epoch(
+        &prepared.checkpoint,
+        RootEpochTrust {
+            epoch: trust(),
+            previous_root: world.owner.context(),
+            previous_authority: &world.owner.authority()?,
+        },
+    )?;
+    assert_eq!(retained.state(), world.clients[0].state());
+    let mut recovered = receiver(&world, &key, &roster[1], 1)?;
+    recovered.install_accepted_root_epoch(&prepared.checkpoint, trust())?;
+    assert_eq!(recovered.state(), world.clients[0].state());
+    assert!(
+        retained
+            .install_root_epoch(
+                &prepared.checkpoint,
+                RootEpochTrust {
+                    epoch: trust(),
+                    previous_root: world.owner.context(),
+                    previous_authority: &world.owner.authority()?
+                }
+            )
+            .is_err()
+    );
+    assert!(
+        world
+            .key
+            .open(&prepared.checkpoint, b"needware owner epoch checkpoint v1")
+            .is_err()
+    );
+    let held = root.wrap_held_document(&key)?;
+    assert!(
+        world
+            .owner
+            .unwrap_held_document(&held, key.context())
+            .is_err()
+    );
+    assert!(retained.receive(&old_frames[0], &world.roster).is_err());
+    let plaintext = key.open(&prepared.checkpoint, b"needware owner epoch checkpoint v1")?;
+    let mut checkpoint: EpochCheckpoint = serde_json::from_slice(&plaintext)?;
+    checkpoint
+        .root_rotation
+        .as_mut()
+        .ok_or("rotation")?
+        .acceptance[0] ^= 1;
+    let altered = key.seal(
+        &wire::canonical(&checkpoint)?,
+        b"needware owner epoch checkpoint v1",
+    )?;
+    let mut fresh = receiver(&world, &key, &roster[1], 1)?;
+    assert!(
+        fresh
+            .install_accepted_root_epoch(&altered, trust())
+            .is_err()
+    );
+    assert!(fresh.known().is_empty());
+    assert!(
+        fresh
+            .install_root_epoch(
+                &altered,
+                RootEpochTrust {
+                    epoch: trust(),
+                    previous_root: world.owner.context(),
+                    previous_authority: &world.owner.authority()?
+                }
+            )
+            .is_err()
+    );
+    assert!(fresh.known().is_empty());
+    Ok(())
+}
+
+#[test]
 fn previously_verified_grants_do_not_cross_the_current_root_authority() -> TestResult {
     let mut world = world(&[DocumentRole::Write, DocumentRole::Read])?;
     create(&mut world.clients[0], "Old authority write")?;

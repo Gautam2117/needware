@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
-import type { EncryptedCommand, EncryptedEntry, EncryptedLoaded, CloudEntry } from '../../../../packages/browser-host/src/encrypted-protocol';
+import type { EncryptedCommand, EncryptedEntry, EncryptedLoaded, CloudEntry, EpochRecipientChoice } from '../../../../packages/browser-host/src/encrypted-protocol';
 import type { PackageInfo } from '../../../../packages/browser-host/src/protocol';
 import { WorkerHost } from '../../../../packages/browser-host/src/worker-host';
 import Sandbox from '../sandbox';
@@ -16,6 +16,7 @@ export default function EncryptedApplications() {
   const [entries, setEntries] = useState<EncryptedEntry[]>([]); const [review, setReview] = useState<{ info: PackageInfo; bytes: Uint8Array }>();
   const [cloudEntries,setCloudEntries]=useState<CloudEntry[]>([]);const [cloudReview,setCloudReview]=useState<EncryptedEntry>();
   const [recipient,setRecipient]=useState<string>();const [allowWrite,setAllowWrite]=useState(false);const [shareConsent,setShareConsent]=useState(false);
+  const [epochChoices,setEpochChoices]=useState<EpochRecipientChoice[]>([]);const [retainedDevices,setRetainedDevices]=useState<string[]>([]);
   const [loaded, setLoaded] = useState<EncryptedLoaded>(); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [status, setStatus] = useState('Open encrypted applications from your account to select a trusted browser vault.'); const [renderer, setRenderer] = useState<{ code: string; hash: string }>();
   const occupied=useRef(false);const syncing=useRef(false);
@@ -54,7 +55,7 @@ export default function EncryptedApplications() {
   } finally { occupied.current=false;setBusy(false); } }
   async function refresh() { const value = await host.current?.request<EncryptedEntry[]>({ kind: 'list', account }); if (value) setEntries(value); }
   async function inspect(bytes: Uint8Array) { const info = await host.current?.request<PackageInfo>({ kind: 'inspect', account, bytes }); if (info) { setReview({ info, bytes }); setCloudReview(undefined); } }
-  async function show(value: EncryptedLoaded | undefined) { if (value) { setLoaded(value); setReview(undefined); setStatus('Encrypted browser storage ready'); await refresh(); } }
+  async function show(value: EncryptedLoaded | undefined) { if (value) { setLoaded(value); setEpochChoices([]);setRetainedDevices([]);setReview(undefined); setStatus('Encrypted browser storage ready'); await refresh(); } }
   async function remove(document: string) {
     if (!window.confirm('Delete this encrypted application from this browser? Export anything you want to keep first.')) return;
     await host.current?.request({ kind: 'delete', account, document }); if (loaded?.document === document) setLoaded(undefined); await refresh();
@@ -63,9 +64,10 @@ export default function EncryptedApplications() {
   async function previewCloud(document:string,pin?:string,ownerEpoch?:number){const value=await host.current?.request<EncryptedEntry>({kind:'preview-cloud',account,document,pin,ownerEpoch,consent:true});if(value){setCloudReview(value);setReview(undefined);}}
   async function sync(){if(!loaded||syncing.current)return;syncing.current=true;try{const result=await host.current?.request<{view:ViewNode;pendingUploads:number;more:boolean;cloudEnabled:boolean}>({kind:'sync',account,instance:loaded.instance});if(result){setLoaded(previous=>previous?.instance===loaded.instance?{...previous,...result}:previous);setStatus(result.pendingUploads||result.more?'Cloud batch saved. Continue synchronization for remaining changes.':'Encrypted changes saved to cloud');}}finally{syncing.current=false;}}
   async function rotate(){
-    if(!loaded||!window.confirm('Create fresh document keys and remove all existing collaborator grants? Old downloaded data cannot be erased. Shared history is retained. Share a new invitation with anyone who should keep access.'))return;
-    const result=await host.current?.request<Partial<EncryptedLoaded>>({kind:'rotate-epoch',account,instance:loaded.instance,consent:true});
-    if(result){setLoaded(previous=>previous?.instance===loaded.instance?{...previous,...result}:previous);setStatus('Fresh document keys activated. Existing collaborator grants were removed.');}
+    if(!loaded||!window.confirm(`Create fresh document keys, keep access for ${retainedDevices.length} selected devices, and remove all other collaborator grants? Old downloaded data cannot be erased. Shared history is retained.`))return;
+    const retained=epochChoices.filter(choice=>retainedDevices.includes(`${choice.account_id}:${choice.device_id}`)).map(choice=>({certificate:JSON.stringify(choice.certificate),write:choice.account_id===account||choice.membership?.role==='write'}));
+    const result=await host.current?.request<Partial<EncryptedLoaded>>({kind:'rotate-epoch',account,instance:loaded.instance,consent:true,retained});
+    if(result){setLoaded(previous=>previous?.instance===loaded.instance?{...previous,...result}:previous);setEpochChoices([]);setRetainedDevices([]);setStatus('Fresh document keys activated. Selected devices keep access; other collaborator grants were removed.');}
   }
   const frame = frameDocument(renderer);
   return <><header><Link href="/">needware /</Link><nav><Link href="/account">Your account</Link></nav></header><main id="main">
@@ -86,7 +88,9 @@ export default function EncryptedApplications() {
       <button disabled={busy} onClick={()=>run(async()=>{const state=await host.current?.request<string>({kind:'export-state',account,instance:loaded.instance});if(state)download('needware-state.json',state,'application/json');})}>Export plaintext data</button>
       <button disabled={busy} onClick={()=>run(()=>remove(loaded.document))}>Delete encrypted application</button></div></div>
       <div className="toolbar"><button disabled={busy} onClick={()=>run(sync)}>Sync encrypted application</button></div>
-      {loaded.cloudEnabled&&loaded.isOwner&&<details><summary>Document keys and access</summary><p>Rotate keys to remove existing collaborator grants for future cloud data. Old packages and signed history remain encrypted in the archive. Previously downloaded data remains with its recipients. Other owner devices can recover a fresh grant.</p>
+      {loaded.cloudEnabled&&loaded.isOwner&&<details><summary>Document keys and access</summary><p>Choose devices to keep access before rotating keys. Unselected collaborators lose access to future cloud data. Old packages and signed history remain encrypted in the archive. Previously downloaded data remains with its recipients. Other owner devices can recover a fresh grant.</p>
+        <button disabled={busy||loaded.epochPending} onClick={()=>run(async()=>{const choices=await host.current?.request<EpochRecipientChoice[]>({kind:'epoch-recipients',account,instance:loaded.instance});if(choices){setEpochChoices(choices);setRetainedDevices([]);}})}>Review devices to keep access</button>
+        {epochChoices.length>0&&<fieldset><legend>Keep access after rotation</legend>{epochChoices.map(choice=>{const id=`${choice.account_id}:${choice.device_id}`;return <label key={id}><input type="checkbox" disabled={busy||loaded.epochPending} checked={retainedDevices.includes(id)} onChange={event=>setRetainedDevices(previous=>event.target.checked?[...previous,id]:previous.filter(value=>value!==id))} />{choice.label} ({choice.device_id.slice(0,8)}) — {choice.account_id===account?'Your device':choice.membership?.role==='write'?'Collaborator, can edit':'Collaborator, can view'}</label>;})}</fieldset>}
         <button disabled={busy} onClick={()=>run(rotate)}>Rotate document keys and remove collaborator grants</button>
         {loaded.epochPending&&<><p>Key rotation is pending. Changes are paused; Sync resumes the saved intent.</p><button disabled={busy} onClick={()=>run(async()=>{const result=await host.current?.request<Partial<EncryptedLoaded>>({kind:'cancel-epoch',account,instance:loaded.instance});if(result)setLoaded(previous=>previous?{...previous,...result}:previous);})}>Cancel pending key rotation</button></>}
       </details>}

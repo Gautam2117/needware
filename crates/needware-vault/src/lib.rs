@@ -14,7 +14,7 @@ pub use membership::{DocumentMembership, DocumentRole, VerifiedMembership};
 use needware_crypto::{CryptoError, SecretKey};
 pub use operation::{AccountOperation, AccountOperationKind};
 pub use recovery::{RecoveryCode, RecoveryEnvelope};
-pub use rotation::{RootTransition, VerifiedAuthority};
+pub use rotation::{RootRotation, RootTransition, VerifiedAuthority};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 pub use wrapping::{DeviceEnvelope, WrappedKey};

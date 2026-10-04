@@ -38,8 +38,11 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
     let membership = owner.document_membership(&next, &recipient, DocumentRole::Write, 2)?;
     let verified = membership.verify(next.context(), 1, &owner.authority()?, 2)?;
     let prepared = replica.prepare_epoch(&owner, next, &verified, true)?;
+    let rotated = owner.rotate()?;
+    let rotation = owner.accepted_rotation_to(&rotated)?;
     let fixture = serde_json::json!({ "previous": previous, "next": prepared.replica.binding(),
-        "root": owner.context(), "authority": owner.authority()?, "transition": prepared.transition, "membership": membership });
+        "root": owner.context(), "authority": owner.authority()?, "transition": prepared.transition,
+        "membership": membership, "root_rotation": rotation });
     std::fs::create_dir_all("artifacts")?;
     std::fs::write(
         "artifacts/epoch-proof-fixture.json",

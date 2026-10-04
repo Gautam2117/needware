@@ -94,6 +94,16 @@ export async function POST(request: Request) {
         if(grant && !same(grant.device,proof.certificate.device))throw new CloudError(403,'Document device mismatch');
         if(payload.action.startsWith('epoch_'))data=await epochAction(client,doc,payload,{account,device,certificate:proof.certificate,owner,grant},charge,envelope);
         else switch(payload.action){
+          case 'recipients':{
+            object(payload,['action','document']);if(!owner)throw new CloudError(403,'Pinned document owner required');
+            const choices=await client.query(`SELECT d.device_id,d.account_id,d.label,d.certificate,m.membership FROM needware_vault_device d
+              JOIN needware_account_vault v ON v.account_id=d.account_id
+              LEFT JOIN needware_document_member m ON m.account_id=d.account_id AND m.device_id=d.device_id AND m.document_id=$1 AND NOT m.revoked
+              WHERE (d.account_id=$2 OR m.document_id IS NOT NULL) AND d.certificate->'context'=v.context
+              ORDER BY d.account_id,d.device_id LIMIT 257`,[document,account]);
+            if(choices.rowCount!>256)throw new CloudError(409,'Recipient review limit');
+            data=choices.rows.filter(item=>item.device_id!==device||item.account_id!==account);break;
+          }
           case 'recover':{
             object(payload,['action','document']);if(!owner)throw new CloudError(403,'Pinned document owner required');
             const held=await client.query(`SELECT key_envelope FROM needware_document_member WHERE document_id=$1 AND account_id=$2 AND key_envelope->>'kind'='held' LIMIT 1`,[document,account]);

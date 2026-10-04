@@ -12,6 +12,16 @@ async function rateWindow(pool,account){
     if(remaining){console.log('Relay acceptance waiting for the existing account quota window');await new Promise(resolve=>setTimeout(resolve,Math.min(remaining,60_000)));}}
 }
 export async function verifyDocumentRelay({page,context,otherPage,otherContext,otherAccount,recoveredPage,enrolledPage,pool,account,origin}){
+  if(process.env.NEEDWARE_TEST_EPOCH_FOCUS==='1'){
+    // Diagnostic subset; CI and the full release check always retain the relay corpus below.
+    for(const [client,name] of [[page,'__needwareRelay'],[otherPage,'__editableRelay']])await client.evaluate(async name=>{
+      const wasm=await import('/wasm/needware_wasm.js');await wasm.default({module_or_path:'/wasm/needware_wasm_bg.wasm'});
+      const {openVaultStore}=await import('/vault-store.js'),{DocumentRelay}=await import('/relay-client.js');
+      const account=(await(await fetch('/api/auth/get-session')).json()).user.id,store=await openVaultStore(),root=await store.load(account),vault=wasm.BrowserVault.from_local_backup(root.bytes);root.bytes.fill(0);
+      globalThis[name]={wasm,store,vault,relay:new DocumentRelay(vault)};
+    },name);
+    await verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPage,pool,account,otherAccount,origin});return;
+  }
   await rateWindow(pool,account);
   execFileSync('cargo',['run','-p','xtask','--','relay-fixture'],{stdio:'inherit'});
   const packageBytes=(await readFile('artifacts/relay-transport-fixture.need')).toString('base64');

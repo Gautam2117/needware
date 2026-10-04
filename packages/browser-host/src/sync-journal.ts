@@ -11,7 +11,8 @@ interface Journal {
   archive?: string[];
   pendingEpoch?: CloudEpochIntent;
 }
-export interface CloudEpochIntent { next: string; transition: unknown; checkpoint: { digest: string; bytes: number }; sourceCursor: string }
+export interface EpochRecipient { certificate: string; context: string; authority: string; write: boolean }
+export interface CloudEpochIntent { next: string; transition: unknown; checkpoint: { digest: string; bytes: number }; sourceCursor: string; recipients?: {recipient:unknown;membership:unknown;key_envelope:unknown}[] }
 export interface CloudArtifact { descriptor: { binding: unknown; configuration: string; package_digest: string; package_bytes: number }; ciphertext: string; membership: unknown; key_envelope: unknown; uploadedChunks?: number }
 export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact; epoch?: {checkpoint:string;previous:string} } }
 const encoder = new TextEncoder(); const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -38,7 +39,12 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
   if (binding.document.document !== document) throw new Error('Journal document mismatch');
   if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== 'checkpoint,previous' || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
   if (value.archive !== undefined && (!Array.isArray(value.archive) || value.archive.length > 4 || value.archive.some(item => typeof item !== 'string'))) throw new Error('Invalid retained epoch archive');
-  if (value.pendingEpoch !== undefined && (!value.pendingEpoch || Object.keys(value.pendingEpoch).sort().join(',') !== 'checkpoint,next,sourceCursor,transition' || typeof value.pendingEpoch.next !== 'string' || encoder.encode(value.pendingEpoch.next).length > 32*1024*1024 || typeof value.pendingEpoch.sourceCursor !== 'string' || !/^(0|[1-9][0-9]{0,5})$/.test(value.pendingEpoch.sourceCursor) || typeof value.pendingEpoch.checkpoint?.digest !== 'string' || !/^[0-9a-f]{64}$/.test(value.pendingEpoch.checkpoint.digest) || !Number.isInteger(value.pendingEpoch.checkpoint.bytes) || value.pendingEpoch.checkpoint.bytes < 40 || value.pendingEpoch.checkpoint.bytes > 16777256)) throw new Error('Invalid durable epoch intent');
+  const intentFields=['checkpoint','next','sourceCursor','transition'];
+  if(value.pendingEpoch?.recipients!==undefined){
+    intentFields.push('recipients');intentFields.sort();const recipients=value.pendingEpoch.recipients;
+    if(!Array.isArray(recipients)||recipients.length>255||recipients.some(item=>!item||Object.keys(item).sort().join(',')!=='key_envelope,membership,recipient'||encoder.encode(JSON.stringify(item)).length>32768))throw new Error('Invalid retained epoch recipients');
+  }
+  if (value.pendingEpoch !== undefined && (!value.pendingEpoch || Object.keys(value.pendingEpoch).sort().join(',') !== intentFields.join(',') || typeof value.pendingEpoch.next !== 'string' || encoder.encode(value.pendingEpoch.next).length > 32*1024*1024 || typeof value.pendingEpoch.sourceCursor !== 'string' || !/^(0|[1-9][0-9]{0,5})$/.test(value.pendingEpoch.sourceCursor) || typeof value.pendingEpoch.checkpoint?.digest !== 'string' || !/^[0-9a-f]{64}$/.test(value.pendingEpoch.checkpoint.digest) || !Number.isInteger(value.pendingEpoch.checkpoint.bytes) || value.pendingEpoch.checkpoint.bytes < 40 || value.pendingEpoch.checkpoint.bytes > 16777256)) throw new Error('Invalid durable epoch intent');
   return value;
 }
 export class DurableSyncSession {
@@ -110,7 +116,7 @@ export class DurableSyncSession {
   binding(): string { this.assertOpen(); return this.journal.binding; }
   cloudEnabled(): boolean { this.assertOpen(); return Boolean(this.journal.cloud); }
   cloudEpochIntent(): CloudEpochIntent | undefined { this.assertOpen();return this.journal.pendingEpoch?structuredClone(this.journal.pendingEpoch):undefined; }
-  async stageCloudEpoch(vault: BrowserVault, consent: boolean): Promise<CloudEpochIntent> {
+  async stageCloudEpoch(vault: BrowserVault, consent: boolean, retained: readonly EpochRecipient[] = []): Promise<CloudEpochIntent> {
     return this.serial(async () => {
       if(this.journal.pendingEpoch)return structuredClone(this.journal.pendingEpoch);
       if(!this.journal.cloud||this.journal.queued.length||this.journal.cursor===null)throw new Error('Finish encrypted cloud synchronization before approving a new epoch');
@@ -118,16 +124,28 @@ export class DurableSyncSession {
       const prepared=vault.prepare_document_epoch(this.session,consent),candidate=prepared.preview(),checkpoint=prepared.checkpoint();
       const packageBytes=decode(this.journal.package);let content:Uint8Array|undefined,configuration:Uint8Array|undefined;
       try{
+        if(retained.length>255)throw new Error('Retained recipient limit');
+        const recipients=retained.map(target=>{
+          const recipient=JSON.parse(target.certificate),context=JSON.parse(target.context);
+          const sameDevice=(a:{id:string;encryption:unknown;signing:unknown},b:typeof a)=>JSON.stringify([a.id,a.encryption,a.signing])===JSON.stringify([b.id,b.encryption,b.signing]);
+          const own=context.account===this.journal.account&&target.authority===vault.account_authority()&&context.epoch===JSON.parse(vault.account_context()).epoch;
+          const previouslyAuthorized=(JSON.parse(this.journal.roster) as {device:Parameters<typeof sameDevice>[0]}[]).some(grant=>sameDevice(grant.device,recipient.device));
+          if(!own&&!previouslyAuthorized)throw new Error('Retained recipient is not a current collaborator; review a separate invitation first');
+          const offer=JSON.parse(prepared.offer_document(vault,target.certificate,target.context,target.authority,target.write,consent));
+          return {recipient,membership:offer.membership,key_envelope:{kind:'offer',value:offer}};
+        });
+        const roster=JSON.stringify([JSON.parse(candidate.membership()),...recipients.map(item=>item.membership)]);
+        candidate.set_roster(roster);
         const {archive:prior,...previous}=this.journal;
         const next:Journal={...previous,binding:candidate.binding(),membership:candidate.membership(),held:prepared.held_backup(),
-          roster:JSON.stringify([JSON.parse(candidate.membership())]),frames:[],queued:[],cursor:'0',state:candidate.snapshot(),
+          roster,frames:[],queued:[],cursor:'0',state:candidate.snapshot(),
           epoch:{checkpoint:encode(checkpoint),previous:this.journal.binding},archive:[...(prior??[]),JSON.stringify(previous)]};
         content=candidate.seal_payload(packageBytes,`NEEDWARE-CLOUD-PACKAGE-v1:${next.document}`);
         const configBytes=encoder.encode(JSON.stringify({binding:next.binding,scope:next.scope,ownerEpoch:next.ownerEpoch,authority:next.authority}));
         try{configuration=candidate.seal_payload(configBytes,`NEEDWARE-CLOUD-CONFIGURATION-v1:${next.document}`);}finally{configBytes.fill(0);}
         const digest=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes)))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
         next.cloud={descriptor:{binding:JSON.parse(next.binding),configuration:encode(configuration),package_digest:await digest(content),package_bytes:content.length},ciphertext:encode(content),membership:JSON.parse(next.membership),key_envelope:{kind:'held',value:JSON.parse(next.held)},uploadedChunks:Math.ceil(content.length/1048576)};
-        const intent:CloudEpochIntent={next:JSON.stringify(next),transition:JSON.parse(prepared.transition()),checkpoint:{digest:await digest(checkpoint),bytes:checkpoint.length},sourceCursor:this.journal.cursor};
+        const intent:CloudEpochIntent={next:JSON.stringify(next),transition:JSON.parse(prepared.transition()),checkpoint:{digest:await digest(checkpoint),bytes:checkpoint.length},sourceCursor:this.journal.cursor,...(recipients.length?{recipients}: {})};
         const old=this.session.fork_session();try{await this.publish(old,{...this.journal,pendingEpoch:intent});}catch(error){old.free();throw error;}
         return structuredClone(intent);
       }finally{packageBytes.fill(0);content?.fill(0);configuration?.fill(0);checkpoint.fill(0);candidate.free();prepared.free();}

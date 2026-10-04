@@ -1,5 +1,7 @@
 use super::*;
-use needware_vault::{AccountVault, DocumentTransition, KeyContext, TransitionDigests};
+use needware_vault::{
+    AccountVault, DocumentTransition, KeyContext, RootRotation, TransitionDigests,
+};
 
 const CHECKPOINT_METADATA: &[u8] = b"needware owner epoch checkpoint v1";
 #[derive(Clone, Serialize, Deserialize)]
@@ -7,12 +9,19 @@ const CHECKPOINT_METADATA: &[u8] = b"needware owner epoch checkpoint v1";
 pub struct EpochCheckpoint {
     pub transition: DocumentTransition,
     entries: Vec<wire::SignedChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_rotation: Option<RootRotation>,
 }
 pub struct EpochTrust<'a> {
     pub previous: &'a Binding,
     pub root: &'a KeyContext,
     pub authority: &'a [u8; 32],
     pub roster: &'a [VerifiedMembership],
+}
+pub struct RootEpochTrust<'a> {
+    pub epoch: EpochTrust<'a>,
+    pub previous_root: &'a KeyContext,
+    pub previous_authority: &'a [u8; 32],
 }
 /// Host must durably retain the old journal/archive and atomically publish the
 /// new encrypted journal/key before exposing this staged replica.
@@ -21,6 +30,7 @@ pub struct PreparedEpoch {
     pub checkpoint: Vec<u8>,
     pub transition: DocumentTransition,
     pub archive: Vec<EncryptedFrame>,
+    pub root_rotation: Option<RootRotation>,
 }
 fn digest<T: Serialize>(value: &T) -> Result<[u8; 32]> {
     Ok(*blake3::hash(&wire::canonical(value)?).as_bytes())
@@ -84,6 +94,32 @@ impl Replica {
             && transition.digests.previous_binding == digest(&self.binding)?
             && transition.digests.history == self.history_digest()?)
     }
+    pub fn matches_root_epoch_cut(
+        &self,
+        transition: &DocumentTransition,
+        rotation: &RootRotation,
+    ) -> Result<bool> {
+        let previous = KeyContext {
+            version: 1,
+            kind: needware_vault::KeyKind::AccountRoot,
+            account: self.binding.document.account.clone(),
+            document: None,
+            epoch: self.root_epoch,
+        };
+        let next = rotation
+            .verify(&previous, &self.authority)
+            .map_err(|_| SyncError::Authorization)?;
+        transition
+            .verify(
+                &self.binding.document,
+                self.binding.generation,
+                next.context(),
+                next.public(),
+                &digest(&self.binding)?,
+            )
+            .map_err(|_| SyncError::Authorization)?;
+        Ok(transition.digests.history == self.history_digest()?)
+    }
     pub fn prepare_epoch(
         &mut self,
         owner: &AccountVault,
@@ -91,14 +127,52 @@ impl Replica {
         next_membership: &VerifiedMembership,
         consent: bool,
     ) -> Result<PreparedEpoch> {
+        self.prepare_authorized_epoch(owner, next_key, next_membership, None, consent)
+    }
+    pub fn prepare_root_epoch(
+        &mut self,
+        owner: &AccountVault,
+        rotation: &RootRotation,
+        next_key: DocumentKey,
+        next_membership: &VerifiedMembership,
+        consent: bool,
+    ) -> Result<PreparedEpoch> {
+        self.prepare_authorized_epoch(owner, next_key, next_membership, Some(rotation), consent)
+    }
+    fn prepare_authorized_epoch(
+        &mut self,
+        owner: &AccountVault,
+        next_key: DocumentKey,
+        next_membership: &VerifiedMembership,
+        rotation: Option<&RootRotation>,
+        consent: bool,
+    ) -> Result<PreparedEpoch> {
+        let (authority, root_epoch) = if let Some(rotation) = rotation {
+            let previous = KeyContext {
+                version: 1,
+                kind: needware_vault::KeyKind::AccountRoot,
+                account: self.binding.document.account.clone(),
+                document: None,
+                epoch: self.root_epoch,
+            };
+            let verified = rotation
+                .verify(&previous, &self.authority)
+                .map_err(|_| SyncError::Authorization)?;
+            if verified.context() != owner.context() {
+                return Err(SyncError::Authorization);
+            }
+            (*verified.public(), verified.context().epoch)
+        } else {
+            (self.authority, self.root_epoch)
+        };
         let public = self.device.public().map_err(|_| SyncError::Authorization)?;
         if !consent
             || !self.writable
-            || owner.authority().map_err(|_| SyncError::Authorization)? != self.authority
+            || owner.authority().map_err(|_| SyncError::Authorization)? != authority
             || owner.context().account != self.binding.document.account
-            || owner.context().epoch != self.root_epoch
-            || next_membership.authority() != &self.authority
-            || next_membership.root_epoch() != self.root_epoch
+            || owner.context().epoch != root_epoch
+            || next_membership.authority() != &authority
+            || next_membership.root_epoch() != root_epoch
             || next_membership.device() != &public
             || next_membership.role() != DocumentRole::Write
             || self.binding.generation.checked_add(1) != Some(next_membership.generation())
@@ -200,6 +274,7 @@ impl Replica {
         let checkpoint = EpochCheckpoint {
             transition: transition.clone(),
             entries,
+            root_rotation: rotation.cloned(),
         }
         .seal(&next.key)?;
         let archive = self.export(&BTreeSet::new())?;
@@ -208,6 +283,7 @@ impl Replica {
             checkpoint,
             transition,
             archive,
+            root_rotation: rotation.cloned(),
         })
     }
     fn commit_baseline_batch(&mut self) -> Result<()> {
@@ -224,10 +300,54 @@ impl Replica {
         ciphertext: &[u8],
         trust: EpochTrust<'_>,
     ) -> Result<DocumentTransition> {
+        let checkpoint = EpochCheckpoint::open(&self.key, ciphertext)?;
+        if checkpoint.root_rotation.is_some() {
+            return Err(SyncError::Authorization);
+        }
+        self.install_verified_checkpoint(checkpoint, trust)
+    }
+    pub fn install_root_epoch(
+        &mut self,
+        ciphertext: &[u8],
+        trust: RootEpochTrust<'_>,
+    ) -> Result<DocumentTransition> {
+        let checkpoint = EpochCheckpoint::open(&self.key, ciphertext)?;
+        let rotation = checkpoint
+            .root_rotation
+            .as_ref()
+            .ok_or(SyncError::Authorization)?;
+        let verified = rotation
+            .verify(trust.previous_root, trust.previous_authority)
+            .map_err(|_| SyncError::Authorization)?;
+        if verified.context() != trust.epoch.root || verified.public() != trust.epoch.authority {
+            return Err(SyncError::Authorization);
+        }
+        self.install_verified_checkpoint(checkpoint, trust.epoch)
+    }
+    /// A recovered client anchors the historical pin at its independently trusted current root.
+    pub fn install_accepted_root_epoch(
+        &mut self,
+        ciphertext: &[u8],
+        trust: EpochTrust<'_>,
+    ) -> Result<DocumentTransition> {
+        let checkpoint = EpochCheckpoint::open(&self.key, ciphertext)?;
+        let rotation = checkpoint
+            .root_rotation
+            .as_ref()
+            .ok_or(SyncError::Authorization)?;
+        rotation
+            .verify_current(trust.root, trust.authority)
+            .map_err(|_| SyncError::Authorization)?;
+        self.install_verified_checkpoint(checkpoint, trust)
+    }
+    fn install_verified_checkpoint(
+        &mut self,
+        checkpoint: EpochCheckpoint,
+        trust: EpochTrust<'_>,
+    ) -> Result<DocumentTransition> {
         if !self.log.is_empty() || !self.doc.get_changes(&[]).is_empty() {
             return Err(SyncError::Protocol);
         }
-        let checkpoint = EpochCheckpoint::open(&self.key, ciphertext)?;
         let transition = &checkpoint.transition;
         transition
             .verify(

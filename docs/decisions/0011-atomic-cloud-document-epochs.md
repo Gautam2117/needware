@@ -19,7 +19,7 @@ Cancellation refunds only staged bytes. Quota failures preserve current objects.
 Activation holds the document lock in one PostgreSQL transaction. It verifies
 ordered ciphertext chunks, SHA-256 digests and byte counts; archives the previous
 package, exact original frames and grants; removes current grants; installs the
-fresh owner grant; switches the descriptor/binding; and resets the current frame
+fresh owner grant and explicitly selected recipient grants; switches the descriptor/binding; and resets the current frame
 cursor. A database failure rolls everything back. Member-deletion refunds are
 restored exactly because archived grants remain retained and charged. Active
 bytes derive from the total document ledger minus staged/archived ledgers, so
@@ -39,11 +39,17 @@ durable publication. Checkpoints install before new-generation frames. Archives
 contain the old server ciphertext objects, rather than browser journals that can
 contain device-local values. Archive download currently requires the owner pin.
 
-Rotation removes existing collaborator grants; new invitations explicitly regrant
-access. Old collaborators retain their downloaded data and queued offline edits.
+Rotation issues fresh-key HPKE offers to explicitly retained devices and removes
+other collaborator grants. Selection requires a current collaborator identity or
+an independently pinned owner device. Recipient certificates are checked against
+registered account roots during staging and rechecked at activation; changes
+preserve the old epoch. Duplicate recipients and invalid grants are rejected.
+The encrypted durable intent retains the exact offers for cold retry. The UI
+reviews named devices and retains none by default. Owner recovery preserves an
+existing retained offer. Old collaborators retain downloaded data and queued offline edits.
 Their old keys cannot decrypt the new package/checkpoint/updates. Other registered
 owner devices can obtain new owner grants through root-held key recovery. This
 does not revoke an owner device that already holds the account root. Such device
 revocation requires account-root rotation and selected remaining-device enrollment.
-Schema/revision rebase, selected-recipient rewrapping, root rotation, archive export
+Schema/revision rebase, atomic account root rotation, archive export
 and pruning are subsequent protocol boundaries.

@@ -1,6 +1,6 @@
 # Remaining implementation dependencies
 
-Audited 2026-10-04 against main at 7086394 and the verified cloud epoch source. The repository
+Audited 2026-10-04 against main at 271444b and the verified root-chain/selected-recipient source. The repository
 has accepted ADRs for packages, browser persistence/frame isolation, reviewed
 revisions, derived fields and client-owned key hierarchy. Security documents now
 record the implemented vault and dependency audit boundaries.
@@ -32,7 +32,10 @@ actual local browser acceptance; public integration remains unverified.
    Account-bound encryption-device setup/enrollment/recovery is implemented locally.
    Authorized private package/frame storage and sync relay pass locally, including
    lost upload acknowledgments, deduplication and owner recovery on a new device.
-   Continue account-root/device rotation, selected-recipient rewrapping and
+   Selected-recipient rewrapping, immutable recipient proof archives and named-device
+   rotation review now pass actual PostgreSQL/three-engine acceptance. Native/WASM
+   root chains and cross-root checkpoint/recovery verification are implemented.
+   Continue atomic account-root/device cloud and browser publication and
    production storage operations.
    Authentication alone cannot enroll
    a device into the encryption vault.

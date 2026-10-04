@@ -54,12 +54,12 @@ export class DocumentRelay {
     }
     return {pending:session.pending().length,cursor:pulled.cursor,more:pulled.more};
   }
-  async rotateEpoch(session:DurableSyncSession,consent:boolean):Promise<void>{
+  async rotateEpoch(session:DurableSyncSession,consent:boolean,retained:readonly import('./sync-journal').EpochRecipient[]=[]):Promise<void>{
     if(!consent)throw new Error('Approve fresh keys and removal of existing collaborator grants before rotation');
     if(!session.cloudEpochIntent()){
       const result=await this.synchronize(session);
       if(result.more||result.pending)throw new Error('Finish synchronization and review all shared changes before rotation');
-      await session.stageCloudEpoch(this.vault,true);
+      await session.stageCloudEpoch(this.vault,true,retained);
     }
     await this.resumeEpoch(session);
   }
@@ -72,7 +72,7 @@ export class DocumentRelay {
     if(status&&canonicalize(status.binding)!==canonicalize(binding))throw new Error('Cloud epoch intent differs; local history preserved');
     if(status?.status==='active'){await session.finishCloudEpoch(this.vault);return;}
     if(status&&status.status!=='staging')throw new Error('Epoch has been superseded; review retained local history');
-    await this.request({action:'epoch_prepare',document,descriptor:artifact.descriptor,transition:intent.transition,checkpoint:intent.checkpoint,source_cursor:intent.sourceCursor,membership:artifact.membership,key_envelope:artifact.key_envelope});
+    await this.request({action:'epoch_prepare',document,descriptor:artifact.descriptor,transition:intent.transition,checkpoint:intent.checkpoint,source_cursor:intent.sourceCursor,membership:artifact.membership,key_envelope:artifact.key_envelope,...(intent.recipients?{recipients:intent.recipients}: {})});
     for(const [kind,encoded] of [['package',artifact.ciphertext],['checkpoint',next.epoch.checkpoint]] as const){
       const content=decode(encoded);try{for(let offset=0;offset<content.length;offset+=1048576){const index=offset/1048576;
         if(status?.chunks.some(chunk=>chunk.kind===kind&&chunk.chunk_index===index))continue;
@@ -90,6 +90,13 @@ export class DocumentRelay {
     await session.cancelCloudEpoch();
   }
   async recoverOwnerGrant(document: string): Promise<void> {
+    // Keep an explicitly retained grant; recovery must not overwrite its HPKE offer.
+    try{
+      const current=await this.request<{descriptor:Descriptor;membership:{device:{id:string}}}>({action:'read',document,cursor:'0'});
+      const bound=current.descriptor.binding as {document:{account:string;document:string}};
+      if(bound.document.account!==JSON.parse(this.vault.account_context()).account||bound.document.document!==document||current.membership.device.id!==JSON.parse(this.vault.device_public()).id)throw new Error('Owner grant identity mismatch');
+      return;
+    }catch(error){if(!(error instanceof RelayFailure)||error.status!==403)throw error;}
     const remote=await this.request<{descriptor:Descriptor;key_envelope:{kind:string;value:unknown};root_epoch:number}>({action:'recover',document});
     const binding=remote.descriptor.binding as {document:{document:string;account:string};generation:number};
     if(binding.document.document!==document||binding.document.account!==JSON.parse(this.vault.account_context()).account||remote.root_epoch!==JSON.parse(this.vault.account_context()).epoch||remote.key_envelope.kind!=='held')throw new Error('Owner recovery identity mismatch');

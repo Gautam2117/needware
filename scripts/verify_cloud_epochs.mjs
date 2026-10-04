@@ -3,11 +3,21 @@ import {expect} from '@playwright/test';
 async function rateWindow(pool,account){
   const row=await pool.query('SELECT count,reset_at FROM needware_account_limit WHERE account_id=$1',[account]);
   if(row.rowCount&&row.rows[0].count>12){const wait=Math.max(0,new Date(row.rows[0].reset_at).getTime()-Date.now()+100);if(wait)await new Promise(resolve=>setTimeout(resolve,Math.min(wait,60_000)));}
+  for(;;){
+    const challenges=await pool.query('SELECT count(*)::integer AS total,min(expires_at) AS earliest FROM needware_vault_challenge WHERE account_id=$1 AND expires_at>now()',[account]);
+    if(challenges.rows[0].total<6)break;
+    const wait=Math.max(0,new Date(challenges.rows[0].earliest).getTime()-Date.now()+100);if(wait)await new Promise(resolve=>setTimeout(resolve,Math.min(wait,60_000)));
+  }
 }
 export async function verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPage,pool,account,otherAccount,origin}){
   console.log('Cloud epoch acceptance: independent writer and bounded large checkpoint');
   await rateWindow(pool,account);await rateWindow(pool,otherAccount);
   const target=await otherPage.evaluate(()=>JSON.parse(globalThis.__editableRelay.vault.device_certificate()));
+  const retained=await recoveredPage.evaluate(async account=>{
+    const wasm=await import('/wasm/needware_wasm.js');await wasm.default({module_or_path:'/wasm/needware_wasm_bg.wasm'});
+    const {openVaultStore}=await import('/vault-store.js'),store=await openVaultStore(),saved=await store.load(account),vault=wasm.BrowserVault.from_local_backup(saved.bytes);saved.bytes.fill(0);
+    try{return {certificate:vault.device_certificate(),context:vault.account_context(),authority:vault.account_authority(),write:true};}finally{vault.free();store.close();}
+  },account);
   const initial=await page.evaluate(async target=>{
     const r=globalThis.__needwareRelay,{DurableSyncSession}=await import('/sync-journal.js');
     const bytes=r.wasm.authored_sync_example(),scope=JSON.stringify({values:[],collections:['habits']}),native=r.vault.start_document(bytes,crypto.randomUUID(),scope,1,true);
@@ -28,13 +38,14 @@ export async function verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPa
   const oldFrames=await pool.query('SELECT frame FROM needware_document_frame WHERE document_id=$1 ORDER BY sequence',[initial.document]);
   const oldMembers=await pool.query('SELECT account_id,device_id,membership,key_envelope,metadata_bytes FROM needware_document_member WHERE document_id=$1 ORDER BY account_id,device_id',[initial.document]);
   const oldPackage=await pool.query('SELECT chunk_index,ciphertext FROM needware_document_chunk WHERE document_id=$1 ORDER BY chunk_index',[initial.document]);
-  const staged=await page.evaluate(async()=>{const r=globalThis.__needwareRelay;
-    const intent=await r.epochJournal.stageCloudEpoch(r.vault,true),next=JSON.parse(intent.next),cloud=next.cloud;
-    r.epochPayload={action:'epoch_prepare',document:next.document,descriptor:cloud.descriptor,transition:intent.transition,checkpoint:intent.checkpoint,source_cursor:intent.sourceCursor,membership:cloud.membership,key_envelope:cloud.key_envelope};
+  const staged=await page.evaluate(async retained=>{const r=globalThis.__needwareRelay;
+    const intent=await r.epochJournal.stageCloudEpoch(r.vault,true,[retained]),next=JSON.parse(intent.next),cloud=next.cloud;
+    r.epochPayload={action:'epoch_prepare',document:next.document,descriptor:cloud.descriptor,transition:intent.transition,checkpoint:intent.checkpoint,source_cursor:intent.sourceCursor,membership:cloud.membership,key_envelope:cloud.key_envelope,recipients:intent.recipients};
     let blocked=false;try{await r.epochJournal.dispatch(JSON.stringify({action:'add',values:{},now:'2026-10-04T00:00:00Z',timezone:'UTC'}));}catch{blocked=true;}
     return {blocked,bytes:intent.checkpoint.bytes,binding:r.epochJournal.binding()};
-  });assert(staged.blocked);assert(staged.bytes>32768);assert.equal(JSON.parse(staged.binding).generation,1);
+  },retained);assert(staged.blocked);assert(staged.bytes>32768);assert.equal(JSON.parse(staged.binding).generation,1);
   for(const variant of ['signature','root','binding','generation']){
+    await rateWindow(pool,account);
     const result=await page.evaluate(async variant=>{const r=globalThis.__needwareRelay,payload=structuredClone(r.epochPayload);
       if(variant==='signature')payload.transition.signature[0]^=1;
       if(variant==='root')payload.transition.root.epoch++;
@@ -44,6 +55,14 @@ export async function verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPa
     },variant);assert.equal(result,403);
   }
   assert.equal((await pool.query('SELECT document_id FROM needware_document_epoch WHERE document_id=$1',[initial.document])).rowCount,0);
+  for(const variant of ['duplicate','signature']){
+    await rateWindow(pool,account);
+    const rejected=await page.evaluate(async variant=>{const r=globalThis.__needwareRelay,payload=structuredClone(r.epochPayload);
+      if(variant==='duplicate')payload.recipients.push(structuredClone(payload.recipients[0]));else payload.recipients[0].membership.signature[0]^=1;
+      try{await r.relay.request(payload);return 200;}catch(error){return error.status;}
+    },variant);assert.equal(rejected,variant==='duplicate'?400:403);
+  }
+  await rateWindow(pool,account);
   const wrongCursor=await page.evaluate(async()=>{const r=globalThis.__needwareRelay;try{await r.relay.request({...r.epochPayload,source_cursor:'0'});return 200;}catch(error){return error.status;}});assert.equal(wrongCursor,409);
   console.log('Cloud epoch acceptance: signed tamper and source cursor boundaries passed');
   await rateWindow(pool,account);
@@ -66,12 +85,19 @@ export async function verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPa
     assert.equal((await pool.query('SELECT document_id FROM needware_document_member WHERE document_id=$1 AND account_id=$2',[initial.document,otherAccount])).rowCount,1);
     assert.deepEqual((await pool.query('SELECT frame FROM needware_document_frame WHERE document_id=$1 ORDER BY sequence',[initial.document])).rows,oldFrames.rows);
   }finally{await pool.query(`DROP TRIGGER ${triggerName} ON needware_document`);await pool.query(`DROP FUNCTION ${functionName}()`);}
+  await rateWindow(pool,account);
+  const selected=JSON.parse(retained.certificate);
+  await pool.query('UPDATE needware_vault_device SET certificate=jsonb_set(certificate,\'{signature,0}\',to_jsonb((certificate->\'signature\'->>0)::integer # 1)) WHERE account_id=$1 AND device_id=$2',[account,selected.device.id]);
+  try{
+    const changed=await page.evaluate(async()=>{const r=globalThis.__needwareRelay;try{await r.relay.request({action:'epoch_activate',document:r.epochPayload.document,generation:2});return 200;}catch(error){return error.status;}});assert.equal(changed,409);
+    assert.equal((await pool.query('SELECT binding FROM needware_document WHERE id=$1',[initial.document])).rows[0].binding.generation,1);
+  }finally{await pool.query('UPDATE needware_vault_device SET certificate=$3 WHERE account_id=$1 AND device_id=$2',[account,selected.device.id,selected]);}
   console.log('Cloud epoch acceptance: quota, duplicate staging and injected activation rollback passed');
   await rateWindow(pool,account);let dropped=false;
   const loseAck=async route=>{const body=route.request().postDataJSON();if(!dropped&&body.payload?.action==='epoch_activate'&&body.payload.document===initial.document){const response=await route.fetch();assert.equal(response.status(),200);dropped=true;await route.abort('failed');}else await route.continue();};
   await page.route(`${origin}/api/documents`,loseAck);
-  const lost=await page.evaluate(async()=>{const r=globalThis.__needwareRelay;try{await r.relay.resumeEpoch(r.epochJournal);return false;}catch{return Boolean(r.epochJournal.cloudEpochIntent())&&JSON.parse(r.epochJournal.binding()).generation===1;}});
-  await page.unroute(`${origin}/api/documents`,loseAck);assert(dropped);assert(lost);
+  const lost=await page.evaluate(async()=>{const r=globalThis.__needwareRelay;try{await r.relay.resumeEpoch(r.epochJournal);return {pending:false};}catch(error){return {pending:Boolean(r.epochJournal.cloudEpochIntent())&&JSON.parse(r.epochJournal.binding()).generation===1,status:error.status,message:String(error)};}});
+  await page.unroute(`${origin}/api/documents`,loseAck);assert(dropped,`Activation was not reached: ${JSON.stringify(lost)}`);assert(lost.pending);
   assert.equal((await pool.query('SELECT binding FROM needware_document WHERE id=$1',[initial.document])).rows[0].binding.generation,2);
   const restored=await page.evaluate(async()=>{const r=globalThis.__needwareRelay,{DurableSyncSession}=await import('/sync-journal.js');await r.epochJournal.close();
     const backup=r.vault.local_backup(),fresh=r.wasm.BrowserVault.from_local_backup(backup);backup.fill(0);
@@ -95,7 +121,8 @@ export async function verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPa
   await rateWindow(pool,account);await recoveredPage.goto(`${origin}/account`);
   const recovery=await recoveredPage.evaluate(async({account,document,pin})=>{const wasm=await import('/wasm/needware_wasm.js');await wasm.default({module_or_path:'/wasm/needware_wasm_bg.wasm'});
     const {openVaultStore}=await import('/vault-store.js'),{DocumentRelay}=await import('/relay-client.js');const store=await openVaultStore(),root=await store.load(account),vault=wasm.BrowserVault.from_local_backup(root.bytes);root.bytes.fill(0);const relay=new DocumentRelay(vault);
-    await relay.recoverOwnerGrant(document);const journal=await relay.importDocument(store.documents,account,root.generation,document,pin,1,true);const state=journal.snapshot();await journal.close();vault.free();store.close();return state;
+    const read=await relay.request({action:'read',document,cursor:'0'});if(read.key_envelope.kind!=='offer'||read.membership.role!=='write')throw new Error('Explicitly retained owner device grant missing');
+    const journal=await relay.importDocument(store.documents,account,root.generation,document,pin,1,true);const state=journal.snapshot();await journal.close();vault.free();store.close();return state;
   },{account,document:initial.document,pin:initial.pin});assert.equal(recovery,initial.state);
   for(const [client,generation] of [[recoveredPage,3],[enrolledPage,4]]){
     await rateWindow(pool,account);await client.goto(`${origin}/encrypted#account=${account}`);
@@ -108,12 +135,18 @@ export async function verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPa
     }else await client.locator(`[data-document="${initial.document}"]`).getByRole('button',{name:'Open Habit tracker',exact:true}).click();
     await expect(client.frameLocator('iframe').getByText('Cloud checkpoint record 95',{exact:true})).toBeVisible();
     await client.getByText('Document keys and access',{exact:true}).click();
+    if(client===recoveredPage){
+      await client.getByRole('button',{name:'Review devices to keep access',exact:true}).click();
+      await client.getByRole('checkbox',{name:/Enrolled Firefox/}).check();
+    }
     client.once('dialog',dialog=>dialog.accept());await client.getByRole('button',{name:'Rotate document keys and remove collaborator grants',exact:true}).click();
-    await expect(client.getByText('Fresh document keys activated. Existing collaborator grants were removed.',{exact:true})).toBeVisible();
+    await expect(client.getByText('Fresh document keys activated. Selected devices keep access; other collaborator grants were removed.',{exact:true})).toBeVisible();
     assert.equal((await pool.query('SELECT binding FROM needware_document WHERE id=$1',[initial.document])).rows[0].binding.generation,generation);
     await client.reload();await client.locator(`[data-document="${initial.document}"]`).getByRole('button',{name:'Open Habit tracker',exact:true}).click();
     await expect(client.frameLocator('iframe').getByText('Cloud checkpoint record 95',{exact:true})).toBeVisible();await client.goto(`${origin}/account`);
   }
+  const proofArchive=await pool.query('SELECT recipient_certificates FROM needware_document_epoch WHERE document_id=$1 AND generation=2',[initial.document]);
+  assert.deepEqual(proofArchive.rows[0].recipient_certificates,[JSON.parse(retained.certificate)]);
   await rateWindow(pool,account);
   const staleOwner=await page.evaluate(async({account,document,pin})=>{const r=globalThis.__needwareRelay,before=r.epochJournal.snapshot(),held=JSON.parse(r.epochVault.held_document_key_backup(document)).document,artifact=await r.epochJournal.prepareCloud();
     await r.epochRelay.recoverOwnerGrant(document);

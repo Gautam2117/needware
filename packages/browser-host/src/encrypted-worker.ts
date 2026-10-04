@@ -62,9 +62,18 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
       const result=await new DocumentRelay(vault).synchronize(session);return {view:JSON.parse(session.view()),pendingUploads:result.pending,more:result.more,cloudEnabled:session.cloudEnabled(),epochPending:Boolean(session.cloudEpochIntent())};
     }
     case 'epoch-state':if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');return {epochPending:Boolean(session.cloudEpochIntent())};
+    case 'epoch-recipients':{
+      if(!session||!current||command.instance!==instance)throw new Error('Application instance is closed or stale');
+      return await new DocumentRelay(vault).request({action:'recipients',document:current.document});
+    }
     case 'rotate-epoch':case 'cancel-epoch':{
       if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');const relay=new DocumentRelay(vault);
-      if(command.kind==='rotate-epoch')await relay.rotateEpoch(session,command.consent);else await relay.cancelEpoch(session);
+      if(command.kind==='rotate-epoch'){
+        const retained=(command.retained??[]).map(target=>{const certificate=JSON.parse(target.certificate);return {
+          certificate:target.certificate,context:JSON.stringify(certificate.context),authority:certificate.authority.map((byte:number)=>byte.toString(16).padStart(2,'0')).join(''),write:target.write,
+        };});
+        await relay.rotateEpoch(session,command.consent,retained);
+      }else await relay.cancelEpoch(session);
       return {view:JSON.parse(session.view()),pendingUploads:session.pending().length,cloudEnabled:session.cloudEnabled(),epochPending:Boolean(session.cloudEpochIntent())};
     }
     case 'share':{

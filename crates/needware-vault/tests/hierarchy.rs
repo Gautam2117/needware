@@ -294,6 +294,64 @@ fn root_authority_transitions_require_the_previous_pin_and_reject_replay_or_epoc
     );
     Ok(())
 }
+
+#[test]
+fn accepted_root_rotation_authenticates_both_ends_and_retains_historical_pins() -> Result {
+    let previous = AccountVault::create(ACCOUNT)?;
+    let next = previous.rotate()?;
+    let rotation = previous.accepted_rotation_to(&next)?;
+    assert_eq!(
+        rotation
+            .verify(previous.context(), &previous.authority()?)?
+            .public(),
+        &next.authority()?
+    );
+    let history = rotation.verify_current(next.context(), &next.authority()?)?;
+    assert_eq!(history.context(), previous.context());
+    assert_eq!(history.public(), &previous.authority()?);
+    assert!(rotation.verify(next.context(), &next.authority()?).is_err());
+    assert!(
+        rotation
+            .verify_current(previous.context(), &previous.authority()?)
+            .is_err()
+    );
+    for index in 0..64 {
+        let mut altered = rotation.clone();
+        altered.acceptance[index] ^= 1;
+        assert!(
+            altered
+                .verify(previous.context(), &previous.authority()?)
+                .is_err()
+        );
+        assert!(
+            altered
+                .verify_current(next.context(), &next.authority()?)
+                .is_err()
+        );
+    }
+    let mut substituted = rotation.clone();
+    substituted.transition.previous_authority[0] ^= 1;
+    assert!(
+        substituted
+            .verify_current(next.context(), &next.authority()?)
+            .is_err()
+    );
+    let mut truncated = rotation.clone();
+    truncated.acceptance.pop();
+    assert!(
+        truncated
+            .verify(previous.context(), &previous.authority()?)
+            .is_err()
+    );
+    let encoded = serde_json::to_vec(&rotation)?;
+    assert_eq!(
+        needware_vault::RootRotation::parse(&encoded)?
+            .verify_current(next.context(), &next.authority()?)?
+            .public(),
+        &previous.authority()?
+    );
+    Ok(())
+}
 #[test]
 fn payloads_are_nonce_randomized_metadata_bound_and_resource_limited() -> Result {
     let owner = AccountVault::create(ACCOUNT)?;

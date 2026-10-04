@@ -8,6 +8,50 @@ pub struct RootTransition {
     pub next_authority: [u8; 32],
     pub signature: Vec<u8>,
 }
+/// Both authorities bind the same transition. A fresh recipient can anchor the
+/// historical authority at the independently trusted current root.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RootRotation {
+    pub transition: RootTransition,
+    pub acceptance: Vec<u8>,
+}
+impl RootRotation {
+    fn message(&self) -> Result<Vec<u8>> {
+        canonical(b"NEEDWARE-ROOT-ROTATION-ACCEPT-v1\0", &self.transition)
+    }
+    pub fn verify(&self, previous: &KeyContext, authority: &[u8; 32]) -> Result<VerifiedAuthority> {
+        let next = self.transition.verify(previous, authority)?;
+        let signature: &[u8; 64] = self
+            .acceptance
+            .as_slice()
+            .try_into()
+            .map_err(|_| VaultError::Authentication)?;
+        needware_crypto::verify(next.public(), &self.message()?, signature)
+            .map_err(|_| VaultError::Authentication)?;
+        Ok(next)
+    }
+    pub fn verify_current(
+        &self,
+        current: &KeyContext,
+        authority: &[u8; 32],
+    ) -> Result<VerifiedAuthority> {
+        if self.transition.next != *current || self.transition.next_authority != *authority {
+            return Err(VaultError::Authentication);
+        }
+        self.verify(
+            &self.transition.previous,
+            &self.transition.previous_authority,
+        )?;
+        Ok(VerifiedAuthority {
+            context: self.transition.previous.clone(),
+            public: self.transition.previous_authority,
+        })
+    }
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        decode(bytes)
+    }
+}
 pub struct VerifiedAuthority {
     context: KeyContext,
     public: [u8; 32],
@@ -79,6 +123,14 @@ impl RootTransition {
     }
 }
 impl AccountVault {
+    pub fn accepted_rotation_to(&self, next: &Self) -> Result<RootRotation> {
+        let mut rotation = RootRotation {
+            transition: self.transition_to(next)?,
+            acceptance: Vec::new(),
+        };
+        rotation.acceptance = next.signing()?.sign(&rotation.message()?).to_vec();
+        Ok(rotation)
+    }
     pub fn transition_to(&self, next: &Self) -> Result<RootTransition> {
         let mut transition = RootTransition {
             previous: self.context.clone(),

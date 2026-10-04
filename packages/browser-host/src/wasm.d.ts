@@ -29,6 +29,8 @@ declare module 'needware-wasm-runtime' {
     recover(code: string, envelope: string, context: string, pin: string): void;
     start_document(bytes: Uint8Array, instance: string, scope: string, epoch: number, consent: boolean): BrowserSync;
     prepare_document_epoch(session: BrowserSync, consent: boolean): BrowserEpoch;
+    prepare_root_rotation(approved: boolean): BrowserRootRotation;
+    prepare_root_document_epoch(session: BrowserSync, rotation: string, consent: boolean): BrowserEpoch;
     document_key_backup(document: string): string;
     held_document_key_backup(document: string): string;
     has_document(document: string): boolean;
@@ -48,7 +50,10 @@ declare module 'needware-wasm-runtime' {
     fork_session(): BrowserSync;
     activate_document_key(vault: BrowserVault): void;
     matches_epoch_cut(transition: string): boolean;
+    matches_root_epoch_cut(transition: string, rotation: string): boolean;
     install_epoch(checkpoint: Uint8Array, previousBinding: string): string;
+    install_root_epoch(checkpoint: Uint8Array, previousBinding: string, previousRoot: string, previousAuthority: string): string;
+    install_accepted_root_epoch(checkpoint: Uint8Array, previousBinding: string): string;
     seal_payload(bytes: Uint8Array, metadata: string): Uint8Array;
     open_payload(bytes: Uint8Array, metadata: string): Uint8Array;
     binding(): string;
@@ -66,12 +71,19 @@ declare module 'needware-wasm-runtime' {
     free(): void;
   }
   export class BrowserEpoch {
+    offer_document(vault: BrowserVault, certificate: string, context: string, authority: string, write: boolean, approved: boolean): string;
     preview(): BrowserSync;
     held_backup(): string;
     checkpoint(): Uint8Array;
     transition(): string;
     archive(): string;
     publish(vault: BrowserVault): BrowserSync;
+    free(): void;
+  }
+  export class BrowserRootRotation {
+    preview(): BrowserVault;
+    proof(): string;
+    rewrap_held_backup(held: string, context: string): string;
     free(): void;
   }
 }

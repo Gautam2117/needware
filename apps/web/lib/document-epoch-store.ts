@@ -2,11 +2,11 @@ import {createHash} from 'node:crypto';
 import canonicalize from 'canonicalize';
 import type {PoolClient} from 'pg';
 import {CloudError} from './cloud-request';
-import {object,certificate} from './vault-proof';
+import {object,certificate,uuid} from './vault-proof';
 import {binding,ciphertext,membership,positive,transition,type Binding,type Membership} from './document-proof';
 export type RelayDocument = {id:string;owner_id:string;binding:Binding;authority:Buffer;root_epoch:number;descriptor:Record<string,unknown>;package_digest:string;package_bytes:number;ready:boolean;storage_bytes:string;next_sequence:string};
-type Member = {account_id:string;device_id:string;membership:Membership;key_envelope:unknown;metadata_bytes:number};
-type Epoch = {generation:string;status:string;binding:Binding;previous_binding:Binding|null;descriptor:Record<string,unknown>;root_epoch:string;authority:Buffer;transition:unknown;checkpoint_manifest:Manifest|null;source_cursor:string;owner_account:string;owner_device:string;members:Member[];storage_bytes:string};
+type Member = {account_id:string;device_id:string;membership:Membership;key_envelope:unknown;metadata_bytes:number;certificate?:ReturnType<typeof certificate>};
+type Epoch = {generation:string;status:string;binding:Binding;previous_binding:Binding|null;descriptor:Record<string,unknown>;root_epoch:string;authority:Buffer;transition:unknown;checkpoint_manifest:Manifest|null;source_cursor:string;owner_account:string;owner_device:string;members:Member[];recipient_certificates:ReturnType<typeof certificate>[];storage_bytes:string};
 type Manifest = {digest:string;bytes:number};
 type Identity = {account:string;device:string;certificate:ReturnType<typeof certificate>;owner:boolean;grant:Membership|undefined};
 type Charge = (client:PoolClient,doc:RelayDocument,amount:number)=>Promise<void>;
@@ -39,7 +39,7 @@ export async function readEpoch(client:PoolClient,doc:RelayDocument):Promise<unk
 export async function epochAction(client:PoolClient,doc:RelayDocument,payload:Record<string,unknown>,identity:Identity,charge:Charge,envelope:Envelope):Promise<unknown> {
   const action=payload.action;
   if(action==='epoch_prepare'){
-    object(payload,['action','document','descriptor','transition','checkpoint','source_cursor','membership','key_envelope']);writer(identity);
+    object(payload,['action','document','descriptor','transition','checkpoint','source_cursor','membership','key_envelope',...('recipients' in payload?['recipients']:[])]);writer(identity);
     if(!doc.ready)throw new CloudError(409,'Current encrypted package is incomplete');
     const descriptor=object(payload.descriptor,['binding','configuration','package_digest','package_bytes']);
     const next=binding(descriptor.binding,doc.id);manifest({digest:descriptor.package_digest,bytes:descriptor.package_bytes},33554472);ciphertext(descriptor.configuration,40,32768);
@@ -48,15 +48,30 @@ export async function epochAction(client:PoolClient,doc:RelayDocument,payload:Re
     if(typeof payload.source_cursor!=='string'||!/^(0|[1-9][0-9]{0,5})$/.test(payload.source_cursor)||Number(payload.source_cursor)!==Number(doc.next_sequence))throw new CloudError(409,'Source history changed; pull and review before preparing another cut');
     const grant=membership(payload.membership,next,doc.authority,Number(doc.root_epoch));
     if(grant.role!=='write'||!same(grant.device,identity.certificate.device))throw new CloudError(403,'Fresh owner device grant required');envelope(payload.key_envelope,grant,identity.certificate);
-    const members=[{account_id:identity.account,device_id:identity.device,membership:grant,key_envelope:payload.key_envelope,metadata_bytes:size(grant)+size(payload.key_envelope)}];
+    const members:Member[]=[{account_id:identity.account,device_id:identity.device,membership:grant,key_envelope:payload.key_envelope,metadata_bytes:size(grant)+size(payload.key_envelope)}];
+    const recipients=payload.recipients??[];
+    if(!Array.isArray(recipients)||recipients.length>255)throw new CloudError(400,'Invalid retained epoch recipient list');
+    const identities=new Set([`${identity.account}:${identity.device}`]);
+    for(const value of recipients){
+      const item=object(value,['recipient','membership','key_envelope']),target=item.recipient as Record<string,unknown>;
+      const recipient=certificate(target,uuid((target?.context as Record<string,unknown>)?.account));
+      const id=`${recipient.context.account}:${recipient.device.id}`;
+      if(identities.has(id))throw new CloudError(400,'Duplicate retained epoch recipient');identities.add(id);
+      const registered=await client.query('SELECT d.certificate,v.context,v.authority FROM needware_vault_device d JOIN needware_account_vault v ON v.account_id=d.account_id WHERE d.account_id=$1 AND d.device_id=$2',[recipient.context.account,recipient.device.id]);
+      if(!registered.rowCount||!same(registered.rows[0].certificate,recipient)||!same(registered.rows[0].context,recipient.context)||!registered.rows[0].authority.equals(Buffer.from(recipient.authority)))throw new CloudError(403,'Retained recipient device is not current');
+      const issued=membership(item.membership,next,doc.authority,Number(doc.root_epoch));
+      if(!same(issued.device,recipient.device))throw new CloudError(403,'Retained epoch recipient mismatch');envelope(item.key_envelope,issued,recipient);
+      members.push({account_id:recipient.context.account,device_id:recipient.device.id,membership:issued,key_envelope:item.key_envelope,metadata_bytes:size(issued)+size(item.key_envelope),certificate:recipient});
+    }
+    members.splice(1,members.length-1,...members.slice(1).sort((a,b)=>`${a.account_id}:${a.device_id}`.localeCompare(`${b.account_id}:${b.device_id}`)));
     const prior=await client.query<Epoch>('SELECT * FROM needware_document_epoch WHERE document_id=$1 AND generation=$2',[doc.id,next.generation]);
     if(prior.rowCount){const row=prior.rows[0];if(row.status!=='staging'||!same(row.descriptor,descriptor)||!same(row.transition,proof)||!same(row.checkpoint_manifest,checkpoint)||!same(row.members,members)||Number(row.source_cursor)!==Number(payload.source_cursor))throw new CloudError(409,'Existing epoch intent differs');return {generation:next.generation,status:'staging'};}
     const count=await client.query('SELECT count(*)::integer AS total FROM needware_document_epoch WHERE document_id=$1 AND status IN (\'staging\',\'archived\')',[doc.id]);
     if(count.rows[0].total>=4)throw new CloudError(409,'Encrypted epoch archive limit; preserve/export history before another cut');
-    const bytes=size(descriptor)+size(proof)+size(checkpoint)+size(doc.binding)+members[0].metadata_bytes;
+    const bytes=size(descriptor)+size(proof)+size(checkpoint)+size(doc.binding)+members.reduce((sum,item)=>sum+item.metadata_bytes+(item.certificate?size(item.certificate):0),0);
     await charge(client,doc,bytes);
-    await client.query(`INSERT INTO needware_document_epoch(document_id,generation,status,binding,previous_binding,descriptor,root_epoch,authority,transition,checkpoint_manifest,source_cursor,owner_account,owner_device,members,storage_bytes)
-      VALUES($1,$2,'staging',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,[doc.id,next.generation,next,doc.binding,descriptor,doc.root_epoch,doc.authority,proof,checkpoint,payload.source_cursor,identity.account,identity.device,JSON.stringify(members),bytes]);
+    await client.query(`INSERT INTO needware_document_epoch(document_id,generation,status,binding,previous_binding,descriptor,root_epoch,authority,transition,checkpoint_manifest,source_cursor,owner_account,owner_device,members,storage_bytes,recipient_certificates)
+      VALUES($1,$2,'staging',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[doc.id,next.generation,next,doc.binding,descriptor,doc.root_epoch,doc.authority,proof,checkpoint,payload.source_cursor,identity.account,identity.device,JSON.stringify(members),bytes,JSON.stringify(members.slice(1).map(item=>item.certificate))]);
     return {generation:next.generation,status:'staging'};
   }
   if(action==='epoch_download'){
@@ -73,7 +88,7 @@ export async function epochAction(client:PoolClient,doc:RelayDocument,payload:Re
     if(typeof payload.cursor!=='string'||!/^(0|[1-9][0-9]{0,5})$/.test(payload.cursor)||Number(payload.cursor)>Number(row.source_cursor))throw new CloudError(400,'Invalid archived history cursor');
     const frames=await client.query('SELECT frame,sequence FROM needware_document_epoch_frame WHERE document_id=$1 AND generation=$2 AND sequence>$3 ORDER BY sequence LIMIT 8',[doc.id,row.generation,payload.cursor]);
     const batch:string[]=[];let cursor=payload.cursor,total=0;for(const item of frames.rows){const length=Buffer.byteLength(item.frame);if(total+length>2500000)break;batch.push(item.frame);total+=length;cursor=String(item.sequence);}
-    return {descriptor:row.descriptor,epoch:{previous_binding:row.previous_binding,transition:row.transition,checkpoint_manifest:row.checkpoint_manifest},members:row.members,frames:batch,cursor,more:Number(cursor)<Number(row.source_cursor)};
+    return {descriptor:row.descriptor,epoch:{previous_binding:row.previous_binding,transition:row.transition,checkpoint_manifest:row.checkpoint_manifest},members:row.members,recipient_certificates:row.recipient_certificates,frames:batch,cursor,more:Number(cursor)<Number(row.source_cursor)};
   }
   if(action==='epoch_archive_download'){
     object(payload,['action','document','generation','kind','index']);const row=await epoch(client,doc,positive(payload.generation));
@@ -107,6 +122,11 @@ export async function epochAction(client:PoolClient,doc:RelayDocument,payload:Re
   }
   if(action!=='epoch_activate')throw new CloudError(400,'Unknown document epoch operation');object(payload,['action','document','generation']);
   if(Number(row.source_cursor)!==Number(doc.next_sequence))throw new CloudError(409,'Source history changed; cancel, pull and review another cut');
+  // Recheck selected recipients at activation; a revoked or rotated device cannot receive this cut.
+  for(const member of row.members.slice(1)){
+    const registered=await client.query('SELECT d.certificate,v.context,v.authority FROM needware_vault_device d JOIN needware_account_vault v ON v.account_id=d.account_id WHERE d.account_id=$1 AND d.device_id=$2 FOR SHARE OF d,v',[member.account_id,member.device_id]);
+    if(!member.certificate||!registered.rowCount||!same(registered.rows[0].certificate,member.certificate)||!same(registered.rows[0].context,member.certificate.context)||!registered.rows[0].authority.equals(Buffer.from(member.certificate.authority)))throw new CloudError(409,'Retained recipient changed; cancel and review another cut');
+  }
   await verifyChunks(client,doc,row,'package',{digest:String(row.descriptor.package_digest),bytes:Number(row.descriptor.package_bytes)});
   if(!row.checkpoint_manifest)throw new CloudError(409,'Epoch checkpoint missing');await verifyChunks(client,doc,row,'checkpoint',row.checkpoint_manifest);
   const retained=await client.query('SELECT COALESCE(sum(storage_bytes),0)::text AS bytes FROM needware_document_epoch WHERE document_id=$1 AND status IN (\'staging\',\'archived\')',[doc.id]);
@@ -120,7 +140,7 @@ export async function epochAction(client:PoolClient,doc:RelayDocument,payload:Re
   // The deletion trigger refunds current member metadata. Archives still retain
   // those opaque envelopes and signatures, so restore exactly that charge.
   await client.query('DELETE FROM needware_document_member WHERE document_id=$1',[doc.id]);await charge(client,doc,oldMembers.rows.reduce((total,item)=>total+item.metadata_bytes,0));
-  const member=row.members[0];await client.query('INSERT INTO needware_document_member(document_id,account_id,device_id,membership,key_envelope,metadata_bytes) VALUES($1,$2,$3,$4,$5,$6)',[doc.id,member.account_id,member.device_id,member.membership,member.key_envelope,member.metadata_bytes]);
+  for(const member of row.members)await client.query('INSERT INTO needware_document_member(document_id,account_id,device_id,membership,key_envelope,metadata_bytes) VALUES($1,$2,$3,$4,$5,$6)',[doc.id,member.account_id,member.device_id,member.membership,member.key_envelope,member.metadata_bytes]);
   await client.query('DELETE FROM needware_document_frame WHERE document_id=$1',[doc.id]);await client.query('DELETE FROM needware_document_chunk WHERE document_id=$1',[doc.id]);
   await client.query('UPDATE needware_document_epoch SET status=\'active\' WHERE document_id=$1 AND generation=$2',[doc.id,generation]);
   await client.query('UPDATE needware_document SET binding=$2,descriptor=$3,package_digest=$4,package_bytes=$5,next_sequence=0 WHERE id=$1',[doc.id,row.binding,row.descriptor,row.descriptor.package_digest,row.descriptor.package_bytes]);
