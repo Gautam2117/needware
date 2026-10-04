@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [dependencies]
-needware-capabilities = { path = "../needware-capabilities" }
+needware-capabilities = { path = "../needware-capabilities", version = "=2026.10.0" }
 serde.workspace = true
 serde_json.workspace = true
 schemars.workspace = true

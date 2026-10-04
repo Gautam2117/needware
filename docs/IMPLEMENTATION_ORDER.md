@@ -1,8 +1,9 @@
 # Remaining implementation dependencies
 
 Audited 2026-10-04 against main at f82f98b and the working source. The repository
-has three accepted ADRs for packages, browser persistence/frame isolation, and
-reviewed revisions. Separate architecture/security folders do not exist yet.
+has accepted ADRs for packages, browser persistence/frame isolation, reviewed
+revisions, derived fields and client-owned key hierarchy. Security documents now
+record the implemented vault and dependency audit boundaries.
 The executable control plane currently hosts the local compiler only; PostgreSQL
 and Mailpit bootstrap is infrastructure evidence, not account implementation.
 

@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 [dependencies]
-needware-compiler = { path = "../../crates/needware-compiler" }
-needware-crypto = { path = "../../crates/needware-crypto" }
+needware-compiler = { path = "../../crates/needware-compiler", version = "=2026.10.0" }
+needware-crypto = { path = "../../crates/needware-crypto", version = "=2026.10.0" }
 axum = { version = "0.8.9", features = ["json"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal"] }
 tokio-stream = "0.1"

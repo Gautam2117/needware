@@ -15,6 +15,7 @@
     "check": "python3 scripts/token_guard.py run 'python3 scripts/check.py'",
     "test": "python3 scripts/token_guard.py run 'cargo test --workspace'",
     "security": "python3 scripts/token_guard.py run 'python3 scripts/security.py'",
+    "audit:dependencies": "python3 scripts/token_guard.py run 'cargo audit && cargo deny check && pnpm audit --audit-level=moderate'",
     "contracts": "python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts'"
   },
   "devDependencies": { "esbuild": "0.28.2", "@playwright/test": "1.63.0" }

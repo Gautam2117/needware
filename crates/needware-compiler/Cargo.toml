@@ -6,13 +6,13 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-needware-ir = { path = "../needware-ir" }
-needware-expr = { path = "../needware-expr" }
-needware-validation = { path = "../needware-validation" }
-needware-package = { path = "../needware-package" }
-needware-crypto = { path = "../needware-crypto" }
-needware-runtime = { path = "../needware-runtime" }
-needware-capabilities = { path = "../needware-capabilities" }
+needware-ir = { path = "../needware-ir", version = "=2026.10.0" }
+needware-expr = { path = "../needware-expr", version = "=2026.10.0" }
+needware-validation = { path = "../needware-validation", version = "=2026.10.0" }
+needware-package = { path = "../needware-package", version = "=2026.10.0" }
+needware-crypto = { path = "../needware-crypto", version = "=2026.10.0" }
+needware-runtime = { path = "../needware-runtime", version = "=2026.10.0" }
+needware-capabilities = { path = "../needware-capabilities", version = "=2026.10.0" }
 serde.workspace = true
 serde_json.workspace = true
 schemars.workspace = true

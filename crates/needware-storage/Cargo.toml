@@ -7,7 +7,7 @@ license.workspace = true
 default = ["native"]
 native = ["dep:rusqlite"]
 [dependencies]
-needware-ir = { path = "../needware-ir" }
+needware-ir = { path = "../needware-ir", version = "=2026.10.0" }
 serde_json.workspace = true
 thiserror.workspace = true
 rusqlite = { version = "0.38", features = ["bundled"], optional = true }
