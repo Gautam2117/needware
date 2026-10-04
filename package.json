@@ -11,6 +11,7 @@
     "test:compiler": "python3 scripts/token_guard.py run 'node scripts/verify_compiler.mjs'",
     "dev": "pnpm build:browser && node scripts/dev.mjs",
     "doctor": "python3 scripts/doctor.py",
+    "bootstrap": "python3 scripts/token_guard.py run 'python3 scripts/bootstrap.py'",
     "check": "python3 scripts/token_guard.py run 'python3 scripts/check.py'",
     "test": "python3 scripts/token_guard.py run 'cargo test --workspace'",
     "security": "python3 scripts/token_guard.py run 'python3 scripts/security.py'",

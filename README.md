@@ -14,6 +14,7 @@ Required: Rust 1.99.0 with rustfmt, Clippy and `wasm32-unknown-unknown`; Node 24
 pnpm install --frozen-lockfile
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 pnpm doctor
+pnpm bootstrap
 pnpm check
 pnpm test
 pnpm security
@@ -24,6 +25,8 @@ NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm test:e2e
 ```
 
 Commands retain complete local logs in ignored `.logs/` and return bounded diagnostics. Lockfiles pin resolved dependencies. No provider credentials or paid cloud account are needed for domain tests.
+
+Bootstrap starts digest-pinned PostgreSQL and a local mail inbox with preserved random secrets and persistent volumes. See [local dependency setup](docs/development/local-services.md); these services do not yet implement account features.
 
 The browser can run the authored habit tracker or import signed `.need` packages after explicit signer/permission review. Rust/WASM executes mutations; SQLite/OPFS coordinates writers, with an explicit IndexedDB fallback. A production build caches its shell/runtime for offline reopen. Package and plaintext state exports are separate. The current host accepts local-storage applications and rejects unsupported renderer components before startup.
 

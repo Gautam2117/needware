@@ -1,0 +1,32 @@
+name: needware-dev
+services:
+  postgres:
+    image: postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+    environment:
+      POSTGRES_USER: needware
+      POSTGRES_DB: needware
+      POSTGRES_PASSWORD: ${NEEDWARE_POSTGRES_PASSWORD:?Run pnpm bootstrap to create local secrets}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U needware -d needware"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  mailpit:
+    image: axllent/mailpit:v1.29.0@sha256:0f93f36075f5f6fe428655d94299dda59b9a533d3fe9ce62909a72ac6fe455a9
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "1000"
+    ports:
+      - "127.0.0.1:51025:1025"
+      - "127.0.0.1:58025:8025"
+    volumes:
+      - mail-data:/data
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  mail-data:

@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
 const environment = { ...process.env };
-if (existsSync('.env')) for (const line of readFileSync('.env', 'utf8').split('\n')) {
-  const match = line.match(/^([A-Z][A-Z_0-9]*)=(.*)$/); if (match && environment[match[1]] === undefined) environment[match[1]] = match[2];
+for (const file of ['.env', '.local/dev.env']) if (existsSync(file)) for (const line of readFileSync(file, 'utf8').split('\n')) {
+  const match = line.match(/^([A-Z][A-Z_0-9]*)=(.*)$/); if (match && match[2] && environment[match[1]] === undefined) environment[match[1]] = match[2];
 }
 environment.NEEDWARE_CONTROL_TOKEN ||= randomBytes(32).toString('hex');
 mkdirSync('.logs', { recursive: true });

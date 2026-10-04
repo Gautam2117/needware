@@ -32,6 +32,8 @@ jobs:
       - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- revision-fixture && NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test revisions.spec.ts'
       - run: pnpm test:compiler
         timeout-minutes: 10
+      - run: python3 scripts/token_guard.py run 'pnpm bootstrap && python3 scripts/verify_local_services.py'
+        timeout-minutes: 5
       - if: failure()
         run: python3 scripts/browser_diagnostics.py
       - if: failure()
