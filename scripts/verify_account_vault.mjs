@@ -103,6 +103,17 @@ export async function verifyAccountVault({ page, context, pool, account, origin,
     await page.reload(); await expect(page.getByText('Owner Chromium', { exact: true })).toBeVisible();
     await expect(page.getByText('Enrolled Firefox', { exact: true })).toBeVisible(); await expect(page.getByText('Recovered WebKit', { exact: true })).toBeVisible();
     await page.screenshot({ path: 'artifacts/account-vault-acceptance.png', fullPage: true });
+    await page.getByRole('link', { name: 'Open encrypted applications', exact: true }).click();
+    await expect(page.getByText('Encrypted browser storage ready', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Try encrypted habit tracker', exact: true }).click();
+    await page.getByRole('button', { name: 'Trust signer and save encrypted application', exact: true }).click();
+    const app = page.frameLocator('iframe'); await app.getByLabel('Habit name').fill('Verified account encrypted application');
+    await app.getByRole('button', { name: 'Add habit', exact: true }).click();
+    await expect(app.getByText('Verified account encrypted application', { exact: true })).toBeVisible();
+    await page.reload(); await page.getByRole('button', { name: 'Open Habit tracker', exact: true }).click();
+    await expect(app.getByText('Verified account encrypted application', { exact: true })).toBeVisible();
+    await page.screenshot({ path: 'artifacts/encrypted-account-application.png', fullPage: true });
+    await page.goto(`${origin}/account`); await expect(page.getByText('Owner Chromium', { exact: true })).toBeVisible();
     console.log('PASS real account-bound Chromium/Firefox/WebKit encrypted setup, retained device keys, HPKE enrollment, recovery after local key loss, signed one-use cloud challenges, replay/tamper/root pin/CSRF/duplicate-JSON boundaries');
   } finally {
     for (const other of contexts) await other.request.post(`${origin}/api/auth/sign-out`, { data: {}, headers: { Origin: origin } });

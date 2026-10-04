@@ -1,7 +1,8 @@
 // Trusted-host storage only. App frames must never receive this object or its bytes.
+import { EncryptedDocumentStore } from './journal-store';
 const MAX_BYTES = 2 * 1024 * 1024;
 const encoder = new TextEncoder();
-interface StoredVault {
+export interface StoredVault {
   id: string;
   version: 1;
   generation: number;
@@ -27,13 +28,22 @@ function validate(value: StoredVault): void {
 }
 export async function openVaultStore(): Promise<EncryptedVaultStore> {
   if (!globalThis.isSecureContext || !crypto.subtle) throw new Error('Secure browser storage is required');
-  const opening = indexedDB.open('needware-vault-1', 1);
-  opening.onupgradeneeded = () => opening.result.createObjectStore('vaults', { keyPath: 'id' });
+  const opening = indexedDB.open('needware-vault-1', 2);
+  opening.onupgradeneeded = () => {
+    const db = opening.result;
+    if (!db.objectStoreNames.contains('vaults')) db.createObjectStore('vaults', { keyPath: 'id' });
+    if (!db.objectStoreNames.contains('documents')) {
+      const documents = db.createObjectStore('documents', { keyPath: ['account', 'document'] });
+      documents.createIndex('account', 'account');
+    }
+    if (!db.objectStoreNames.contains('document-quotas')) db.createObjectStore('document-quotas', { keyPath: 'account' });
+  };
   const db = await request(opening); db.onversionchange = () => db.close();
   return new EncryptedVaultStore(db);
 }
 export class EncryptedVaultStore {
-  constructor(private readonly db: IDBDatabase) {}
+  readonly documents: EncryptedDocumentStore;
+  constructor(private readonly db: IDBDatabase) { this.documents = new EncryptedDocumentStore(db, validate); }
   close(): void { this.db.close(); }
   private async record(id: string): Promise<StoredVault | undefined> {
     identifier(id);

@@ -29,17 +29,27 @@ declare module 'needware-wasm-runtime' {
     recover(code: string, envelope: string, context: string, pin: string): void;
     start_document(bytes: Uint8Array, instance: string, scope: string, epoch: number, consent: boolean): BrowserSync;
     document_key_backup(document: string): string;
+    held_document_key_backup(document: string): string;
+    has_document(document: string): boolean;
+    forget_document(document: string): void;
+    restore_held_document_key(backup: string, context: string): void;
     restore_document_key(backup: string, context: string): void;
     open_document(bytes: Uint8Array, document: string, scope: string, epoch: number, generation: number, consent: boolean): BrowserSync;
+    open_shared_document(bytes: Uint8Array, document: string, membership: string, ownerEpoch: number, pin: string, generation: number, scope: string, schemaEpoch: number, consent: boolean): BrowserSync;
     offer_document(document: string, certificate: string, context: string, authority: string, write: boolean, approved: boolean): string;
     join_document(bytes: Uint8Array, offer: string, context: string, rootEpoch: number, pin: string, generation: number, scope: string, epoch: number, consent: boolean): BrowserSync;
     free(): void;
   }
   export class BrowserSync {
+    fork_session(): BrowserSync;
+    seal_payload(bytes: Uint8Array, metadata: string): Uint8Array;
+    open_payload(bytes: Uint8Array, metadata: string): Uint8Array;
     binding(): string;
     membership(): string;
     snapshot(): string;
     view(): string;
+    restore_local_state(state: string): void;
+    verify_package(bytes: Uint8Array): void;
     set_roster(roster: string): void;
     known(): string;
     export(known: string): string;

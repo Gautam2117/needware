@@ -21,7 +21,7 @@ test('local encrypted vault survives offline reload, rejects stale writers and d
     const newBackup = vault.local_backup();
     try { await other.save(account, newBackup, generation); } catch { staleRejected = true; }
     finally { newBackup.fill(0); }
-    const opening = indexedDB.open('needware-vault-1', 1);
+    const opening = indexedDB.open('needware-vault-1', 2);
     const db = await new Promise<IDBDatabase>((resolve, reject) => { opening.onsuccess = () => resolve(opening.result); opening.onerror = () => reject(opening.error); });
     const request = db.transaction('vaults').objectStore('vaults').get(account);
     const record = await new Promise<Record<string, unknown>>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
@@ -45,7 +45,7 @@ test('local encrypted vault survives offline reload, rejects stale writers and d
     const vault = wasm.BrowserVault.from_local_backup(loaded.bytes); loaded.bytes.fill(0);
     const authorityRestored = vault.account_authority() === saved.pin;
     const deviceRestored = vault.device_public() === saved.publicDevice;
-    const opening = indexedDB.open('needware-vault-1', 1);
+    const opening = indexedDB.open('needware-vault-1', 2);
     const db = await new Promise<IDBDatabase>((resolve, reject) => { opening.onsuccess = () => resolve(opening.result); opening.onerror = () => reject(opening.error); });
     const tx = db.transaction('vaults', 'readwrite'); const objectStore = tx.objectStore('vaults'); const get = objectStore.get(saved.account);
     await new Promise<void>((resolve, reject) => {

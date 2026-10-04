@@ -47,6 +47,7 @@ pub struct ViewNode {
     pub style: Style,
     pub children: Vec<ViewNode>,
 }
+#[derive(Clone)]
 pub struct Runtime {
     package: VerifiedPackage,
     state: State,
@@ -82,6 +83,9 @@ impl Runtime {
     }
     pub fn application(&self) -> &Application {
         self.package.application().application()
+    }
+    pub fn package(&self) -> &VerifiedPackage {
+        &self.package
     }
     pub fn state(&self) -> &State {
         &self.state

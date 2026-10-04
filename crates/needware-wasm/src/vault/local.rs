@@ -17,6 +17,8 @@ struct LocalBackup {
     locked_device: Vec<u8>,
     root: Option<RootBackup>,
     documents: Vec<WrappedKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    held_documents: Option<Vec<HeldDocumentKey>>,
 }
 impl Drop for LocalBackup {
     fn drop(&mut self) {
@@ -49,21 +51,31 @@ impl BrowserVault {
         let documents = self
             .documents
             .values()
-            .map(|key| self.root()?.wrap_document(key).map_err(error))
+            .map(|key| self.root()?.wrap_held_document(key).map_err(error))
             .collect::<Result<Vec<_>, _>>()?;
         let backup = LocalBackup {
-            version: 1,
+            version: 2,
             device,
             lock: *lock.bytes(),
             locked_device: self.device.lock_local(&lock).map_err(error)?,
             root,
-            documents,
+            documents: vec![],
+            held_documents: Some(documents),
         };
         needware_package::canonical(&backup).map_err(error)
     }
     pub fn from_local_backup(bytes: &[u8]) -> Result<BrowserVault, JsValue> {
         let backup: LocalBackup = needware_package::parse_json(bytes).map_err(error)?;
-        if backup.version != 1 || backup.documents.len() > 256 {
+        if ![1, 2].contains(&backup.version)
+            || backup.documents.len() > 256
+            || backup
+                .held_documents
+                .as_ref()
+                .is_some_and(|docs| docs.len() > 256)
+            || (backup.version == 1 && backup.held_documents.is_some())
+            || (backup.version == 2
+                && (!backup.documents.is_empty() || backup.held_documents.is_none()))
+        {
             return Err(error("unsupported local vault backup"));
         }
         backup.device.validate().map_err(error)?;
@@ -97,6 +109,21 @@ impl BrowserVault {
                 .document
                 .as_ref()
                 .ok_or_else(|| error("invalid document backup"))?;
+            if documents.insert(id.clone(), key).is_some() {
+                return Err(error("duplicate document backup"));
+            }
+        }
+        for envelope in backup.held_documents.iter().flatten() {
+            let key = root
+                .as_ref()
+                .ok_or_else(|| error("account root required for held document backups"))?
+                .unwrap_held_document(envelope, &envelope.document)
+                .map_err(error)?;
+            let id = envelope
+                .document
+                .document
+                .as_ref()
+                .ok_or_else(|| error("invalid held document context"))?;
             if documents.insert(id.clone(), key).is_some() {
                 return Err(error("duplicate document backup"));
             }

@@ -11,7 +11,9 @@ The host explicitly approves enrollment/sharing and supplies independently pinne
 account contexts/authority. Enrollment uses signed HPKE transfers; joining a
 document verifies owner-signed membership and expected document/root/generation
 before opening its key. A declared collaboration capability and synchronized
-storage scopes are required, in addition to host consent. Runtime dispatch still
+storage scopes are required for shared data, in addition to host consent. Empty
+scopes can encrypt wholly device-local applications without collaboration grants.
+Runtime dispatch still
 enforces action inputs and storage consent; a failed sync commit restores runtime
 state before any returned platform effects can execute.
 
@@ -26,7 +28,10 @@ makes the data unrecoverable; login/password reset is not decryption recovery.
 `local_backup` returns sensitive transient bytes containing a random local device
 lock and device/root/document envelopes. Encrypt them with `EncryptedVaultStore`
 and wipe the buffer. Never store/upload this buffer directly. `from_local_backup`
-only consumes decrypted local bytes and verifies every envelope/identity.
+only consumes decrypted local bytes and verifies every envelope/identity. Version
+2 retains foreign document keys wrapped under the holder's own account root;
+version 1 owner backups remain readable. Recovery does not inherit a lost device's
+document grant; a new owner-signed grant is required for the new device identity.
 
 `openVaultStore` uses non-extractable AES-256-GCM WebCrypto keys stored through
 IndexedDB structured cloning. Fresh random nonces and authenticated namespace/

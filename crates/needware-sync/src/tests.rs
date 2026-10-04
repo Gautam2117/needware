@@ -162,6 +162,40 @@ fn independent_devices_and_collaborator_converge_field_edits_offline() -> TestRe
     assert_eq!(send(&mut world, 2, 0)?, 0);
     Ok(())
 }
+
+#[test]
+fn staged_sessions_preserve_original_state_and_use_independent_authenticated_actors() -> TestResult
+{
+    let mut world = world(&[DocumentRole::Write, DocumentRole::Write, DocumentRole::Read])?;
+    create(&mut world.clients[0], "Walk")?;
+    send(&mut world, 0, 1)?;
+    let before = world.clients[0].state().clone();
+    let known = world.clients[0].known();
+    let mut left = world.clients[0].fork_session()?;
+    let mut right = world.clients[0].fork_session()?;
+    update(&mut left, "name", Value::String("Run".into()))?;
+    update(&mut right, "done", Value::Boolean(true))?;
+    assert_eq!(world.clients[0].state(), &before);
+    assert_eq!(world.clients[0].known(), known);
+    for frame in left
+        .export(&known)?
+        .into_iter()
+        .chain(right.export(&known)?)
+    {
+        world.clients[1].receive(&frame, &world.roster)?;
+    }
+    let record = &world.clients[1].state().collections["habits"][RECORD];
+    assert_eq!(record["name"], Value::String("Run".into()));
+    assert_eq!(record["done"], Value::Boolean(true));
+    assert!(create(&mut world.clients[2].fork_session()?, "Unauthorized").is_err());
+    let payload = left.seal_payload(b"encrypted signed package", b"package-v1")?;
+    assert_eq!(
+        right.open_payload(&payload, b"package-v1")?.as_slice(),
+        b"encrypted signed package"
+    );
+    assert!(right.open_payload(&payload, b"another-purpose").is_err());
+    Ok(())
+}
 #[test]
 fn concurrent_same_field_has_stable_winner_and_delete_wins() -> TestResult {
     let mut world = world(&[DocumentRole::Write; 3])?;
@@ -283,6 +317,13 @@ fn retry_missing_dependencies_snapshot_restart_and_local_only_state() -> TestRes
         Value::String("local default".into())
     );
     assert_ne!(reopened.doc.get_actor(), world.clients[1].doc.get_actor());
+    reopened.restore_local_state(world.clients[1].state().clone())?;
+    assert_eq!(reopened.state(), world.clients[1].state());
+    let before = reopened.state().clone();
+    let mut forged = before.clone();
+    forged.collections.clear();
+    assert!(reopened.restore_local_state(forged).is_err());
+    assert_eq!(reopened.state(), &before);
     Ok(())
 }
 #[test]

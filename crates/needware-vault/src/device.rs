@@ -23,6 +23,13 @@ pub struct DeviceKeys {
     pub(crate) seed: SecretKey,
 }
 impl DeviceKeys {
+    /// Keep transactional staging inside Rust without exporting a plaintext seed.
+    pub fn fork_session(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            seed: SecretKey::from_bytes(*self.seed.bytes()),
+        }
+    }
     pub fn create() -> Result<Self> {
         Ok(Self {
             id: uuid::Uuid::new_v4().to_string(),

@@ -61,6 +61,45 @@ pub struct Replica {
     log: BTreeMap<ChangeHash, wire::SignedChange>,
 }
 impl Replica {
+    /// Host stages a whole journal transaction before publishing this session.
+    pub fn fork_session(&self) -> Result<Self> {
+        let mut doc = self.doc.clone();
+        let mut actor = self
+            .device
+            .public()
+            .map_err(|_| SyncError::Authorization)?
+            .signing
+            .to_vec();
+        let mut suffix = [0; 16];
+        getrandom::fill(&mut suffix).map_err(|_| SyncError::Invalid)?;
+        actor.extend(suffix);
+        doc.set_actor(ActorId::from(actor));
+        Ok(Self {
+            app: self.app.clone(),
+            scope: self.scope.clone(),
+            binding: self.binding.clone(),
+            key: self.key.fork_session(),
+            device: self.device.fork_session(),
+            writable: self.writable,
+            doc,
+            state: self.state.clone(),
+            log: self.log.clone(),
+        })
+    }
+    pub fn seal_payload(&self, bytes: &[u8], metadata: &[u8]) -> Result<Vec<u8>> {
+        self.key
+            .seal(bytes, metadata)
+            .map_err(|_| SyncError::Invalid)
+    }
+    pub fn open_payload(
+        &self,
+        bytes: &[u8],
+        metadata: &[u8],
+    ) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+        self.key
+            .open(bytes, metadata)
+            .map_err(|_| SyncError::Invalid)
+    }
     pub fn new(
         app: ValidatedApplication,
         scope: Scope,
@@ -127,6 +166,17 @@ impl Replica {
     }
     pub fn state(&self) -> &State {
         &self.state
+    }
+    /// Restores device-local state only after authenticated shared history is replayed.
+    pub fn restore_local_state(&mut self, next: State) -> Result<()> {
+        needware_validation::validate_state(&next, self.app.application())
+            .map_err(|_| SyncError::Invalid)?;
+        let projected = mapping::project(&self.doc, &next, self.app.application(), &self.scope)?;
+        if projected != next {
+            return Err(SyncError::Invalid);
+        }
+        self.state = next;
+        Ok(())
     }
     pub fn binding(&self) -> &Binding {
         &self.binding

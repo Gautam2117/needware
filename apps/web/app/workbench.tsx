@@ -4,6 +4,7 @@ import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { Command, LibraryEntry, Loaded, PackageInfo, RevisionReport, WorkerReply } from '../../../packages/browser-host/src/protocol';
 import RevisionReview from './revision-review';
 import Sandbox from './sandbox';
+import { frameDocument } from './frame-document';
 import type { ProviderResponse } from '@needware/ir-types/ProviderResponse';
 import type { StageEvent } from '@needware/ir-types/StageEvent';
 import { createApplication } from '../../../packages/browser-host/src/compiler-client';
@@ -34,7 +35,6 @@ class Host {
 function download(filename: string, data: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([data], { type })); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-const frameStyle = `:root{color-scheme:light dark;font-family:Arial,sans-serif;color:#1c2623;background:#fffefa}body{margin:0;padding:28px}h2{font-size:28px;letter-spacing:-1px}p{line-height:1.5}label{display:block;margin:16px 0;font-size:14px}input,textarea{box-sizing:border-box;display:block;width:100%;font:inherit;padding:12px;border:1px solid #ccd5ce;border-radius:8px;margin-top:7px;background:transparent;color:inherit}button{font:inherit;cursor:pointer;background:#18594e;color:white;border:0;padding:10px 16px;border-radius:8px;margin:7px 8px 7px 0}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #579fd6;outline-offset:3px}.card{padding:17px;border:1px solid #d9dfd6;border-radius:12px;margin:14px 0}.row{display:flex;gap:12px;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.empty{color:#65746a}.spacer{height:20px}@media(prefers-color-scheme:dark){:root{background:#18231e;color:#e8ede7}.card{border-color:#35453c}}`;
 export default function Workbench() {
   const host = useRef<Host | null>(null);
   const cancellation = useRef<AbortController | null>(null);
@@ -87,7 +87,7 @@ export default function Workbench() {
     const result = await host.current?.request<Loaded>({ kind: 'rollback', id: snapshot.id, snapshot: snapshot.generation, expected: old.generation, consent: true }); if (result) await show(result);
   }
   async function remove(id: string) { if (!window.confirm('Delete this application and all its local data? Export anything you want to keep first.')) return; await host.current?.request({ kind: 'delete', id }); const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); if (entries) setLibrary(entries); if (loaded?.info.application.id === id) { setLoaded(null); setView(null); } }
-  const frame = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-${renderer?.hash}'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'"><style>${frameStyle}</style></head><body><div id="root"></div><script>${renderer?.code ?? ''}</script></body></html>`;
+  const frame = frameDocument(renderer);
   return <><header><strong>needware<span aria-hidden="true"> /</span></strong><nav aria-label="Needware"><a href="/account">Your account</a></nav></header><main id="main">
     <div className="intro"><span className="eyebrow">Your software, on your terms</span><h1>What do you need?</h1><p>Small tools for the things you do. Portable applications with their own data and clear permissions.</p>
       <label htmlFor="prompt">Describe your application</label><textarea id="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Track medicines for my parents, split trip expenses, or plan revision…" />

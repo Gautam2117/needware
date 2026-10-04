@@ -6,11 +6,11 @@ async function files(dir) {
   return (await Promise.all(entries.map(e => e.isDirectory() ? files(`${dir}/${e.name}`) : [`${dir}/${e.name}`]))).flat();
 }
 const staticFiles = await files('apps/web/.next/static');
-const runtimeFiles = ['runtime-worker.js', 'vault-store.js', 'frame.js', 'wasm/needware_wasm.js', 'wasm/needware_wasm_bg.wasm', 'sqlite3.wasm', 'manifest.webmanifest'];
+const runtimeFiles = ['runtime-worker.js', 'encrypted-worker.js', 'vault-store.js', 'sync-journal.js', 'frame.js', 'wasm/needware_wasm.js', 'wasm/needware_wasm_bg.wasm', 'sqlite3.wasm', 'manifest.webmanifest'];
 const hash = createHash('sha256');
 for (const file of [...staticFiles, ...runtimeFiles.map(f => `${publicDir}/${f}`)].sort()) hash.update(file).update(await readFile(file));
 const version = hash.digest('hex').slice(0, 24);
-const assets = ['/', ...staticFiles.map(f => f.replace('apps/web/.next', '/_next')), ...runtimeFiles.map(f => `/${f}`)];
+const assets = ['/', '/encrypted', ...staticFiles.map(f => f.replace('apps/web/.next', '/_next')), ...runtimeFiles.map(f => `/${f}`)];
 await writeFile(`${publicDir}/sw.js`, `
 const CACHE=${JSON.stringify(`needware-${version}`)};
 const ASSETS=${JSON.stringify(assets)};

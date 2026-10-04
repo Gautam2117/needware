@@ -217,6 +217,9 @@ impl BrowserVault {
             instance,
         )
         .map_err(error)?;
+        if self.documents.len() >= 256 {
+            return Err(error("document key limit"));
+        }
         if self.documents.contains_key(&id) {
             return Err(error("document exists; retain or reopen its existing key"));
         }
@@ -261,12 +264,52 @@ impl BrowserVault {
             .ok_or_else(|| error("document key unavailable"))?;
         json(&self.root()?.wrap_document(key).map_err(error)?)
     }
+    pub fn held_document_key_backup(&self, document: &str) -> Result<String, JsValue> {
+        let key = self
+            .documents
+            .get(document)
+            .ok_or_else(|| error("document key unavailable"))?;
+        json(&self.root()?.wrap_held_document(key).map_err(error)?)
+    }
+    pub fn has_document(&self, document: &str) -> bool {
+        self.documents.contains_key(document)
+    }
+    pub fn forget_document(&mut self, document: &str) {
+        self.documents.remove(document);
+    }
+    pub fn restore_held_document_key(
+        &mut self,
+        backup: &str,
+        expected_document: &str,
+    ) -> Result<(), JsValue> {
+        let context: KeyContext = parse(expected_document)?;
+        if self.documents.len() >= 256 {
+            return Err(error("document key limit"));
+        }
+        let id = context
+            .document
+            .as_ref()
+            .ok_or_else(|| error("invalid document context"))?;
+        if self.documents.contains_key(id) {
+            return Err(error("existing document key preserved"));
+        }
+        let envelope = HeldDocumentKey::parse(backup.as_bytes()).map_err(error)?;
+        let key = self
+            .root()?
+            .unwrap_held_document(&envelope, &context)
+            .map_err(error)?;
+        self.documents.insert(id.clone(), key);
+        Ok(())
+    }
     pub fn restore_document_key(
         &mut self,
         backup: &str,
         expected_document: &str,
     ) -> Result<(), JsValue> {
         let context: KeyContext = parse(expected_document)?;
+        if self.documents.len() >= 256 {
+            return Err(error("document key limit"));
+        }
         let id = context
             .document
             .as_ref()
@@ -333,6 +376,52 @@ impl BrowserVault {
             schema_epoch,
         )
     }
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_shared_document(
+        &self,
+        package: &[u8],
+        document: &str,
+        membership: &str,
+        owner_epoch: u32,
+        owner_authority: &str,
+        generation: u32,
+        scope: &str,
+        schema_epoch: u32,
+        consent: bool,
+    ) -> Result<BrowserSync, JsValue> {
+        if !consent {
+            return Err(error("package and sync scope consent required"));
+        }
+        let key = self
+            .documents
+            .get(document)
+            .ok_or_else(|| error("held document key unavailable"))?;
+        let membership: DocumentMembership = parse(membership)?;
+        let pin = authority(owner_authority)?;
+        let verified = membership
+            .verify(key.context(), owner_epoch, &pin, generation)
+            .map_err(error)?;
+        if verified.device() != &self.device.public().map_err(error)? {
+            return Err(error("document membership belongs to another device"));
+        }
+        let package = needware_package::verify(package).map_err(error)?;
+        let scope: Scope = parse(scope)?;
+        check_scope(
+            package.application().application(),
+            &scope,
+            verified.role() == DocumentRole::Write,
+        )?;
+        BrowserSync::new(
+            package,
+            scope,
+            key.fork_session(),
+            self.device.fork_session(),
+            membership,
+            owner_epoch,
+            pin,
+            schema_epoch,
+        )
+    }
     pub fn offer_document(
         &self,
         document: &str,
@@ -371,7 +460,7 @@ impl BrowserVault {
     }
     #[allow(clippy::too_many_arguments)]
     pub fn join_document(
-        &self,
+        &mut self,
         package: &[u8],
         offer: &str,
         expected_document: &str,
@@ -387,6 +476,17 @@ impl BrowserVault {
         }
         let offer: Offer = parse(offer)?;
         let expected: KeyContext = parse(expected_document)?;
+        self.root()?;
+        if self.documents.len() >= 256 {
+            return Err(error("document key limit"));
+        }
+        let id = expected
+            .document
+            .as_ref()
+            .ok_or_else(|| error("invalid document context"))?;
+        if self.documents.contains_key(id) {
+            return Err(error("existing document key preserved; reopen its session"));
+        }
         let pin = authority(owner_authority)?;
         let membership = offer
             .membership
@@ -406,7 +506,8 @@ impl BrowserVault {
             &scope,
             membership.role() == DocumentRole::Write,
         )?;
-        BrowserSync::new(
+        let saved = key.fork_session();
+        let session = BrowserSync::new(
             package,
             scope,
             key,
@@ -415,10 +516,16 @@ impl BrowserVault {
             owner_root_epoch,
             pin,
             schema_epoch,
-        )
+        )?;
+        self.documents.insert(id.clone(), saved);
+        Ok(session)
     }
 }
 fn check_scope(app: &needware_ir::Application, scope: &Scope, write: bool) -> Result<(), JsValue> {
+    // Encrypting a wholly device-local document does not grant collaboration.
+    if scope.values.is_empty() && scope.collections.is_empty() {
+        return Ok(());
+    }
     if !app.capabilities.iter().any(|capability| {
         matches!(capability,
         Capability::Collaboration { write: granted } if !write || *granted)
@@ -446,6 +553,31 @@ pub struct BrowserSync {
     roster: Vec<VerifiedMembership>,
     owner_epoch: u32,
     authority: [u8; 32],
+}
+#[wasm_bindgen]
+impl BrowserSync {
+    pub fn fork_session(&self) -> Result<BrowserSync, JsValue> {
+        Ok(Self {
+            replica: self.replica.fork_session().map_err(error)?,
+            runtime: self.runtime.clone(),
+            membership: self.membership.clone(),
+            roster: self.roster.clone(),
+            owner_epoch: self.owner_epoch,
+            authority: self.authority,
+        })
+    }
+    pub fn seal_payload(&self, bytes: &[u8], metadata: &str) -> Result<Vec<u8>, JsValue> {
+        self.replica
+            .seal_payload(bytes, metadata.as_bytes())
+            .map_err(error)
+    }
+    pub fn open_payload(&self, bytes: &[u8], metadata: &str) -> Result<Vec<u8>, JsValue> {
+        Ok(self
+            .replica
+            .open_payload(bytes, metadata.as_bytes())
+            .map_err(error)?
+            .to_vec())
+    }
 }
 impl BrowserSync {
     #[allow(clippy::too_many_arguments)]
@@ -510,6 +642,25 @@ impl BrowserSync {
     }
     pub fn snapshot(&self) -> Result<String, JsValue> {
         json(self.replica.state())
+    }
+    pub fn verify_package(&self, bytes: &[u8]) -> Result<(), JsValue> {
+        let package = needware_package::verify(bytes).map_err(error)?;
+        if package.digest() != self.runtime.package().digest()
+            || package.signers() != self.runtime.package().signers()
+        {
+            return Err(error("journal package identity mismatch"));
+        }
+        Ok(())
+    }
+    pub fn restore_local_state(&mut self, state: &str) -> Result<(), JsValue> {
+        let state = parse(state)?;
+        let mut runtime = self.runtime.clone();
+        runtime.restore(state).map_err(error)?;
+        self.replica
+            .restore_local_state(runtime.state().clone())
+            .map_err(error)?;
+        self.runtime = runtime;
+        Ok(())
     }
     pub fn view(&self) -> Result<String, JsValue> {
         json(&self.runtime.view().map_err(error)?)

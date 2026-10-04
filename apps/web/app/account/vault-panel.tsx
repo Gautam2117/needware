@@ -36,6 +36,7 @@ export default function VaultPanel({ account }: { account: string }) {
     {status === 'loading' && <p role="status">Opening your encrypted account…</p>}
     {status === 'error' && <button onClick={() => location.reload()}>Retry opening encrypted account</button>}
     {client && <>
+      {status === 'ready' && <p><a href={`/encrypted#account=${account}`}>Open encrypted applications</a></p>}
       {(status === 'new' || status === 'locked' || status === 'pending') && <label>Encryption device name<input value={label} onChange={event => setLabel(event.target.value)} maxLength={80} required /></label>}
       {status === 'new' && <>
         {!recovery ? <button disabled={busy} onClick={() => run(async () => { setRecovery(await client.prepareRecovery()); })}>Set up encrypted account</button> : <>

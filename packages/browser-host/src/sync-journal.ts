@@ -1,0 +1,127 @@
+// Only the trusted host/worker may hold this session. Renderer frames receive views and effects.
+import type { BrowserSync, BrowserVault } from 'needware-wasm-runtime';
+import type { EncryptedDocumentStore } from './journal-store';
+interface Binding { document: { document: string }; generation: number; schema_epoch: number }
+interface Journal {
+  version: 1; account: string; document: string; binding: string; scope: string;
+  ownerEpoch: number; authority: string; membership: string; held: string; package: string;
+  roster: string; frames: string[]; state: string; queued: string[]; cursor: string | null;
+}
+export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string }
+const encoder = new TextEncoder(); const decoder = new TextDecoder('utf-8', { fatal: true });
+function encode(bytes: Uint8Array): string {
+  const parts: string[] = [];
+  for (let index = 0; index < bytes.length; index += 8192) parts.push(String.fromCharCode(...bytes.subarray(index, index + 8192)));
+  return btoa(parts.join(''));
+}
+function decode(value: string): Uint8Array<ArrayBuffer> { return Uint8Array.from(atob(value), char => char.charCodeAt(0)); }
+function exportFrames(session: BrowserSync, known: string): string[] { return (JSON.parse(session.export(known)) as unknown[]).map(frame => JSON.stringify(frame)); }
+function parse(bytes: Uint8Array, account: string, document: string): Journal {
+  const value = JSON.parse(decoder.decode(bytes)) as Journal;
+  const fields = ['account','authority','binding','cursor','document','frames','held','membership','ownerEpoch','package','queued','roster','scope','state','version'];
+  if (!value || Object.keys(value).sort().join(',') !== fields.join(',') || value.version !== 1 || value.account !== account || value.document !== document
+      || !Number.isSafeInteger(value.ownerEpoch) || value.ownerEpoch < 1
+      || !['authority','binding','held','membership','package','roster','scope','state'].every(key => typeof value[key as keyof Journal] === 'string')
+      || ![value.frames,value.queued].every(items => Array.isArray(items) && items.length <= 100_000 && items.every(item => typeof item === 'string' && encoder.encode(item).length <= 2 * 1024 * 1024))
+      || (value.cursor !== null && (typeof value.cursor !== 'string' || value.cursor.length > 256))) throw new Error('Invalid document journal; original preserved');
+  const binding = JSON.parse(value.binding) as Binding;
+  if (binding.document.document !== document) throw new Error('Journal document mismatch');
+  return value;
+}
+export class DurableSyncSession {
+  private tail: Promise<unknown> = Promise.resolve();
+  private closed = false;
+  private closing = false;
+  private constructor(private readonly store: EncryptedDocumentStore, private session: BrowserSync, private journal: Journal, private generation: number, private readonly rootGeneration: number) {}
+  static async create(store: EncryptedDocumentStore, vault: BrowserVault, packageBytes: Uint8Array, session: BrowserSync, options: JournalOptions): Promise<DurableSyncSession> {
+    if (JSON.parse(vault.account_context()).account !== options.account) throw new Error('Vault account mismatch');
+    const membership = JSON.parse(session.membership());
+    if (membership.authority.map((byte: number) => byte.toString(16).padStart(2,'0')).join('') !== options.authority || membership.root_epoch !== options.ownerEpoch) throw new Error('Document owner pin mismatch');
+    session.verify_package(packageBytes);
+    session.view();
+    session.set_roster(options.roster);
+    const binding = session.binding(); const document = (JSON.parse(binding) as Binding).document.document;
+    const frames = exportFrames(session, '[]');
+    const journal: Journal = { version: 1, account: options.account, document, binding, scope: options.scope, ownerEpoch: options.ownerEpoch,
+      authority: options.authority, membership: session.membership(), held: vault.held_document_key_backup(document), package: encode(packageBytes),
+      roster: options.roster, frames, state: session.snapshot(), queued: [...frames], cursor: null };
+    const bytes = encoder.encode(JSON.stringify(journal));
+    let generation: number;
+    try { generation = await store.save(options.account, document, bytes, null, options.rootGeneration); } finally { bytes.fill(0); }
+    return new DurableSyncSession(store, session, journal, generation, options.rootGeneration);
+  }
+  static async open(store: EncryptedDocumentStore, vault: BrowserVault, account: string, document: string, consent: boolean): Promise<DurableSyncSession> {
+    if (!consent) throw new Error('Package and sync scope consent required');
+    const saved = await store.load(account, document); if (!saved) throw new Error('Document is unavailable');
+    let journal: Journal;
+    try { journal = parse(saved.bytes, account, document); } finally { saved.bytes.fill(0); }
+    const binding = JSON.parse(journal.binding) as Binding;
+    if (!vault.has_document(document)) vault.restore_held_document_key(journal.held, JSON.stringify(binding.document));
+    const packageBytes = decode(journal.package); let session: BrowserSync;
+    try { session = vault.open_shared_document(packageBytes, document, journal.membership, journal.ownerEpoch, journal.authority, binding.generation, journal.scope, binding.schema_epoch, true); }
+    finally { packageBytes.fill(0); }
+    try {
+      if (session.binding() !== journal.binding) throw new Error('Package binding mismatch');
+      session.set_roster(journal.roster);
+      for (const frame of journal.frames) session.receive(frame);
+      session.restore_local_state(journal.state);
+      return new DurableSyncSession(store, session, journal, saved.generation, saved.rootGeneration);
+    } catch (error) { session.free(); throw error; }
+  }
+  view(): string { this.assertOpen(); return this.session.view(); }
+  packageBytes(): Uint8Array<ArrayBuffer> { this.assertOpen(); return decode(this.journal.package); }
+  static async inspect<T>(store: EncryptedDocumentStore, account: string, document: string, inspect: (bytes: Uint8Array) => T): Promise<T> {
+    const saved = await store.load(account, document); if (!saved) throw new Error('Document is unavailable');
+    let journal: Journal;
+    try { journal = parse(saved.bytes, account, document); } finally { saved.bytes.fill(0); }
+    const bytes = decode(journal.package); try { return inspect(bytes); } finally { bytes.fill(0); }
+  }
+  snapshot(): string { this.assertOpen(); return this.session.snapshot(); }
+  pending(): readonly string[] { this.assertOpen(); return [...this.journal.queued]; }
+  cursor(): string | null { this.assertOpen(); return this.journal.cursor; }
+  private assertOpen(): void { if (this.closed) throw new Error('Document session closed'); }
+  private serial<T>(run: () => Promise<T>): Promise<T> {
+    if (this.closing) return Promise.reject(new Error('Document session closing'));
+    const next = this.tail.then(() => { this.assertOpen(); return run(); });
+    this.tail = next.catch(() => undefined); return next;
+  }
+  async dispatch(event: string): Promise<string> {
+    return this.serial(async () => {
+      const candidate = this.session.fork_session();
+      try {
+        const known = this.session.known(); const effects = candidate.dispatch(event);
+        if ((JSON.parse(effects) as unknown[]).length) throw new Error('Remote capability execution is not available in this host yet; original preserved');
+        const queued = [...this.journal.queued, ...exportFrames(candidate, known)];
+        await this.publish(candidate, { ...this.journal, queued });
+        return effects;
+      } catch (error) { candidate.free(); throw error; }
+    });
+  }
+  async receive(frames: readonly string[], cursor: string | null): Promise<number> {
+    return this.serial(async () => {
+      if (frames.length > 256 || (cursor !== null && (typeof cursor !== 'string' || cursor.length > 256))) throw new Error('Relay batch limit');
+      const candidate = this.session.fork_session(); let received = 0;
+      try {
+        for (const frame of frames) received += candidate.receive(frame);
+        await this.publish(candidate, { ...this.journal, cursor }); return received;
+      } catch (error) { candidate.free(); throw error; }
+    });
+  }
+  async acknowledge(frames: readonly string[]): Promise<void> {
+    return this.serial(async () => {
+      if (frames.length > 256 || frames.some(frame => !this.journal.queued.includes(frame))) throw new Error('Unknown upload acknowledgment');
+      const acknowledged = new Set(frames); const candidate = this.session.fork_session();
+      try { await this.publish(candidate, { ...this.journal, queued: this.journal.queued.filter(frame => !acknowledged.has(frame)) }); }
+      catch (error) { candidate.free(); throw error; }
+    });
+  }
+  private async publish(candidate: BrowserSync, journal: Journal): Promise<void> {
+    candidate.view(); // Rendering failure must precede the durable commit and any published effects.
+    journal = { ...journal, state: candidate.snapshot(), frames: exportFrames(candidate, '[]') };
+    const bytes = encoder.encode(JSON.stringify(journal)); let generation: number;
+    try { generation = await this.store.save(journal.account, journal.document, bytes, this.generation, this.rootGeneration); }
+    finally { bytes.fill(0); }
+    this.session.free(); this.session = candidate; this.journal = journal; this.generation = generation;
+  }
+  async close(): Promise<void> { this.closing = true; await this.tail; if (!this.closed) { this.closed = true; this.session.free(); } }
+}

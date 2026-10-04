@@ -1,11 +1,13 @@
 //! Client-owned encryption hierarchy. This crate never gives the service a root secret.
 mod device;
+mod held;
 mod membership;
 mod operation;
 mod recovery;
 mod rotation;
 mod wrapping;
 pub use device::{DeviceCertificate, DeviceKeys, DevicePublic, VerifiedDevice};
+pub use held::HeldDocumentKey;
 pub use membership::{DocumentMembership, DocumentRole, VerifiedMembership};
 use needware_crypto::{CryptoError, SecretKey};
 pub use operation::{AccountOperation, AccountOperationKind};
@@ -139,6 +141,13 @@ pub struct DocumentKey {
     key: SecretKey,
 }
 impl DocumentKey {
+    /// Explicit opaque session copy for staging; secret material never crosses a host boundary.
+    pub fn fork_session(&self) -> Self {
+        Self {
+            context: self.context.clone(),
+            key: SecretKey::from_bytes(*self.key.bytes()),
+        }
+    }
     pub fn context(&self) -> &KeyContext {
         &self.context
     }

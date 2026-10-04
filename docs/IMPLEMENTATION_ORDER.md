@@ -17,8 +17,10 @@ actual local browser acceptance; public integration remains unverified.
    adversarially test the approved recovery model before storing private data.
 3. Local collaboration: Automerge document mapping, validated local changes,
    independent-client convergence, encrypted change/snapshot transport,
-   deduplication, resource bounds and schema epochs. Browser durable journals
-   and multi-writer coordination must preserve existing offline/revision behavior.
+   deduplication, resource bounds and schema epochs. Atomic encrypted browser
+   journals and the dedicated encrypted worker/UI now pass local three-engine
+   offline, quota, corruption and concurrency acceptance. Continue history
+   compaction, relay/backoff and synchronized revision review/rebase.
 4. Cloud identity and persistence: account migrations/authentication, sessions,
    origin/body/rate controls, transactional email and local deletion implemented.
    Account-bound encryption-device setup/enrollment/recovery is implemented locally.

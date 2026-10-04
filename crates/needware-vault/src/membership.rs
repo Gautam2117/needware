@@ -17,6 +17,7 @@ pub struct DocumentMembership {
     pub role: DocumentRole,
     pub signature: Vec<u8>,
 }
+#[derive(Clone)]
 pub struct VerifiedMembership(DocumentMembership);
 impl VerifiedMembership {
     pub fn device(&self) -> &DevicePublic {
