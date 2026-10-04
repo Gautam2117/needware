@@ -3,8 +3,9 @@ mod mapping;
 #[cfg(test)]
 mod tests;
 mod wire;
+pub use automerge::ChangeHash;
 use automerge::transaction::Transactable;
-use automerge::{ActorId, AutoCommit, Change, ChangeHash, ROOT, ReadDoc, ScalarValue};
+use automerge::{ActorId, AutoCommit, Change, ROOT, ReadDoc, ScalarValue};
 use needware_ir::State;
 use needware_validation::ValidatedApplication;
 use needware_vault::{DeviceKeys, DocumentKey, DocumentRole, VerifiedMembership};

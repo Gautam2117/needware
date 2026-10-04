@@ -1,4 +1,5 @@
 //! Narrow browser boundary; core semantics stay in native-testable Rust.
+mod vault;
 use needware_capabilities::Grants;
 use needware_runtime::{Event, Runtime};
 use wasm_bindgen::prelude::*;

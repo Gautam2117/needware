@@ -1535,8 +1535,13 @@ dependencies = [
  "needware-ir",
  "needware-package",
  "needware-runtime",
+ "needware-sync",
+ "needware-validation",
+ "needware-vault",
+ "serde",
  "serde_json",
  "wasm-bindgen",
+ "zeroize",
 ]
 
 [[package]]

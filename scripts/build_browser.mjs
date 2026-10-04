@@ -9,6 +9,7 @@ execFileSync('wasm-bindgen', ['target/wasm32-unknown-unknown/release/needware_wa
 await build({ entryPoints: ['packages/browser-host/src/worker.ts'], outfile: `${publicDir}/runtime-worker.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', alias: { 'needware-wasm-runtime': '/wasm/needware_wasm.js' }, external: ['/wasm/*'], minify: true });
 await build({ entryPoints: ['packages/runtime-frame/src/frame.tsx'], outfile: `${publicDir}/frame.js`, bundle: true, format: 'iife', platform: 'browser', target: 'es2022', minify: true, define: { 'process.env.NODE_ENV': '"production"' } });
 await mkdir(`${publicDir}/sqlite`, { recursive: true });
+await build({ entryPoints: ['packages/browser-host/src/vault-store.ts'], outfile: `${publicDir}/vault-store.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
 const sqliteDir = 'packages/browser-host/node_modules/@sqlite.org/sqlite-wasm/dist';
 await cp(`${sqliteDir}/sqlite3.wasm`, `${publicDir}/sqlite3.wasm`);
 for (const name of await readdir(sqliteDir)) if (name.endsWith('.wasm') || name.endsWith('.js')) await cp(`${sqliteDir}/${name}`, `${publicDir}/sqlite/${name}`);

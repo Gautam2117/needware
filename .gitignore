@@ -20,6 +20,7 @@ apps/web/public/sqlite/
 apps/web/public/sqlite3.wasm
 apps/web/public/frame.js
 apps/web/public/runtime-worker.js
+apps/web/public/vault-store.js
 apps/web/public/sw.js
 apps/web/next-env.d.ts
 *.profraw
