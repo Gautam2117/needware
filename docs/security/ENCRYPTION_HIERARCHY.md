@@ -1,8 +1,9 @@
 # Client-owned encryption hierarchy
 
-Implemented primitive boundary: `needware-vault`. Accounts, browser vault storage,
-authorized sync, collaboration roles and server-side revocation are not yet wired.
-Cryptographic tests do not establish encrypted collaboration or recovery UX.
+Implemented primitive boundary: `needware-vault`. Owner-signed document memberships
+authorize the `needware-sync` core's read/write roles and generations. Accounts,
+browser vault storage and server-side revocation are not yet wired. Native
+convergence tests do not establish deployed collaboration or recovery UX.
 
 Each device holds a random 256-bit seed. Domain-separated HKDF derives distinct
 Ed25519 signing and X25519 HPKE inputs. Its public identity contains a UUID and

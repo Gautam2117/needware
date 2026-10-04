@@ -1,0 +1,25 @@
+[package]
+name = "needware-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+automerge = { version = "=0.12.0", features = ["wasm"] }
+needware-crypto = { path = "../needware-crypto", version = "=2026.10.0" }
+needware-vault = { path = "../needware-vault", version = "=2026.10.0" }
+needware-ir = { path = "../needware-ir", version = "=2026.10.0" }
+needware-validation = { path = "../needware-validation", version = "=2026.10.0" }
+needware-expr = { path = "../needware-expr", version = "=2026.10.0" }
+serde.workspace = true
+serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+blake3.workspace = true
+hex.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+getrandom.workspace = true
+zeroize = "1"
+[dev-dependencies]
+proptest.workspace = true
+[lints]
+workspace = true
