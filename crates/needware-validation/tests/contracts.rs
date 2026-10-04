@@ -12,6 +12,38 @@ fn field(data_type: DataType) -> Field {
         derived: None,
     }
 }
+
+#[test]
+fn decimal_constraints_use_coefficients_at_the_declared_scale()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut amount = field(DataType::Decimal { scale: 2 });
+    amount.minimum = Some("50".into());
+    amount.maximum = Some("1000".into());
+    for coefficient in ["50", "125", "1000"] {
+        needware_validation::validate_value(
+            &Value::Decimal(Decimal {
+                coefficient: coefficient.into(),
+                scale: 2,
+            }),
+            &amount,
+            0,
+        )?;
+    }
+    for (coefficient, scale) in [("49", 2), ("1001", 2), ("125", 1)] {
+        assert!(
+            needware_validation::validate_value(
+                &Value::Decimal(Decimal {
+                    coefficient: coefficient.into(),
+                    scale
+                }),
+                &amount,
+                0
+            )
+            .is_err()
+        );
+    }
+    Ok(())
+}
 fn app() -> Application {
     let mut app = examples::habit_tracker();
     app.runtime_features.push("typed_contracts_v1".into());

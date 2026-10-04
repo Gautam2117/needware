@@ -213,9 +213,17 @@ fn infer(
             let (a, b) = (child(left)?, child(right)?);
             match operator {
                 BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide => {
-                    require(&Hint::Integer, &a)?;
-                    require(&Hint::Integer, &b)?;
-                    Hint::Integer
+                    if [&a, &b]
+                        .iter()
+                        .any(|h| !matches!(h, Hint::Integer | Hint::Unknown))
+                        && !app
+                            .runtime_features
+                            .iter()
+                            .any(|f| f == "exact_arithmetic_v1")
+                    {
+                        return Err(TypeError);
+                    }
+                    arithmetic_hint(operator, a, b)?
                 }
                 BinaryOp::And | BinaryOp::Or => {
                     require(&Hint::Boolean, &a)?;
@@ -331,5 +339,26 @@ fn infer(
             require(&Hint::Integer, &field(&element(child(collection)?)?, name)?)?;
             Hint::Integer
         }
+    })
+}
+
+fn arithmetic_hint(op: &BinaryOp, a: Hint, b: Hint) -> Result<Hint, TypeError> {
+    use Hint::*;
+    let temporal = matches!(op, BinaryOp::Add | BinaryOp::Subtract);
+    Ok(match (a, b) {
+        (Unknown, Unknown) => Unknown,
+        (Integer, Integer | Unknown) | (Unknown, Integer) => Integer,
+        (Decimal(a), Decimal(b)) if a == b => Decimal(a),
+        (Decimal(a), Unknown) | (Unknown, Decimal(a)) => Decimal(a),
+        (Duration, Duration | Unknown) if temporal => Duration,
+        (Unknown, Duration) if temporal => Unknown,
+        (Date, Duration) if temporal => Date,
+        (Datetime, Duration) if temporal => Datetime,
+        (Date, Unknown) if matches!(op, BinaryOp::Add) => Date,
+        (Datetime, Unknown) if matches!(op, BinaryOp::Add) => Datetime,
+        (Date | Datetime, Unknown) if matches!(op, BinaryOp::Subtract) => Unknown,
+        (Date, Date) | (Datetime, Datetime) if matches!(op, BinaryOp::Subtract) => Duration,
+        (Unknown, Date | Datetime) if matches!(op, BinaryOp::Subtract) => Duration,
+        _ => return Err(TypeError),
     })
 }

@@ -17,6 +17,10 @@ test('typed WASM inputs reject malformed events and empty-list state remains typ
       if (runtime.snapshot() !== before) throw new Error('Invalid input mutated state');
     }
     runtime.dispatch(JSON.stringify({ action: 'set_numbers', values: { numbers: { type: 'list', value: [{ type: 'integer', value: '42' }] } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' }));
+    runtime.dispatch(JSON.stringify({ action: 'add_amount', values: { amount: { type: 'decimal', value: { coefficient: '75', scale: 2 } } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' }));
+    const decimalState = runtime.snapshot(); let precisionRejected = false;
+    try { runtime.dispatch(JSON.stringify({ action: 'divide_amount', values: { amount: { type: 'decimal', value: { coefficient: '300', scale: 2 } } }, now: '2026-10-04T00:00:00Z', timezone: 'UTC' })); } catch { precisionRejected = true; }
+    if (!precisionRejected || runtime.snapshot() !== decimalState) throw new Error('Decimal precision loss was accepted');
     const saved = runtime.snapshot(); runtime.free();
     const reopened = new wasm.BrowserRuntime(packageBytes, saved, true);
     const invalid = JSON.parse(saved); invalid.values.numbers = { type: 'list', value: [{ type: 'string', value: '42' }] };
@@ -26,6 +30,7 @@ test('typed WASM inputs reject malformed events and empty-list state remains typ
   }, bytes);
   expect(result.rejected).toBe(3); expect(result.restoreRejected).toBe(true); expect(result.unchanged).toBe(true);
   expect(result.saved.values.numbers).toEqual({ type: 'list', value: [{ type: 'integer', value: '42' }] });
+  expect(result.saved.values.balance).toEqual({ type: 'decimal', value: { coefficient: '200', scale: 2 } });
 });
 async function importPackage(page: Page, name: string, title: string) {
   await page.getByLabel('Import .need').setInputFiles(`artifacts/revisions/${name}.need`);

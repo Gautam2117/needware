@@ -88,10 +88,22 @@ pub fn display(value: &Value) -> Result<String, EvalError> {
         }
         Value::Boolean(b) => Ok(b.to_string()),
         Value::Decimal(d) => {
-            if d.coefficient.len() > 65520 {
-                return Err(EvalError::Limit);
+            let n = d.coefficient.parse::<i64>().map_err(|_| EvalError::Type)?;
+            if d.scale > 18 || n.to_string() != d.coefficient {
+                return Err(EvalError::Type);
             }
-            Ok(format!("{}e-{}", d.coefficient, d.scale))
+            if d.scale == 0 {
+                return Ok(d.coefficient.clone());
+            }
+            let digits = d.coefficient.trim_start_matches('-');
+            let digits = format!("{digits:0>width$}", width = usize::from(d.scale) + 1);
+            let split = digits.len() - usize::from(d.scale);
+            Ok(format!(
+                "{}{}.{}",
+                if n < 0 { "-" } else { "" },
+                &digits[..split],
+                &digits[split..]
+            ))
         }
         _ => {
             let mut text = LimitedText(Vec::new());

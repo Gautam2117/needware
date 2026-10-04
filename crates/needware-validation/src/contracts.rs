@@ -79,7 +79,9 @@ fn validate_contract_field(field: &Field, depth: u32) -> Result<(), Diagnostic> 
                 let n = s
                     .parse::<i64>()
                     .map_err(|_| fail("contracts", "invalid numeric bound"))?;
-                if !matches!(inner, DataType::Integer) || n.to_string() != *s {
+                if !matches!(inner, DataType::Integer | DataType::Decimal { .. })
+                    || n.to_string() != *s
+                {
                     return Err(fail("contracts", "bounds require canonical integers"));
                 }
                 Some(n)

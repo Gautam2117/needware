@@ -1,4 +1,5 @@
 //! Deterministic expression evaluation with explicit context and bounded work.
+mod arithmetic;
 mod materialization;
 mod ordering;
 pub mod typing;
@@ -151,19 +152,7 @@ fn eval(
                         _ => !order.is_lt(),
                     }))
                 }
-                _ => {
-                    let x = integer(&a)?;
-                    let y = integer(&b)?;
-                    let n = match operator {
-                        BinaryOp::Add => x.checked_add(y),
-                        BinaryOp::Subtract => x.checked_sub(y),
-                        BinaryOp::Multiply => x.checked_mul(y),
-                        BinaryOp::Divide => x.checked_div(y),
-                        _ => None,
-                    }
-                    .ok_or(EvalError::Arithmetic)?;
-                    Ok(Value::Integer(n.to_string()))
-                }
+                _ => arithmetic::calculate(operator, &a, &b),
             }
         }
         Expr::Length { value } => {

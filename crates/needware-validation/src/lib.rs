@@ -35,8 +35,8 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
     if app
         .runtime_features
         .iter()
-        .any(|f| f != "typed_contracts_v1")
-        || app.runtime_features.len() > 1
+        .any(|f| !["typed_contracts_v1", "exact_arithmetic_v1"].contains(&f.as_str()))
+        || app.runtime_features.iter().collect::<BTreeSet<_>>().len() != app.runtime_features.len()
     {
         return Err(fail("runtime_features", "unsupported required feature"));
     }
@@ -298,7 +298,12 @@ pub fn validate_value(value: &Value, field: &Field, depth: u32) -> Result<(), Di
     {
         return Err(fail("field", "maximum string length exceeded"));
     }
-    if let Value::Integer(s) = value {
+    let coefficient = match value {
+        Value::Integer(s) => Some(s),
+        Value::Decimal(d) => Some(&d.coefficient),
+        _ => None,
+    };
+    if let Some(s) = coefficient {
         let n = s
             .parse::<i64>()
             .map_err(|_| fail("field", "invalid integer"))?;

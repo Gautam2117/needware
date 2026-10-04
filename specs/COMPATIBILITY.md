@@ -9,3 +9,6 @@ requires the corresponding Rust/WASM runtime; older runtimes reject the feature.
 WASM ABI and encrypted sync protocol acquire independent versions when their executable boundaries land. They are not inferred from product release numbers.
 
 A package revision is immutable. State revision must match its application definition; adopting another revision requires validated migration. Rolling back a definition never implicitly deletes newer state.
+
+`exact_arithmetic_v1` enables exact fixed-scale decimals and millisecond date/time
+arithmetic. Inexact, overflowing or incompatible operations reject transactionally.

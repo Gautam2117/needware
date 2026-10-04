@@ -5,6 +5,90 @@ use needware_runtime::{Event, Runtime};
 use std::collections::BTreeMap;
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+#[test]
+fn exact_decimal_events_preserve_precision_and_rollback_the_whole_sequence() -> Result {
+    let mut app = examples::typed_habit_tracker();
+    app.runtime_features.push("exact_arithmetic_v1".into());
+    let decimal = |n: &str| {
+        Value::Decimal(Decimal {
+            coefficient: n.into(),
+            scale: 2,
+        })
+    };
+    app.state.insert("balance".into(), decimal("125"));
+    app.state.insert("count".into(), Value::Integer("0".into()));
+    app.state_schema
+        .insert("balance".into(), field(DataType::Decimal { scale: 2 }));
+    app.state_schema
+        .insert("count".into(), field(DataType::Integer));
+    for (action, operator) in [
+        ("add_amount", BinaryOp::Add),
+        ("divide_amount", BinaryOp::Divide),
+    ] {
+        app.actions.insert(
+            action.into(),
+            Action::Sequence {
+                actions: vec![
+                    Action::Set {
+                        key: "count".into(),
+                        value: Expr::Literal {
+                            value: Value::Integer("1".into()),
+                        },
+                    },
+                    Action::Set {
+                        key: "balance".into(),
+                        value: Expr::Binary {
+                            operator,
+                            left: Box::new(Expr::State {
+                                key: "balance".into(),
+                            }),
+                            right: Box::new(Expr::Event {
+                                key: "amount".into(),
+                            }),
+                        },
+                    },
+                ],
+            },
+        );
+        app.event_schema.insert(
+            action.into(),
+            BTreeMap::from([("amount".into(), field(DataType::Decimal { scale: 2 }))]),
+        );
+    }
+    let mut unsupported = app.clone();
+    unsupported
+        .runtime_features
+        .retain(|f| f != "exact_arithmetic_v1");
+    assert!(needware_validation::validate(unsupported).is_err());
+    let mut runtime = runtime(app)?;
+    let initial = runtime.state().clone();
+    assert!(
+        runtime
+            .dispatch(&event(
+                "divide_amount",
+                BTreeMap::from([("amount".into(), decimal("300"))])
+            ))
+            .is_err()
+    );
+    assert_eq!(runtime.state(), &initial);
+    runtime.dispatch(&event(
+        "add_amount",
+        BTreeMap::from([("amount".into(), decimal("75"))]),
+    ))?;
+    assert_eq!(runtime.state().values["balance"], decimal("200"));
+    let saved = runtime.state().clone();
+    assert!(
+        runtime
+            .dispatch(&event(
+                "add_amount",
+                BTreeMap::from([("amount".into(), decimal(&i64::MAX.to_string()))])
+            ))
+            .is_err()
+    );
+    assert_eq!(runtime.state(), &saved);
+    Ok(())
+}
+
 fn runtime(app: Application) -> Result<Runtime> {
     let key = SecretKey::from_bytes([23; 32]);
     let package = needware_package::verify(&needware_package::build(app.clone(), vec![], &key)?)?;
