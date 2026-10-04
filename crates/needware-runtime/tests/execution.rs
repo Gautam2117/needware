@@ -75,12 +75,24 @@ fn expression_fuel_is_shared_across_actions_and_rolls_back()
     let mut app = habit_tracker();
     app.state
         .insert("counter".into(), Value::Integer("0".into()));
+    let mut body = Expr::Item { field: "n".into() };
+    // Cheap scalar conditions make node fuel, rather than copied-data limits,
+    // the binding resource for this regression.
+    for _ in 0..4 {
+        body = Expr::If {
+            condition: Box::new(Expr::Literal {
+                value: Value::Boolean(true),
+            }),
+            yes: Box::new(body),
+            no: Box::new(Expr::Literal { value: Value::Null }),
+        };
+    }
     let expensive = Action::Set {
         key: "counter".into(),
         value: Expr::Length {
             value: Box::new(Expr::Map {
                 collection: Box::new(Expr::Event { key: "rows".into() }),
-                value: Box::new(Expr::Item { field: "n".into() }),
+                value: Box::new(body),
             }),
         },
     };
@@ -142,7 +154,7 @@ fn expression_fuel_is_shared_across_actions_and_rolls_back()
     let row = Value::Map(BTreeMap::from([("n".into(), Value::Integer("1".into()))]));
     input
         .values
-        .insert("rows".into(), Value::List(vec![row; 5000]));
+        .insert("rows".into(), Value::List(vec![row; 1000]));
     for (name, group) in groups {
         let mut candidate = app.clone();
         candidate.actions.insert(
@@ -169,7 +181,7 @@ fn expression_fuel_is_shared_across_actions_and_rolls_back()
         }
         input.action = "bounded".into();
         r.dispatch(&input)?;
-        assert_eq!(r.state().values["counter"], Value::Integer("5000".into()));
+        assert_eq!(r.state().values["counter"], Value::Integer("1000".into()));
     }
     Ok(())
 }
@@ -199,5 +211,59 @@ fn tamper_unknown_signer_and_invalid_field_are_rejected() -> Result<(), Box<dyn 
         },
     );
     assert!(needware_validation::validate(bad).is_err());
+    Ok(())
+}
+#[test]
+fn copied_value_limit_rolls_back_prior_mutations() -> Result<(), Box<dyn std::error::Error>> {
+    let mut app = habit_tracker();
+    app.state
+        .insert("counter".into(), Value::Integer("0".into()));
+    app.actions.insert(
+        "amplify".into(),
+        Action::Sequence {
+            actions: vec![
+                Action::Set {
+                    key: "counter".into(),
+                    value: Expr::Literal {
+                        value: Value::Integer("1".into()),
+                    },
+                },
+                Action::Set {
+                    key: "counter".into(),
+                    value: Expr::Length {
+                        value: Box::new(Expr::Map {
+                            collection: Box::new(Expr::Event { key: "rows".into() }),
+                            value: Box::new(Expr::Literal {
+                                value: Value::String("x".repeat(65536)),
+                            }),
+                        }),
+                    },
+                },
+            ],
+        },
+    );
+    let mut runtime = runtime(app)?;
+    let mut input = event("amplify", "");
+    input.values.insert(
+        "rows".into(),
+        Value::List(vec![Value::Map(BTreeMap::new()); 1000]),
+    );
+    assert!(matches!(
+        runtime.dispatch(&input),
+        Err(needware_runtime::RuntimeError::Limit)
+    ));
+    assert_eq!(
+        runtime.state().values["counter"],
+        Value::Integer("0".into())
+    );
+    input.values.insert(
+        "rows".into(),
+        Value::List(vec![Value::Map(BTreeMap::new()); 2]),
+    );
+    runtime.dispatch(&input)?;
+    assert_eq!(
+        runtime.state().values["counter"],
+        Value::Integer("2".into())
+    );
     Ok(())
 }

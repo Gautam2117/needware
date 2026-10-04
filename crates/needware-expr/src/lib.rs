@@ -1,4 +1,7 @@
 //! Deterministic expression evaluation with explicit context and bounded work.
+mod materialization;
+mod ordering;
+pub use materialization::display;
 use needware_ir::{BinaryOp, ContextKey, Expr, State, Value};
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -24,13 +27,21 @@ pub struct Context<'a> {
 }
 pub struct Budget {
     remaining: u32,
+    materialized: usize,
 }
 impl Budget {
     pub fn new(fuel: u32) -> Self {
-        Self { remaining: fuel }
+        Self {
+            remaining: fuel.min(1_000_000),
+            materialized: 32 * 1024 * 1024,
+        }
     }
     pub fn consume(&mut self, units: u32) -> Result<(), EvalError> {
-        self.remaining = self.remaining.checked_sub(units).ok_or(EvalError::Limit)?;
+        if units > self.remaining {
+            self.remaining = 0;
+            return Err(EvalError::Limit);
+        }
+        self.remaining -= units;
         Ok(())
     }
 }
@@ -63,23 +74,23 @@ fn eval(
     budget.remaining -= 1;
     let child = |e: &Expr, b: &mut Budget| eval(e, ctx, b, depth + 1);
     match expr {
-        Expr::Literal { value } => Ok(value.clone()),
+        Expr::Literal { value } => budget.copy(value),
         Expr::Event { key } => ctx
             .event
             .get(key)
-            .cloned()
-            .ok_or_else(|| EvalError::Missing(key.clone())),
+            .ok_or_else(|| EvalError::Missing(key.clone()))
+            .and_then(|v| budget.copy(v)),
         Expr::State { key } => ctx
             .state
             .values
             .get(key)
-            .cloned()
-            .ok_or_else(|| EvalError::Missing(key.clone())),
+            .ok_or_else(|| EvalError::Missing(key.clone()))
+            .and_then(|v| budget.copy(v)),
         Expr::Item { field } => ctx
             .item
             .and_then(|i| i.get(field))
-            .cloned()
-            .ok_or_else(|| EvalError::Missing(field.clone())),
+            .ok_or_else(|| EvalError::Missing(field.clone()))
+            .and_then(|v| budget.copy(v)),
         Expr::Collection { name } => Ok(Value::List(
             ctx.state
                 .collections
@@ -87,20 +98,23 @@ fn eval(
                 .ok_or_else(|| EvalError::Missing(name.clone()))?
                 .iter()
                 .map(|(id, r)| {
+                    budget.record(r, 0)?;
+                    budget.bytes(id.len() + 128)?;
                     let mut r = r.clone();
                     r.insert("_id".into(), Value::String(id.clone()));
-                    Value::Map(r)
+                    Ok(Value::Map(r))
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, EvalError>>()?,
         )),
-        Expr::Context { key } => Ok(Value::String(
-            match key {
+        Expr::Context { key } => {
+            let value = match key {
                 ContextKey::Now => ctx.now,
                 ContextKey::Locale => ctx.locale,
                 ContextKey::Timezone => ctx.timezone,
-            }
-            .into(),
-        )),
+            };
+            budget.bytes(value.len())?;
+            Ok(Value::String(value.into()))
+        }
         Expr::Not { value } => Ok(Value::Boolean(!boolean(child(value, budget)?)?)),
         Expr::If { condition, yes, no } => {
             if boolean(child(condition, budget)?)? {
@@ -128,11 +142,7 @@ fn eval(
                 BinaryOp::And => Ok(Value::Boolean(boolean(a)? && boolean(b)?)),
                 BinaryOp::Or => Ok(Value::Boolean(boolean(a)? || boolean(b)?)),
                 BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-                    let order = match (&a, &b) {
-                        (Value::Integer(_), Value::Integer(_)) => integer(&a)?.cmp(&integer(&b)?),
-                        (Value::String(x), Value::String(y)) => x.cmp(y),
-                        _ => return Err(EvalError::Type),
-                    };
+                    let order = ordering::compare(&a, &b)?;
                     Ok(Value::Boolean(match operator {
                         BinaryOp::Lt => order.is_lt(),
                         BinaryOp::Le => !order.is_gt(),
@@ -167,7 +177,9 @@ fn eval(
         Expr::Concat { values } => {
             let mut s = String::new();
             for v in values {
-                s.push_str(&child(v, budget)?.text());
+                let text = display(&child(v, budget)?)?;
+                budget.bytes(text.len())?;
+                s.push_str(&text);
                 if s.len() > 65536 {
                     return Err(EvalError::Limit);
                 }
@@ -214,21 +226,15 @@ fn eval(
             field,
             descending,
         } => {
-            let Value::List(mut rows) = child(collection, budget)? else {
+            let Value::List(rows) = child(collection, budget)? else {
                 return Err(EvalError::Type);
             };
-            if rows.len() > budget.remaining as usize {
-                return Err(EvalError::Limit);
-            }
-            budget.remaining -= rows.len() as u32;
-            rows.sort_by_key(|row| match row {
-                Value::Map(m) => m.get(field).map(Value::text).unwrap_or_default(),
-                _ => String::new(),
-            });
-            if *descending {
-                rows.reverse()
-            }
-            Ok(Value::List(rows))
+            Ok(Value::List(ordering::sort(
+                rows,
+                field,
+                *descending,
+                budget,
+            )?))
         }
         Expr::Sum { collection, field } => {
             let Value::List(rows) = child(collection, budget)? else {

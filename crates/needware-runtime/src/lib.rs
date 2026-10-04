@@ -390,7 +390,8 @@ fn render(
         return Err(RuntimeError::Limit);
     }
     let text = match &node.text {
-        Some(e) => evaluate(e, ctx, budget).map_err(expression_error)?.text(),
+        Some(e) => needware_expr::display(&evaluate(e, ctx, budget).map_err(expression_error)?)
+            .map_err(expression_error)?,
         None => String::new(),
     };
     let mut children = vec![];
