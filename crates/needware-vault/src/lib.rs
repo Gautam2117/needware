@@ -1,6 +1,7 @@
 //! Client-owned encryption hierarchy. This crate never gives the service a root secret.
 mod device;
 mod document_transition;
+mod generation;
 mod held;
 mod membership;
 mod operation;
@@ -9,6 +10,9 @@ mod rotation;
 mod wrapping;
 pub use device::{DeviceCertificate, DeviceKeys, DevicePublic, VerifiedDevice};
 pub use document_transition::{DocumentTransition, TransitionDigests};
+pub use generation::{
+    GenerationContext, GenerationEnvelope, GenerationMetadata, seal_generation_result,
+};
 pub use held::HeldDocumentKey;
 pub use membership::{DocumentMembership, DocumentRole, VerifiedMembership};
 use needware_crypto::{CryptoError, SecretKey};

@@ -1,5 +1,6 @@
 import { controlConfig } from '../../../lib/control';
 export async function POST(request: Request) {
+  if (process.env.NEEDWARE_COMPILER_FIXTURES !== '1' || process.env.NEEDWARE_HOSTED_GENERATION === '1' || !['localhost','127.0.0.1','[::1]'].includes(new URL(process.env.NEEDWARE_PUBLIC_ORIGIN??request.url).hostname)) return Response.json({ message: 'Sign in and use hosted creation with reviewed quotas.' }, { status: 403 });
   const expectedOrigin = process.env.NEEDWARE_PUBLIC_ORIGIN ?? new URL(request.url).origin;
   if (request.headers.get('origin') !== expectedOrigin || request.headers.get('content-type')?.split(';')[0] !== 'application/json') return Response.json({ message: 'Request origin or content type was rejected.' }, { status: 403 });
   const config = controlConfig();

@@ -10,11 +10,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or(500_000),
             ..Policy::default()
         };
-        Some(Compiler::new(
-            Config::from_environment()?,
-            policy,
-            needware_crypto::SecretKey::random()?,
-        )?)
+        let signing = needware_control_plane::installation_signing_key(
+            std::env::var("NEEDWARE_FIXTURE_MODE").is_ok_and(|value| value == "1"),
+            std::env::var("NEEDWARE_SIGNING_SEED_HEX").ok(),
+        )?;
+        Some(Compiler::new(Config::from_environment()?, policy, signing)?)
     } else {
         None
     };
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.parse())
         .transpose()?
         .unwrap_or(3001);
-    // Cloud exposure waits for account authorization, durable quotas and jobs.
+    // Remain private: only the authenticated account worker dispatches hosted requests.
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     println!("Local compiler gateway listening on 127.0.0.1:{port}");
     axum::serve(listener, needware_control_plane::router(gateway))

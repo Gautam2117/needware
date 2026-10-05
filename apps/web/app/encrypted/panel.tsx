@@ -46,7 +46,9 @@ export default function EncryptedApplications() {
     localStorage.setItem('needware-encrypted-account',id);
     const cloudCommands = new Set(['sync', 'preview-cloud', 'rotate-epoch', 'cancel-epoch', 'epoch-recipients', 'share', 'preview-shared-revision', 'publish-shared-revision']);
     const client = new WorkerHost<EncryptedCommand>('/encrypted-worker.js', command => cloudCommands.has(command.kind) ? 300_000 : 30_000); host.current = client; let active = true;
-    client.request<EncryptedEntry[]>({ kind: 'list', account: id }).then(value => { if (active) { setAccount(id); setEntries(value); setStatus('Encrypted browser storage ready'); } }).catch(failure => { if (active) { setError(String(failure)); setStatus('Trusted device required'); } });
+    client.request<EncryptedEntry[]>({ kind: 'list', account: id }).then(async value => { if (active) { setAccount(id); setEntries(value); setStatus('Encrypted browser storage ready'); }
+      const job=new URLSearchParams(location.hash.slice(1)).get('job');if(job&&/^[0-9a-f-]{36}$/.test(job)){const generated=await client.request<{info:PackageInfo;bytes:Uint8Array}>({kind:'preview-generation',account:id,job});if(active){setReview(generated);setStatus('Creation finished. Review its signer and permissions before saving it encrypted.');}}
+    }).catch(failure => { if (active) { setError(String(failure)); setStatus('Trusted device or creation review required'); } });
     fetch('/frame.js').then(async response => {
       if (!response.ok) throw new Error('Renderer download failed'); const code = (await response.text()).replace(/<\/script/gi,'<\\/script');
       const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code));

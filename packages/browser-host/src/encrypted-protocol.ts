@@ -5,6 +5,8 @@ export type EncryptedCommand = { account: string } & (
   | { kind: 'list' }
   | { kind: 'example' }
   | { kind: 'inspect'; bytes: Uint8Array }
+  | { kind: 'generation-recipient' }
+  | { kind: 'preview-generation'; job: string }
   | { kind: 'create'; bytes: Uint8Array; consent: true }
   | { kind: 'open'; document: string; consent: true }
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }

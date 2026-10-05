@@ -1,4 +1,5 @@
-//! Local compiler gateway. Account/cloud domains and durable jobs are not enabled yet.
+//! Private compiler gateway; hosted account authorization and durable jobs live in the web service.
+mod signing;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, State},
@@ -14,6 +15,7 @@ use needware_compiler::{
     Cancellation, Compiler,
     protocol::{CompileMessage, CompileRequest, ProviderResponse},
 };
+pub use signing::installation_signing_key;
 use std::{convert::Infallible, sync::Arc};
 use subtle::ConstantTimeEq;
 use tokio::sync::{Semaphore, mpsc};

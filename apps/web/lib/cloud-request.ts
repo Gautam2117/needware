@@ -10,6 +10,11 @@ export const cloudResponse = (body: unknown, status = 200) => Response.json(body
   status, headers: { 'Cache-Control': 'no-store', ...(status === 429 ? { 'Retry-After': '60' } : {}) },
 });
 export function cloudFailure(error: unknown): Response {
+  if(!(error instanceof CloudError)){
+    const code=error&&typeof error==='object'&&'code' in error&&typeof error.code==='string'&&/^[A-Z0-9_]{1,40}$/.test(error.code)?error.code:'INTERNAL';
+    const constraint=error&&typeof error==='object'&&'constraint' in error&&typeof error.constraint==='string'&&/^[a-z0-9_]{1,80}$/.test(error.constraint)?error.constraint:'';
+    console.error('Cloud request failed',code,constraint);
+  }
   return error instanceof CloudError ? cloudResponse({ message: error.message }, error.status)
     : cloudResponse({ message: 'Cloud service temporarily unavailable' }, 503);
 }

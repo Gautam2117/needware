@@ -1,4 +1,5 @@
 //! Opaque keys live in Rust handles owned by the trusted browser host, never the app frame.
+pub(crate) mod generation;
 mod local;
 mod revision;
 use super::error;

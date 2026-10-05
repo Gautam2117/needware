@@ -1,8 +1,8 @@
 'use client';
-import { createAuthClient } from 'better-auth/react';
+import {authClient} from '../../lib/auth-client';
 import { useEffect, useState, type FormEvent } from 'react';
 import VaultPanel from './vault-panel';
-export const authClient = createAuthClient();
+export {authClient};
 type Session = { id: string; token: string; userAgent?: string | null; createdAt: Date };
 type Mode = 'sign-in' | 'sign-up' | 'reset' | 'verify';
 function checked(result: { error?: { message?: string } | null }) {

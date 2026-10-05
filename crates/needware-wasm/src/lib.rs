@@ -2,6 +2,7 @@
 mod vault;
 use needware_capabilities::Grants;
 use needware_runtime::{Event, Runtime};
+pub use vault::generation::{BrowserGenerationResult, seal_generation_package};
 use wasm_bindgen::prelude::*;
 fn error(e: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&e.to_string())

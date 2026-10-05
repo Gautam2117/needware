@@ -41,6 +41,17 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
   switch (command.kind) {
     case 'example': return authored_sync_example();
     case 'inspect': return info(command.bytes);
+    case 'generation-recipient':return JSON.parse(vault.device_certificate());
+    case 'preview-generation':{
+      if(!/^[0-9a-f-]{36}$/.test(command.job))throw new Error('Invalid creation identity');
+      const response=await fetch(`/api/generation/jobs/${command.job}?result=1`,{cache:'no-store',signal:AbortSignal.timeout(30000)}),reader=response.body?.getReader();if(!reader)throw new Error('Creation response unavailable');
+      const chunks=[];let size=0;for(;;){const next=await reader.read();if(next.done)break;size+=next.value.length;if(size>6*1024*1024){await reader.cancel();throw new Error('Encrypted creation result size limit');}chunks.push(next.value);}
+      const body=new Uint8Array(size);let offset=0;for(const chunk of chunks){body.set(chunk,offset);offset+=chunk.length;}
+      const value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body));body.fill(0);if(!response.ok)throw new Error(value.message??'Creation unavailable');
+      if(value.job!==command.job||typeof value.ciphertext!=='string'||value.ciphertext.length>5592432)throw new Error('Encrypted creation identity or size invalid');
+      const ciphertext=Uint8Array.from(atob(value.ciphertext),character=>character.charCodeAt(0));let bytes:Uint8Array|undefined;
+      try{bytes=vault.open_generation_package(command.job,JSON.stringify(value.metadata),ciphertext);const inspected=info(bytes);if(inspected.digest!==value.digest)throw new Error('Creation package digest mismatch');return {info:inspected,bytes};}catch(error){bytes?.fill(0);throw error;}finally{ciphertext.fill(0);}
+    }
     case 'collaboration-identity': return {format:'needware-collaboration-device-v1',certificate:JSON.parse(vault.device_certificate())};
     case 'cloud-list': return new DocumentRelay(vault).list();
     case 'preview-cloud': {

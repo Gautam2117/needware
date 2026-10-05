@@ -4,6 +4,8 @@ declare module 'needware-wasm-runtime' {
   export function authored_sync_example(): Uint8Array;
   export function inspect_package(bytes: Uint8Array): string;
   export function remix_package(bytes: Uint8Array, application: string, revision: string, consent: boolean): Uint8Array;
+  export function seal_generation_package(bytes: Uint8Array, recipient: string, context: string): BrowserGenerationResult;
+  export class BrowserGenerationResult { metadata(): string; ciphertext(): Uint8Array; free(): void }
   export class BrowserRuntime {
     constructor(bytes: Uint8Array, state: string | undefined, consent: boolean);
     view(): string;
@@ -23,6 +25,7 @@ declare module 'needware-wasm-runtime' {
     account_context(): string;
     account_authority(): string;
     device_certificate(): string;
+    open_generation_package(job: string, metadata: string, ciphertext: Uint8Array): Uint8Array;
     account_operation(nonce: string, operation: string, digest: string): string;
     approve_device(recipient: string, approved: boolean): string;
     accept_enrollment(enrollment: string, context: string, pin: string): void;

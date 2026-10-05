@@ -7,6 +7,7 @@ execFileSync('cargo', ['run', '-p', 'xtask', '--', 'compiler-fixture'], { stdio:
 execFileSync('cargo', ['build', '-p', 'needware-control-plane'], { stdio: 'inherit' });
 const environment = { ...process.env, NEEDWARE_PROVIDER: 'local', NEEDWARE_MODEL: 'contract-fixture', NEEDWARE_LOCAL_API_KEY: '', NEEDWARE_LOCAL_ENDPOINT: 'http://127.0.0.1:11435/v1/chat/completions', NEEDWARE_ALLOW_LOOPBACK: '1', NEEDWARE_FIXTURE_MODE: '1', NEEDWARE_INPUT_MICROUSD_PER_MILLION: '0', NEEDWARE_OUTPUT_MICROUSD_PER_MILLION: '0', NEEDWARE_CONTROL_TOKEN: randomBytes(32).toString('hex'), NEEDWARE_CONTROL_PORT: '3111', NEEDWARE_CONTROL_URL: 'http://127.0.0.1:3111', NEEDWARE_PUBLIC_ORIGIN: 'http://127.0.0.1:3110', NEEDWARE_TEST_URL: 'http://127.0.0.1:3110', NEEDWARE_FIXTURE_DELAY_MS: '400', NEEDWARE_BROWSER_OUTPUT:'test-results/compiler', NEEDWARE_BROWSER_REPORT:'artifacts/compiler-browser-results.json' };
 const children = [];
+environment.NEEDWARE_COMPILER_FIXTURES='1';
 function start(name, command, args) {
   const log = createWriteStream(`.logs/compiler-${name}.log`, { flags: 'a' });
   const child = spawn(command, args, { env: environment, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });

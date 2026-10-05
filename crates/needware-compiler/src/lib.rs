@@ -158,6 +158,10 @@ impl Compiler {
             model: self.adapter.config.model.clone(),
             endpoint: self.adapter.config.endpoint.to_string(),
             credential_owner: "installation".into(),
+            signing_authority: hex::encode(self.key.public_key()),
+            max_cost_microusd: self.policy.max_cost_microusd,
+            input_microusd_per_million: self.adapter.config.input_microusd_per_million,
+            output_microusd_per_million: self.adapter.config.output_microusd_per_million,
         }
     }
     pub async fn compile(

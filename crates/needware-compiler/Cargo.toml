@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+hex.workspace = true
 needware-ir = { path = "../needware-ir", version = "=2026.10.0" }
 needware-expr = { path = "../needware-expr", version = "=2026.10.0" }
 needware-validation = { path = "../needware-validation", version = "=2026.10.0" }

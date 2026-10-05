@@ -13,6 +13,13 @@ pub struct ProviderInfo {
     pub model: String,
     pub endpoint: String,
     pub credential_owner: String,
+    pub signing_authority: String,
+    #[ts(type = "number")]
+    pub max_cost_microusd: u64,
+    #[ts(type = "number | null")]
+    pub input_microusd_per_million: Option<u64>,
+    #[ts(type = "number | null")]
+    pub output_microusd_per_million: Option<u64>,
 }
 #[derive(Serialize, ts_rs::TS)]
 pub struct ProviderResponse {

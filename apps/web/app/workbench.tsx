@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import {useRouter} from 'next/navigation';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { Command, LibraryEntry, Loaded, PackageInfo, RevisionReport, WorkerReply } from '../../../packages/browser-host/src/protocol';
 import RevisionReview from './revision-review';
@@ -8,6 +9,8 @@ import { frameDocument } from './frame-document';
 import type { ProviderResponse } from '@needware/ir-types/ProviderResponse';
 import type { StageEvent } from '@needware/ir-types/StageEvent';
 import { createApplication } from '../../../packages/browser-host/src/compiler-client';
+import {createHostedApplication,pollHostedApplication,cancelHostedApplication} from '../../../packages/browser-host/src/hosted-compiler-client';
+import {authClient} from '../lib/auth-client';
 import {registerOfflineShell} from '../lib/offline-shell';
 const stageLabels: Record<StageEvent['stage'], string> = { extract_intent: 'Understanding your request', generate_definition: 'Building your application', repair_definition: 'Correcting an invalid definition', validate_definition: 'Checking behavior and permissions', package_verified: 'Ready for your review', cancelled: 'Creation cancelled', failed: 'Creation did not finish' };
 
@@ -37,6 +40,9 @@ function download(filename: string, data: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([data], { type })); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export default function Workbench() {
+  const router=useRouter();
+  const {data:session}=authClient.useSession();const [hosted,setHosted]=useState(false);
+  const hostedJob=useRef<string|null>(null);const pendingCreation=useRef<{key:string;id:string}|null>(null);
   const host = useRef<Host | null>(null);
   const cancellation = useRef<AbortController | null>(null);
   const [provider, setProvider] = useState<ProviderResponse['provider']>(null);
@@ -52,7 +58,7 @@ export default function Workbench() {
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [prompt, setPrompt] = useState(''); const [status, setStatus] = useState('Starting local runtime');
   useEffect(() => {
     const client = new Host(); host.current = client;let active=true;
-    fetch('/api/providers').then(response => response.json()).then((data: ProviderResponse) => setProvider(data.provider)).catch(() => { /* Local applications remain usable when generation is unavailable. */ });
+    fetch('/api/providers').then(response => response.json()).then((data: ProviderResponse&{hosted?:boolean}) => {setProvider(data.provider);setHosted(data.hosted===true);}).catch(() => { /* Local applications remain usable when generation is unavailable. */ });
     fetch('/frame.js').then(async response => {
       if (!response.ok) throw new Error('Renderer download failed.');
       const code = (await response.text()).replace(/<\/script/gi, '<\\/script');
@@ -80,10 +86,22 @@ export default function Workbench() {
     if (!provider || !sendConsent) throw new Error('Review the generation recipient before continuing.');
     const controller = new AbortController(); cancellation.current = controller; setCreating(true);
     setGenerationEvents([]);
-    try { const bytes = await createApplication(prompt, controller.signal, event => { setGenerationStage(stageLabels[event.stage] ?? 'Creating your application'); setGenerationEvents(previous => [...previous.slice(-11), event]); }); await inspect(bytes, true); }
+    try {
+      if(hosted){
+        if(!session?.user.emailVerified)throw Error('Sign in with a verified account and approve this browser encryption device before creating.');
+        const key=JSON.stringify([session.user.id,prompt,provider]);if(pendingCreation.current?.key!==key)pendingCreation.current={key,id:crypto.randomUUID()};
+        hostedJob.current=pendingCreation.current.id;setGenerationStage('Saving your creation request…');
+        const submitted=await createHostedApplication(hostedJob.current,session.user.id,prompt,provider);
+        const job=await pollHostedApplication(submitted.id,controller.signal,value=>{setGenerationStage(value.stage?stageLabels[value.stage.stage]??'Creating your application':value.state==='queued'?'Creation queued':'Creating your application');if(value.stage)setGenerationEvents(previous=>[...previous.slice(-11),value.stage!]);});
+        pendingCreation.current=null;if(job.state!=='succeeded')throw Error(job.state==='cancelled'?'Creation cancelled.':`Creation did not finish (${job.failure??'unavailable'}). Review Your creations for usage.`);
+        router.push(`/encrypted#account=${session.user.id}&job=${job.id}`);return;
+      }
+      const bytes = await createApplication(prompt, controller.signal, event => { setGenerationStage(stageLabels[event.stage] ?? 'Creating your application'); setGenerationEvents(previous => [...previous.slice(-11), event]); }); await inspect(bytes, true);
+    }
     catch (error) { if (controller.signal.aborted) throw new Error('Creation cancelled.'); throw error; }
-    finally { cancellation.current = null; setGenerationStage(''); setCreating(false); }
+    finally { cancellation.current = null;hostedJob.current=null; setGenerationStage(''); setCreating(false); }
   }
+  async function cancelCreation(){if(hosted&&hostedJob.current){try{await cancelHostedApplication(hostedJob.current);}catch(failure){setError(String(failure));return;}}cancellation.current?.abort();}
   async function show(result: Loaded) { setLoaded(result); setView(result.view); setReview(null); setRevision(null); setHistory(null); setStatus(result.storage); const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); if (entries) setLibrary(entries); }
   async function open(bytes: Uint8Array) {
     const info = await host.current?.request<PackageInfo>({ kind: 'inspect', bytes });
@@ -101,14 +119,15 @@ export default function Workbench() {
   }
   async function remove(id: string) { if (!window.confirm('Delete this application and all its local data? Export anything you want to keep first.')) return; await host.current?.request({ kind: 'delete', id }); const entries = await host.current?.request<LibraryEntry[]>({ kind: 'library' }); if (entries) setLibrary(entries); if (loaded?.info.application.id === id) { setLoaded(null); setView(null); } }
   const frame = frameDocument(renderer);
-  return <><header><strong>needware<span aria-hidden="true"> /</span></strong><nav aria-label="Needware"><a href="/registry">Application registry</a><a href="/encrypted">Your encrypted apps</a><a href="/account">Your account</a></nav></header><main id="main">
+  return <><header><strong>needware<span aria-hidden="true"> /</span></strong><nav aria-label="Needware"><a href="/registry">Application registry</a><a href="/generation">Your creations</a><a href="/encrypted">Your encrypted apps</a><a href="/account">Your account</a></nav></header><main id="main">
     <div className="intro"><span className="eyebrow">Your software, on your terms</span><h1>What do you need?</h1><p>Small tools for the things you do. Portable applications with their own data and clear permissions.</p>
       <label htmlFor="prompt">Describe your application</label><textarea id="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Track medicines for my parents, split trip expenses, or plan revision…" />
       {provider ? <label><input type="checkbox" checked={sendConsent} onChange={event => setSendConsent(event.target.checked)} /> {provider.fixture ? 'Fixture mode: authored contract-test output. ' : ''}Send my description to {provider.kind} ({provider.model}) at {provider.endpoint}. This installation pays for generation. Local application data is not included.</label> : <p className="notice">Creation is not configured on this installation. You can run an example or import an application.</p>}
       <div className="toolbar"><button className="primary" disabled={busy || !prompt.trim() || !provider || !sendConsent} onClick={() => run(generate)}>Create application</button><button disabled={busy} onClick={() => run(async () => { const bytes = await host.current?.request<Uint8Array>({ kind: 'example' }); if (bytes) await inspect(bytes); })}>Try the authored habit tracker</button><label className="file-label">Import .need<input type="file" accept=".need" onChange={e => { const file = e.target.files?.[0]; if (file) void run(async () => { if (file.size > 32 * 1024 * 1024) throw new Error('Package exceeds 32 MiB.'); await inspect(new Uint8Array(await file.arrayBuffer())); }); }} /></label></div>
-      <p className="notice">Under active implementation. The authored example is a real Rust/WASM application, not an AI-generated result. Configured generation runs through Rust validation; accounts and cloud synchronization are still being built.</p>
+      <p className="notice">The authored example is a Rust/WASM application. Configured generation runs through Rust validation and requires signer and permission review before activation.</p>
+      {hosted&&provider&&<p className="notice">Hosted creation needs a verified account and an approved encryption device on this browser. Each request reserves up to ${(provider.max_cost_microusd/1000000).toFixed(4)} of your provider-cost quota. Closing this page keeps the job running; recover it in <a href="/generation">Your creations</a>. Descriptions are retained until completion or cancellation. Results can only be opened on the requesting browser until imported into encrypted storage.</p>}
     </div>
-    {creating && <button onClick={() => cancellation.current?.abort()}>Cancel creation</button>}
+    {creating && <button onClick={()=>{void cancelCreation();}}>Cancel creation</button>}
     {!!generationEvents.length && <details><summary>Creation checks</summary><ol>{generationEvents.map((event, index) => <li key={index}>{stageLabels[event.stage] ?? 'Creation event'} · {event.elapsed_ms} ms</li>)}</ol></details>}
     <div role="status" aria-live="polite">{busy ? generationStage || 'Verifying application…' : status}</div>{error && <p className="notice error" role="alert">{error}</p>}
     {revision && <RevisionReview key={revision.review_digest} report={revision} busy={busy} activate={(destructive, permissions) => { void run(() => activate(destructive, permissions)); }} cancel={() => { setRevision(null); setReview(null); }} />}

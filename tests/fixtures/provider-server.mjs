@@ -2,7 +2,10 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 const wire = JSON.parse(readFileSync('artifacts/compiler-fixture.json', 'utf8'));
+let requests=0;
 const server = createServer(async (request, response) => {
+  if(request.method==='GET'&&request.url==='/fixture-count'){response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify({requests}));return;}
+  requests++;
   let size = 0; const buffers = [];
   for await (const chunk of request) { size += chunk.length; if (size > 600_000) { response.writeHead(413); response.end(); return; } buffers.push(chunk); }
   const body = JSON.parse(Buffer.concat(buffers).toString());
