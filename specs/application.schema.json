@@ -1532,6 +1532,16 @@
             "null"
           ]
         },
+        "disabled": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "field": {
           "type": [
             "string",
@@ -1554,6 +1564,16 @@
           "$ref": "#/$defs/Style"
         },
         "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
           "anyOf": [
             {
               "$ref": "#/$defs/Expr"

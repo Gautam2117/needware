@@ -1,5 +1,9 @@
 //! Verified packages execute transactionally; platform effects remain typed data.
+mod controls;
 mod revisions;
+mod widgets;
+pub use controls::RuntimeSavepoint;
+use controls::{Controls, change_controls};
 use needware_capabilities::{Capability, Grants, authorize};
 use needware_expr::{Budget, Context, boolean, evaluate};
 use needware_ir::*;
@@ -39,12 +43,18 @@ pub struct ViewNode {
     pub id: String,
     pub kind: Component,
     pub text: String,
+    pub value: Option<Value>,
+    pub input_contract: Option<Field>,
+    pub form_scope: Option<String>,
+    pub disabled: bool,
     pub field: Option<String>,
     pub action: Option<String>,
     pub event_fields: Option<Vec<String>>,
     pub record: Option<String>,
     pub options: Vec<String>,
     pub style: Style,
+    pub open: bool,
+    pub active_overlay: bool,
     pub children: Vec<ViewNode>,
 }
 #[derive(Clone)]
@@ -52,8 +62,8 @@ pub struct Runtime {
     package: VerifiedPackage,
     state: State,
     grants: Grants,
-    screen: String,
-    history: Vec<String>,
+    instance: String,
+    controls: Controls,
 }
 impl Runtime {
     pub fn load(
@@ -77,8 +87,12 @@ impl Runtime {
             package,
             state,
             grants,
-            screen,
-            history: vec![],
+            instance: uuid::Uuid::new_v4().to_string(),
+            controls: Controls {
+                screen,
+                history: vec![],
+                overlays: vec![],
+            },
         })
     }
     pub fn application(&self) -> &Application {
@@ -122,7 +136,7 @@ impl Runtime {
             .clone();
         let mut next = self.state.clone();
         let mut effects = vec![];
-        let mut screen = self.screen.clone();
+        let mut controls = self.controls.clone();
         let mut count = 0;
         let mut budget = Budget::new(1_000_000);
         apply(
@@ -132,21 +146,29 @@ impl Runtime {
             &mut next,
             &event,
             &mut effects,
-            &mut screen,
+            &mut controls,
             &mut count,
             &mut budget,
             0,
         )?;
         needware_validation::validate_state(&next, self.application())
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
-        self.state = next;
-        if screen != self.screen {
-            self.history.push(self.screen.clone());
-            self.screen = screen;
+        if self
+            .application()
+            .runtime_features
+            .iter()
+            .any(|feature| feature == "declarative_widgets_v1")
+        {
+            self.view_cut(&next, &controls)?;
         }
+        self.state = next;
+        self.controls = controls;
         Ok(effects)
     }
     pub fn view(&self) -> Result<ViewNode, RuntimeError> {
+        self.view_cut(&self.state, &self.controls)
+    }
+    fn view_cut(&self, state: &State, controls: &Controls) -> Result<ViewNode, RuntimeError> {
         let app = self.application();
         if !app.collections.is_empty() {
             permission(
@@ -162,11 +184,11 @@ impl Runtime {
         let screen = app
             .screens
             .iter()
-            .find(|s| s.id == self.screen)
+            .find(|s| s.id == controls.screen)
             .ok_or_else(|| RuntimeError::Invalid("unknown screen".into()))?;
         let event = BTreeMap::new();
         let ctx = Context {
-            state: &self.state,
+            state,
             event: &event,
             item: None,
             now: "",
@@ -178,6 +200,11 @@ impl Runtime {
             app,
             &ctx,
             None,
+            &widgets::RenderScope {
+                controls,
+                form: None,
+                scope_id: None,
+            },
             &mut Budget::new(1_000_000),
             &mut 0,
         )
@@ -225,7 +252,7 @@ fn apply(
     state: &mut State,
     event: &Event,
     effects: &mut Vec<Effect>,
-    screen: &mut String,
+    controls: &mut Controls,
     count: &mut u32,
     budget: &mut Budget,
     depth: u32,
@@ -336,7 +363,7 @@ fn apply(
                     state,
                     event,
                     effects,
-                    screen,
+                    controls,
                     count,
                     budget,
                     depth + 1,
@@ -354,7 +381,7 @@ fn apply(
                     state,
                     event,
                     effects,
-                    screen,
+                    controls,
                     count,
                     budget,
                     depth + 1,
@@ -367,23 +394,15 @@ fn apply(
                     state,
                     event,
                     effects,
-                    screen,
+                    controls,
                     count,
                     budget,
                     depth + 1,
                 )?;
             }
         }
-        Action::Navigate { screen: s } => *screen = s.clone(),
-        Action::Back => {
-            return Err(RuntimeError::Invalid(
-                "back requires a navigation-history event".into(),
-            ));
-        }
-        Action::Open { .. } | Action::Close { .. } => {
-            return Err(RuntimeError::Invalid(
-                "overlay control is not supported by this runtime yet".into(),
-            ));
+        Action::Navigate { .. } | Action::Back | Action::Open { .. } | Action::Close { .. } => {
+            change_controls(a, app, controls)?
         }
         Action::Effect { capability, input } => {
             permission(app, grants, capability)?;
@@ -428,6 +447,7 @@ fn render(
     app: &Application,
     ctx: &Context<'_>,
     record: Option<&str>,
+    scope: &widgets::RenderScope<'_>,
     budget: &mut Budget,
     count: &mut u32,
 ) -> Result<ViewNode, RuntimeError> {
@@ -441,7 +461,24 @@ fn render(
         None => String::new(),
     };
     let mut children = vec![];
-    if matches!(node.kind, Component::List | Component::Table) {
+    let is_overlay = matches!(node.kind, Component::Modal | Component::Drawer);
+    let open = !is_overlay || scope.controls.overlays.contains(&node.id);
+    let form = if node.kind == Component::Form {
+        node.action.as_deref()
+    } else {
+        scope.form
+    };
+    let nested_scope = widgets::RenderScope {
+        controls: scope.controls,
+        form,
+        scope_id: if node.kind == Component::Form {
+            Some(&node.id)
+        } else {
+            scope.scope_id
+        },
+    };
+    let (input_contract, value, disabled) = widgets::binding(node, app, ctx, form, budget)?;
+    if open && matches!(node.kind, Component::List | Component::Table) {
         let collection = node
             .collection
             .as_ref()
@@ -457,12 +494,28 @@ fn render(
                 ..*ctx
             };
             for child in &node.children {
-                children.push(render(child, app, &nested, Some(id), budget, count)?);
+                children.push(render(
+                    child,
+                    app,
+                    &nested,
+                    Some(id),
+                    &nested_scope,
+                    budget,
+                    count,
+                )?);
             }
         }
-    } else {
+    } else if open {
         for child in &node.children {
-            children.push(render(child, app, ctx, record, budget, count)?);
+            children.push(render(
+                child,
+                app,
+                ctx,
+                record,
+                &nested_scope,
+                budget,
+                count,
+            )?);
         }
     }
     Ok(ViewNode {
@@ -472,6 +525,13 @@ fn render(
         },
         kind: node.kind.clone(),
         text,
+        value,
+        input_contract,
+        form_scope: nested_scope.scope_id.map(|name| match record {
+            Some(id) => format!("{name}:{id}"),
+            None => name.into(),
+        }),
+        disabled,
         field: node.field.clone(),
         action: node.action.clone(),
         event_fields: node
@@ -482,6 +542,8 @@ fn render(
         record: record.map(str::to_owned),
         options: node.options.clone(),
         style: node.style.clone(),
+        open,
+        active_overlay: is_overlay && scope.controls.overlays.last() == Some(&node.id),
         children,
     })
 }

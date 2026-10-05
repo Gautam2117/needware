@@ -181,14 +181,14 @@ async function execute(command: Command): Promise<unknown> {
     }
     case 'dispatch': {
       if (!runtime || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
-      const previous = runtime.snapshot();
+      const previous = runtime.savepoint();
       try {
         const effects: unknown[] = JSON.parse(runtime.dispatch(JSON.stringify({ action: command.action, values: command.values, now: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
         if (effects.length) throw new Error('Remote capability execution is not available in this host yet.');
         const next = { ...current, state: runtime.snapshot(), generation: current.generation + 1 };
         const view = JSON.parse(runtime.view());
         await persistence.put(next, current.generation); current = next; return view;
-      } catch (error) { runtime.restore(previous); throw error; }
+      } catch (error) { runtime.restore_savepoint(previous); throw error; } finally { previous.free(); }
     }
     case 'export-state': if (!runtime) throw new Error('No application open.'); return runtime.snapshot();
     case 'delete': await persistence.delete(command.id); if (current?.id === command.id) { runtime?.free(); runtime = undefined; current = undefined; } return null;

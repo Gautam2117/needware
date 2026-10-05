@@ -1,6 +1,7 @@
 //! Semantic checks construct the unforgeable validated-application boundary.
 mod contracts;
 pub mod derived;
+mod widgets;
 use contracts::validate_contracts;
 pub use contracts::validate_event;
 use needware_ir::*;
@@ -38,6 +39,8 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
             "typed_contracts_v1",
             "exact_arithmetic_v1",
             "derived_fields_v1",
+            "runtime_controls_v1",
+            "declarative_widgets_v1",
         ]
         .contains(&f.as_str())
     }) || app.runtime_features.iter().collect::<BTreeSet<_>>().len()
@@ -76,7 +79,17 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
         if !screens.insert(&screen.id) {
             return Err(fail("screens", "duplicate screen identifier"));
         }
-        validate_node(&screen.root, &app, &mut nodes, &mut count, 0, None)?;
+        validate_node(
+            &screen.root,
+            &app,
+            &mut nodes,
+            &mut count,
+            0,
+            widgets::NodeScope {
+                item: None,
+                form: None,
+            },
+        )?;
     }
     if !screens.contains(&app.initial_screen) {
         return Err(fail("initial_screen", "unknown screen"));
@@ -598,6 +611,36 @@ fn validate_action(
         Action::Navigate { screen } if !app.screens.iter().any(|s| &s.id == screen) => {
             return Err(fail("action", "unknown screen"));
         }
+        Action::Back | Action::Open { .. } | Action::Close { .. } => {
+            if !app
+                .runtime_features
+                .iter()
+                .any(|feature| feature == "runtime_controls_v1")
+            {
+                return Err(fail("action", "runtime_controls_v1 is required"));
+            }
+            if let Action::Open { overlay } | Action::Close { overlay } = a {
+                let mut pending: Vec<_> = app.screens.iter().map(|screen| &screen.root).collect();
+                let mut found = false;
+                let mut visited = 0;
+                while let Some(node) = pending.pop() {
+                    visited += 1;
+                    if visited > 4096 {
+                        return Err(fail("ui", "component limit"));
+                    }
+                    if node.id == *overlay
+                        && matches!(node.kind, Component::Modal | Component::Drawer)
+                    {
+                        found = true;
+                        break;
+                    }
+                    pending.extend(&node.children);
+                }
+                if !found {
+                    return Err(fail("action", "unknown modal or drawer"));
+                }
+            }
+        }
         Action::Effect { capability, input } => {
             capability
                 .validate()
@@ -617,14 +660,45 @@ fn validate_node(
     ids: &mut BTreeSet<String>,
     count: &mut u32,
     depth: u32,
-    item: Option<&Collection>,
+    scope: widgets::NodeScope<'_>,
 ) -> Result<(), Diagnostic> {
+    let item = scope.item;
+    let form = widgets::validate_node(node, app, scope)?;
     *count += 1;
     if *count > 4096 || depth > 32 {
         return Err(fail("ui", "component limit"));
     }
     if !identifier(&node.id) || !ids.insert(node.id.clone()) {
         return Err(fail("ui", "invalid/duplicate component identifier"));
+    }
+    if matches!(node.kind, Component::Modal | Component::Drawer)
+        && (item.is_some()
+            || !app
+                .runtime_features
+                .iter()
+                .any(|feature| feature == "runtime_controls_v1"))
+    {
+        return Err(fail(
+            "ui",
+            "overlays require runtime_controls_v1 outside repeated collections",
+        ));
+    }
+    if matches!(node.kind, Component::Modal | Component::Drawer) && node.disabled.is_some() {
+        return Err(fail(
+            "ui",
+            "an overlay's trusted close action cannot be disabled",
+        ));
+    }
+    if matches!(node.kind, Component::Modal | Component::Drawer)
+        && !node
+            .action
+            .as_ref()
+            .and_then(|name| app.actions.get(name))
+            .is_some_and(
+                |action| matches!(action, Action::Close { overlay } if *overlay == node.id),
+            )
+    {
+        return Err(fail("ui", "overlay requires its own declared close action"));
     }
     let children_item = if matches!(node.kind, Component::List | Component::Table) {
         let c = node
@@ -647,11 +721,24 @@ fn validate_node(
     if let Some(e) = &node.text {
         validate_expr(e, app, item, None, 0)?;
     }
+    for expression in [&node.value, &node.disabled].into_iter().flatten() {
+        validate_expr(expression, app, item, None, 0)?;
+    }
     if node.options.len() > 256 {
         return Err(fail("ui", "option limit"));
     }
     for child in &node.children {
-        validate_node(child, app, ids, count, depth + 1, children_item)?;
+        validate_node(
+            child,
+            app,
+            ids,
+            count,
+            depth + 1,
+            widgets::NodeScope {
+                item: children_item,
+                form,
+            },
+        )?;
     }
     Ok(())
 }

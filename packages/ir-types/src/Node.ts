@@ -3,4 +3,4 @@ import type { Component } from "./Component";
 import type { Expr } from "./Expr";
 import type { Style } from "./Style";
 
-export type Node = { id: string, kind: Component, text: Expr | null, collection: string | null, field: string | null, action: string | null, options: Array<string>, children: Array<Node>, style: Style, };
+export type Node = { id: string, kind: Component, text: Expr | null, value?: Expr | null, disabled?: Expr | null, collection: string | null, field: string | null, action: string | null, options: Array<string>, children: Array<Node>, style: Style, };

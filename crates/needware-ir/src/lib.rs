@@ -1,5 +1,6 @@
 //! Canonical, model-independent Needware application language.
 pub mod examples;
+pub mod widgets_example;
 use needware_capabilities::Capability;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -103,6 +104,10 @@ domain! {
         pub id:String,
         pub kind:Component,
         pub text:Option<Expr>,
+        #[serde(default, skip_serializing_if="Option::is_none")]
+        pub value:Option<Expr>,
+        #[serde(default, skip_serializing_if="Option::is_none")]
+        pub disabled:Option<Expr>,
         pub collection:Option<String>,
         pub field:Option<String>,
         pub action:Option<String>,

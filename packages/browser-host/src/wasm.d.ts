@@ -6,10 +6,13 @@ declare module 'needware-wasm-runtime' {
   export function remix_package(bytes: Uint8Array, application: string, revision: string, consent: boolean): Uint8Array;
   export function seal_generation_package(bytes: Uint8Array, recipient: string, context: string): BrowserGenerationResult;
   export class BrowserGenerationResult { metadata(): string; ciphertext(): Uint8Array; free(): void }
+  export class BrowserRuntimeSavepoint { free(): void }
   export class BrowserRuntime {
     constructor(bytes: Uint8Array, state: string | undefined, consent: boolean);
     view(): string;
     snapshot(): string;
+    savepoint(): BrowserRuntimeSavepoint;
+    restore_savepoint(cut: BrowserRuntimeSavepoint): void;
     dispatch(event: string): string;
     restore(state: string): void;
     preview_revision(bytes: Uint8Array, consent: boolean): string;

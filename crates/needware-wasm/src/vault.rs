@@ -1253,10 +1253,10 @@ impl BrowserSync {
     }
     pub fn dispatch(&mut self, event: &str) -> Result<String, JsValue> {
         let event = needware_package::parse_json(event.as_bytes()).map_err(error)?;
-        let before = self.runtime.state().clone();
+        let before = self.runtime.savepoint();
         let effects = self.runtime.dispatch(&event).map_err(error)?;
         if let Err(failure) = self.replica.commit_state(self.runtime.state().clone()) {
-            self.runtime.restore(before).map_err(error)?;
+            self.runtime.restore_savepoint(&before).map_err(error)?;
             return Err(error(failure));
         }
         json(&effects)

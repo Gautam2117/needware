@@ -1,15 +1,213 @@
 //! Authored application definitions, never represented as model generation.
 use crate::*;
-fn text(s: &str) -> Expr {
+pub fn runtime_controls_demo() -> Application {
+    fn button(id: &str, label: &str, action: &str) -> Node {
+        let mut result = node(id, Component::Button, Some(text(label)), vec![]);
+        result.action = Some(action.into());
+        result
+    }
+    let mut app = habit_tracker();
+    app.title = "Runtime controls fixture".into();
+    app.runtime_features.push("runtime_controls_v1".into());
+    app.state
+        .insert("counter".into(), Value::Integer("0".into()));
+    for (name, action) in [
+        (
+            "details",
+            Action::Navigate {
+                screen: "controls_details".into(),
+            },
+        ),
+        (
+            "review",
+            Action::Navigate {
+                screen: "controls_review".into(),
+            },
+        ),
+        (
+            "home",
+            Action::Navigate {
+                screen: "controls_home".into(),
+            },
+        ),
+        ("back", Action::Back),
+        (
+            "show_dialog",
+            Action::Open {
+                overlay: "control_dialog".into(),
+            },
+        ),
+        (
+            "close_dialog",
+            Action::Close {
+                overlay: "control_dialog".into(),
+            },
+        ),
+        (
+            "show_drawer",
+            Action::Open {
+                overlay: "control_drawer".into(),
+            },
+        ),
+        (
+            "close_drawer",
+            Action::Close {
+                overlay: "control_drawer".into(),
+            },
+        ),
+        (
+            "sequence_navigation",
+            Action::Sequence {
+                actions: vec![
+                    Action::Navigate {
+                        screen: "controls_details".into(),
+                    },
+                    Action::Navigate {
+                        screen: "controls_review".into(),
+                    },
+                    Action::Back,
+                ],
+            },
+        ),
+        (
+            "failed_navigation",
+            Action::Sequence {
+                actions: vec![
+                    Action::Set {
+                        key: "counter".into(),
+                        value: Expr::Literal {
+                            value: Value::Integer("1".into()),
+                        },
+                    },
+                    Action::Navigate {
+                        screen: "controls_details".into(),
+                    },
+                    Action::Delete {
+                        collection: "habits".into(),
+                        id: text("not_a_uuid"),
+                    },
+                ],
+            },
+        ),
+    ] {
+        app.actions.insert(name.into(), action);
+    }
+    let mut modal = node(
+        "control_dialog",
+        Component::Modal,
+        Some(text("Review dialog")),
+        vec![node(
+            "dialog_text",
+            Component::Text,
+            Some(text(
+                "Your application data remains separate from navigation.",
+            )),
+            vec![],
+        )],
+    );
+    modal.action = Some("close_dialog".into());
+    let mut drawer = node(
+        "control_drawer",
+        Component::Drawer,
+        Some(text("Preferences drawer")),
+        vec![node(
+            "drawer_text",
+            Component::Text,
+            Some(text("A controlled drawer")),
+            vec![],
+        )],
+    );
+    drawer.action = Some("close_drawer".into());
+    app.screens = vec![
+        Screen {
+            id: "controls_home".into(),
+            title: "Controls".into(),
+            root: node(
+                "controls_home_root",
+                Component::Stack,
+                None,
+                vec![
+                    node(
+                        "home_heading",
+                        Component::Heading,
+                        Some(text("Controls home")),
+                        vec![],
+                    ),
+                    button("details_button", "Open details", "details"),
+                    button("dialog_button", "Show dialog", "show_dialog"),
+                    button("drawer_button", "Show drawer", "show_drawer"),
+                    button(
+                        "failure_button",
+                        "Fail atomic navigation",
+                        "failed_navigation",
+                    ),
+                    node(
+                        "counter_view",
+                        Component::Text,
+                        Some(Expr::State {
+                            key: "counter".into(),
+                        }),
+                        vec![],
+                    ),
+                    modal,
+                    drawer,
+                ],
+            ),
+        },
+        Screen {
+            id: "controls_details".into(),
+            title: "Details".into(),
+            root: node(
+                "controls_details_root",
+                Component::Stack,
+                None,
+                vec![
+                    node(
+                        "details_heading",
+                        Component::Heading,
+                        Some(text("Controls details")),
+                        vec![],
+                    ),
+                    button("review_button", "Open review", "review"),
+                    button("details_back", "Back to previous screen", "back"),
+                    button("details_home", "Return home", "home"),
+                ],
+            ),
+        },
+        Screen {
+            id: "controls_review".into(),
+            title: "Review".into(),
+            root: node(
+                "controls_review_root",
+                Component::Stack,
+                None,
+                vec![
+                    node(
+                        "review_heading",
+                        Component::Heading,
+                        Some(text("Controls review")),
+                        vec![],
+                    ),
+                    button("review_back", "Back to previous screen", "back"),
+                ],
+            ),
+        },
+    ];
+    app.initial_screen = "controls_home".into();
+    app
+}
+pub(crate) fn text(s: &str) -> Expr {
     Expr::Literal {
         value: Value::String(s.into()),
     }
 }
-fn node(id: &str, kind: Component, label: Option<Expr>, children: Vec<Node>) -> Node {
+pub(crate) fn node(id: &str, kind: Component, label: Option<Expr>, children: Vec<Node>) -> Node {
     Node {
         id: id.into(),
         kind,
         text: label,
+        value: None,
+        disabled: None,
         collection: None,
         field: None,
         action: None,

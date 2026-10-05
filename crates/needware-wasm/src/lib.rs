@@ -1,11 +1,15 @@
 //! Narrow browser boundary; core semantics stay in native-testable Rust.
 mod vault;
 use needware_capabilities::Grants;
-use needware_runtime::{Event, Runtime};
+use needware_runtime::{Event, Runtime, RuntimeSavepoint};
 pub use vault::generation::{BrowserGenerationResult, seal_generation_package};
 use wasm_bindgen::prelude::*;
 fn error(e: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&e.to_string())
+}
+#[wasm_bindgen]
+pub struct BrowserRuntimeSavepoint {
+    inner: RuntimeSavepoint,
 }
 #[wasm_bindgen]
 pub fn inspect_package(bytes: &[u8]) -> Result<String, JsValue> {
@@ -122,6 +126,14 @@ impl BrowserRuntime {
     }
     pub fn snapshot(&self) -> Result<String, JsValue> {
         serde_json::to_string(self.inner.state()).map_err(error)
+    }
+    pub fn savepoint(&self) -> BrowserRuntimeSavepoint {
+        BrowserRuntimeSavepoint {
+            inner: self.inner.savepoint(),
+        }
+    }
+    pub fn restore_savepoint(&mut self, cut: &BrowserRuntimeSavepoint) -> Result<(), JsValue> {
+        self.inner.restore_savepoint(&cut.inner).map_err(error)
     }
     pub fn restore(&mut self, json: &str) -> Result<(), JsValue> {
         let state = needware_package::parse_state(json.as_bytes()).map_err(error)?;
