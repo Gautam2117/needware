@@ -394,6 +394,39 @@
             "capability",
             "input"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "capability": {
+              "$ref": "#/$defs/Capability"
+            },
+            "input": {
+              "$ref": "#/$defs/Expr"
+            },
+            "kind": {
+              "type": "string",
+              "const": "await_effect"
+            },
+            "on_failure": {
+              "$ref": "#/$defs/Action"
+            },
+            "on_success": {
+              "$ref": "#/$defs/Action"
+            },
+            "output": {
+              "$ref": "#/$defs/Field"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "capability",
+            "input",
+            "output",
+            "on_success",
+            "on_failure"
+          ]
         }
       ]
     },

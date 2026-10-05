@@ -1,5 +1,6 @@
 // Only the trusted host/worker may hold this session. Renderer frames receive views and effects.
 import canonicalize from 'canonicalize';
+import {effectIntent,effectOutcome,type EffectIntent} from './effect-journal';
 import type { BrowserRevisionReview, BrowserRootRotation, BrowserSync, BrowserVault } from 'needware-wasm-runtime';
 import type { RootJournalCut } from './root-rotation-store';
 import type { EncryptedDocumentStore } from './journal-store';
@@ -17,6 +18,7 @@ interface Journal {
   archive?: string[];
   pendingEpoch?: CloudEpochIntent;
   drafts?: DraftSnapshot[];
+  effect?: EffectIntent;
 }
 export interface EpochRecipient { certificate: string; context: string; authority: string; write: boolean }
 export interface CloudEpochIntent { next: string; transition: unknown; checkpoint: { digest: string; bytes: number }; sourceCursor: string; recipients?: {recipient:unknown;membership:unknown;key_envelope:unknown}[] }
@@ -39,6 +41,7 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
   if (value?.archive !== undefined) fields.push('archive'); fields.sort();
   if (value?.pendingEpoch !== undefined) fields.push('pendingEpoch'); fields.sort();
   if (value?.drafts !== undefined) fields.push('drafts'); fields.sort();
+  if (value?.effect !== undefined) fields.push('effect'); fields.sort();
   if (!value || Object.keys(value).sort().join(',') !== fields.join(',') || value.version !== 1 || value.account !== account || value.document !== document
       || !Number.isSafeInteger(value.ownerEpoch) || value.ownerEpoch < 1
       || !['authority','binding','held','membership','package','roster','scope','state'].every(key => typeof value[key as keyof Journal] === 'string')
@@ -46,6 +49,7 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
       || (value.cursor !== null && (typeof value.cursor !== 'string' || value.cursor.length > 256))) throw new Error('Invalid document journal; original preserved');
   const binding = JSON.parse(value.binding) as Binding;
   if(value.drafts!==undefined)value.drafts=draftSnapshots(value.drafts);
+  if(value.effect!==undefined)value.effect=effectIntent(value.effect);
   if (binding.document.document !== document) throw new Error('Journal document mismatch');
   if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== (value.epoch.acceptedRoot===true?'acceptedRoot,checkpoint,previous':value.epoch.revision===true?'checkpoint,previous,revision':'checkpoint,previous') || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
   if (value.archive !== undefined && (!Array.isArray(value.archive) || value.archive.length > 4 || value.archive.some(item => typeof item !== 'string'))) throw new Error('Invalid retained epoch archive');
@@ -115,6 +119,8 @@ export class DurableSyncSession {
       }
       for (const frame of journal.frames) session.receive(frame);
       session.restore_local_state(journal.state);
+      if(journal.effect&&journal.effect.state===session.snapshot()&&JSON.parse(journal.effect.checkpoint).scope===session.binding()&&JSON.parse(journal.effect.checkpoint).package===session.package_digest())session.restore_effect_checkpoint(journal.effect.checkpoint);
+
       session.activate_document_key(vault);
       return new DurableSyncSession(store, session, journal, saved.generation, saved.rootGeneration);
     } catch (error) { session.free(); throw error; }
@@ -326,15 +332,54 @@ export class DurableSyncSession {
     const next = this.tail.then(() => { this.assertOpen(); return run(); });
     this.tail = next.catch(() => undefined); return next;
   }
+  effectReview(): (EffectIntent & {stale:boolean})|undefined {
+    this.assertOpen();return this.journal.effect?{...structuredClone(this.journal.effect),stale:this.journal.effect.state!==this.session.snapshot()||JSON.parse(this.journal.effect.checkpoint).scope!==this.session.binding()||JSON.parse(this.journal.effect.checkpoint).package!==this.session.package_digest()}:undefined;
+  }
+  async beginEffect(id:string):Promise<EffectIntent> {
+    return this.serial(async()=>{this.requireActiveEpoch();const effect=this.journal.effect;
+      if(!effect||effect.id!==id||effect.status!=='prepared'||this.effectReview()?.stale)throw new Error('Effect requires review; an unknown external outcome must never be replayed');
+      const next=effectIntent({...effect,status:'dispatching'}),candidate=this.session.fork_session();
+      try{await this.publish(candidate,{...this.journal,effect:next});return structuredClone(next);}catch(error){candidate.free();throw error;}
+    });
+  }
+  async recordEffectResult(id:string,outcome:unknown):Promise<void> {
+    return this.serial(async()=>{this.requireActiveEpoch();const effect=this.journal.effect;
+      if(!effect||effect.id!==id||effect.status!=='dispatching')throw new Error('Unknown or already recorded effect outcome');
+      const next=effectIntent({...effect,status:'result',outcome:effectOutcome(outcome)}),candidate=this.session.fork_session();
+      try{await this.publish(candidate,{...this.journal,effect:next});}catch(error){candidate.free();throw error;}
+    });
+  }
+  async finishEffect(id:string):Promise<string> {
+    return this.serial(async()=>{this.requireActiveEpoch();const effect=this.journal.effect;
+      if(!effect||effect.id!==id||effect.status!=='result'||this.effectReview()?.stale)throw new Error('Retained effect result requires explicit review against current document state');
+      const candidate=this.session.fork_session();try{
+        const known=this.session.known(),view=candidate.complete_effect(id,JSON.stringify(effect.outcome));
+        const queued=[...this.journal.queued,...exportFrames(candidate,known)];
+        const {effect:completed,...journal}=this.journal;void completed;
+        await this.publish(candidate,{...journal,queued});return view;
+      }catch(error){candidate.free();throw error;}
+    });
+  }
+  async discardEffect(id:string):Promise<void> {
+    return this.serial(async()=>{this.requireActiveEpoch();if(this.journal.effect?.id!==id)throw new Error('Effect review changed');
+      const candidate=this.session.fork_session();try{
+        const checkpoint=JSON.parse(candidate.effect_checkpoint()) as {records:{effect:{id:string}}[]};
+        if(checkpoint.records.some(record=>record.effect.id===id))candidate.discard_effect(id);
+        const {effect:discarded,...journal}=this.journal;void discarded;await this.publish(candidate,journal);
+      }catch(error){candidate.free();throw error;}
+    });
+  }
   async dispatch(event: string): Promise<string> {
     return this.serial(async () => {
       this.requireActiveEpoch();
       const candidate = this.session.fork_session();
       try {
         const known = this.session.known(); const effects = candidate.dispatch(event);
-        if ((JSON.parse(effects) as unknown[]).length) throw new Error('Remote capability execution is not available in this host yet; original preserved');
+        const requests=JSON.parse(effects) as import('@needware/ir-types/Effect').Effect[];
+        if(requests.length&& (requests.length!==1||!requests[0].flow||this.journal.effect))throw new Error('Review the existing effect before preparing one typed request; original preserved');
+        const effect=requests.length?effectIntent({id:requests[0].id,status:'prepared',checkpoint:candidate.effect_checkpoint(),state:candidate.snapshot(),request:requests[0]}):this.journal.effect;
         const queued = [...this.journal.queued, ...exportFrames(candidate, known)];
-        await this.publish(candidate, { ...this.journal, queued });
+        await this.publish(candidate, { ...this.journal, queued,...(effect?{effect}:{}) });
         return effects;
       } catch (error) { candidate.free(); throw error; }
     });

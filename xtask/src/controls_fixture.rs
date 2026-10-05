@@ -157,6 +157,94 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
         "artifacts/controls/encrypted-widgets.need",
         needware_package::build(encrypted_widgets, vec![], &key)?,
     )?;
+    let mut effects = needware_ir::widgets_example::application();
+    effects.title = "Encrypted effects fixture".into();
+    effects.runtime_features.push("typed_effects_v1".into());
+    let clipboard = needware_capabilities::Capability::Clipboard { read: false };
+    effects.capabilities.push(clipboard.clone());
+    effects
+        .capabilities
+        .push(needware_capabilities::Capability::Storage {
+            synchronized: true,
+            write: true,
+            collections: vec!["habits".into()],
+        });
+    effects
+        .capabilities
+        .push(needware_capabilities::Capability::Collaboration { write: true });
+    let output = effects
+        .state_schema
+        .get("name")
+        .ok_or("name contract")?
+        .clone();
+    effects.event_schema.insert(
+        "copy".into(),
+        std::collections::BTreeMap::from([("name".into(), output.clone())]),
+    );
+    effects.actions.insert(
+        "copy".into(),
+        needware_ir::Action::AwaitEffect {
+            capability: clipboard,
+            input: needware_ir::Expr::Event { key: "name".into() },
+            output,
+            on_success: Box::new(needware_ir::Action::Set {
+                key: "name".into(),
+                value: needware_ir::Expr::Event {
+                    key: "result".into(),
+                },
+            }),
+            on_failure: Box::new(needware_ir::Action::Set {
+                key: "name".into(),
+                value: needware_ir::Expr::Event {
+                    key: "error".into(),
+                },
+            }),
+        },
+    );
+    let root = &mut effects.screens[0].root;
+    let mut copy = root
+        .children
+        .iter()
+        .find(|node| node.id == "primary_form")
+        .ok_or("primary form")?
+        .clone();
+    copy.id = "copy_form".into();
+    copy.action = Some("copy".into());
+    copy.text = Some(needware_ir::Expr::Literal {
+        value: needware_ir::Value::String("Request clipboard copy".into()),
+    });
+    copy.children
+        .retain(|node| node.field.as_deref() == Some("name"));
+    for node in &mut copy.children {
+        node.id = "copy_name".into();
+        node.text = Some(needware_ir::Expr::Literal {
+            value: needware_ir::Value::String("Text to copy".into()),
+        });
+    }
+    root.children.push(copy);
+    let effect_bytes = needware_package::build(effects.clone(), vec![], &key)?;
+    std::fs::write("artifacts/controls/encrypted-effects.need", &effect_bytes)?;
+    let verified = needware_package::verify(&effect_bytes)?;
+    let trusted = verified.signers().to_vec();
+    let grants = needware_capabilities::Grants {
+        application: effects.id.clone(),
+        revision: effects.revision.clone(),
+        capabilities: effects.capabilities.clone(),
+    };
+    let mut runtime = needware_runtime::Runtime::load(verified, None, grants, &trusted)?;
+    runtime.dispatch(&needware_runtime::Event {
+        action: "copy".into(),
+        values: std::collections::BTreeMap::from([(
+            "name".into(),
+            needware_ir::Value::String("Authored effect seed".into()),
+        )]),
+        now: "2026-10-05T00:00:00.000Z".into(),
+        timezone: "UTC".into(),
+    })?;
+    std::fs::write(
+        "artifacts/controls/effects-checkpoint.json",
+        runtime.effect_checkpoint()?,
+    )?;
     let raster = include_bytes!("../../tests/fixtures/raster.png");
     let asset = needware_package::Asset {
         media_type: "image/png".into(),

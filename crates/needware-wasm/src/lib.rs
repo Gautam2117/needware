@@ -144,6 +144,25 @@ impl BrowserRuntime {
         let effects = self.inner.dispatch(&event).map_err(error)?;
         serde_json::to_string(&effects).map_err(error)
     }
+    pub fn effect_checkpoint(&self) -> Result<String, JsValue> {
+        self.inner.effect_checkpoint().map_err(error)
+    }
+    pub fn restore_effect_checkpoint(&mut self, checkpoint: &str) -> Result<(), JsValue> {
+        self.inner
+            .restore_effect_checkpoint(checkpoint)
+            .map_err(error)
+    }
+    pub fn complete_effect(&mut self, id: &str, outcome: &str) -> Result<String, JsValue> {
+        if outcome.len() > 1024 * 1024 {
+            return Err(error("effect outcome exceeds limit"));
+        }
+        let outcome = needware_package::parse_json(outcome.as_bytes()).map_err(error)?;
+        serde_json::to_string(&self.inner.complete_effect(id, outcome).map_err(error)?)
+            .map_err(error)
+    }
+    pub fn discard_effect(&mut self, id: &str) -> Result<(), JsValue> {
+        self.inner.discard_effect(id).map_err(error)
+    }
     pub fn select_page(&mut self, node: &str, offset: usize) -> Result<String, JsValue> {
         serde_json::to_string(&self.inner.select_page(node, offset).map_err(error)?).map_err(error)
     }

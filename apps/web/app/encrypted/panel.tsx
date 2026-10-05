@@ -1,10 +1,11 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { EncryptedCommand, EncryptedEntry, EncryptedLoaded, CloudEntry, EpochRecipientChoice, SharedRevisionReview } from '../../../../packages/browser-host/src/encrypted-protocol';
 import type { PackageInfo } from '../../../../packages/browser-host/src/protocol';
 import { WorkerHost } from '../../../../packages/browser-host/src/worker-host';
 import Sandbox from '../sandbox';
+import EffectReview,{type EffectBroker,type EffectReviewHandle} from './effect-review';
 import OfflineLink from '../offline-link';
 import type {SandboxHandle} from '../draft-recovery';
 import RevisionReview from '../revision-review';
@@ -16,6 +17,8 @@ function download(name: string, value: BlobPart, type: string) {
 export default function EncryptedApplications() {
   const host = useRef<WorkerHost<EncryptedCommand>>(null); const [account, setAccount] = useState('');
   const sandbox=useRef<SandboxHandle>(null);
+  const effectReview=useRef<EffectReviewHandle>(null);
+  async function confirmLeave(){if(effectReview.current&&!effectReview.current.confirmLeave())return false;return !sandbox.current||await sandbox.current.confirmLeave();}
   const [entries, setEntries] = useState<EncryptedEntry[]>([]); const [review, setReview] = useState<{ info: PackageInfo; bytes: Uint8Array }>();
   const [cloudEntries,setCloudEntries]=useState<CloudEntry[]>([]);const [cloudReview,setCloudReview]=useState<EncryptedEntry>();
   const [schemaReview,setSchemaReview]=useState<SharedRevisionReview>();const [schemaTrust,setSchemaTrust]=useState(false);const [offlineAcknowledged,setOfflineAcknowledged]=useState(false);
@@ -24,6 +27,14 @@ export default function EncryptedApplications() {
   const [epochChoices,setEpochChoices]=useState<EpochRecipientChoice[]>([]);const [retainedDevices,setRetainedDevices]=useState<string[]>([]);
   const [loaded, setLoaded] = useState<EncryptedLoaded>(); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [status, setStatus] = useState('Open encrypted applications from your account to select a trusted browser vault.'); const [renderer, setRenderer] = useState<{ code: string; hash: string }>();
+  const effectInstance=loaded?.instance;
+  const effectBroker=useCallback<EffectBroker>(async(kind,id,outcome)=>{
+    if(!host.current||!effectInstance)throw Error('Encrypted runtime is unavailable.');
+    if(kind==='effect-review')return host.current.request({kind,account,instance:effectInstance});
+    if(!id)throw Error('Effect identity is required.');
+    if(kind==='record-effect')return host.current.request({kind,account,instance:effectInstance,id,outcome});
+    return host.current.request({kind,account,instance:effectInstance,id});
+  },[account,effectInstance]);
   const occupied=useRef(false);const syncing=useRef(false);
   useEffect(()=>{occupied.current=busy;},[busy]);
   useEffect(()=>{
@@ -67,7 +78,7 @@ export default function EncryptedApplications() {
   async function inspect(bytes: Uint8Array) { const info = await host.current?.request<PackageInfo>({ kind: 'inspect', account, bytes }); if (info) { setReview({ info, bytes }); setCloudReview(undefined); } }
   async function show(value: EncryptedLoaded | undefined) { if (value) { setSchemaReview(undefined);setSchemaTrust(false);setRecoveryHistory([]);setLoaded(value); setEpochChoices([]);setRetainedDevices([]);setReview(undefined); setStatus('Encrypted browser storage ready'); await refresh(); } }
   async function remove(document: string) {
-    if(loaded?.document===document&&sandbox.current&&!await sandbox.current.confirmLeave())return;
+    if(loaded?.document===document&&!await confirmLeave())return;
     if (!window.confirm('Delete this encrypted application from this browser? Export anything you want to keep first.')) return;
     await host.current?.request({ kind: 'delete', account, document }); if (loaded?.document === document) setLoaded(undefined); await refresh();
   }
@@ -86,7 +97,7 @@ export default function EncryptedApplications() {
   }
   async function publishShared(destructive:boolean){
     if(!loaded||!schemaReview||!schemaTrust)return;
-    if(sandbox.current&&!await sandbox.current.confirmLeave())return;
+    if(!await confirmLeave())return;
     const retained=epochChoices.filter(choice=>retainedDevices.includes(`${choice.account_id}:${choice.device_id}`)).map(choice=>({certificate:JSON.stringify(choice.certificate),write:choice.account_id===account||choice.membership?.role==='write'}));
     await show(await host.current?.request<EncryptedLoaded>({kind:'publish-shared-revision',account,instance:loaded.instance,digest:schemaReview.review_digest,destructive,permissions:true,retained}));setSchemaReview(undefined);setStatus('Reviewed shared revision published. The previous revision remains in recovery history.');
   }
@@ -103,9 +114,9 @@ export default function EncryptedApplications() {
     {!!cloudEntries.length&&<section aria-label="Cloud applications"><h2>Encrypted cloud applications</h2><p>Review the signer and permissions before saving a cloud package on this browser.</p>{cloudEntries.map(entry=><article className="app-card" key={entry.id}><strong>Encrypted application {entry.id.slice(0,8)}</strong><p>{entry.ready?'Encrypted package ready':'Upload incomplete; resume synchronization on its original browser'}</p><button disabled={busy||!entry.ready||entries.some(local=>local.document===entry.id)} onClick={()=>run(()=>previewCloud(entry.id))}>Review cloud application</button></article>)}</section>}
     {cloudReview&&<section className="review" aria-label="Cloud package review"><h2>Review {cloudReview.info.application.title}</h2><p>Verified package signer:</p><code>{cloudReview.info.signers.join(', ')}</code><p>Package digest: <code>{cloudReview.info.digest}</code></p><ul>{cloudReview.info.application.capabilities.map((cap,index)=><li key={index}>{JSON.stringify(cap)}</li>)}</ul>
       {cloudReview.offline&&<><p>{cloudReview.offline.pending} offline changes remain on the previous revision. They will be kept in recovery history and will not be uploaded with stale keys.</p><details><summary>Review preserved offline data</summary><pre>{cloudReview.offline.state}</pre></details><label><input type="checkbox" checked={offlineAcknowledged} onChange={event=>setOfflineAcknowledged(event.target.checked)} /> Keep my old revision and offline edits in recovery history, and open the current shared revision</label></>}
-      <button disabled={busy||Boolean(cloudReview.offline&&!offlineAcknowledged)} onClick={()=>run(async()=>{if(sandbox.current&&!await sandbox.current.confirmLeave())return;await show(await host.current?.request<EncryptedLoaded>({kind:'accept-cloud',account,document:cloudReview.document,consent:true,preserveOffline:offlineAcknowledged}));setCloudReview(undefined);})}>Trust signer and import cloud application</button><button disabled={busy} onClick={()=>run(async()=>{await host.current?.request({kind:'cancel-cloud',account});setCloudReview(undefined);})}>Cancel cloud import</button></section>}
+      <button disabled={busy||Boolean(cloudReview.offline&&!offlineAcknowledged)} onClick={()=>run(async()=>{if(!await confirmLeave())return;await show(await host.current?.request<EncryptedLoaded>({kind:'accept-cloud',account,document:cloudReview.document,consent:true,preserveOffline:offlineAcknowledged}));setCloudReview(undefined);})}>Trust signer and import cloud application</button><button disabled={busy} onClick={()=>run(async()=>{await host.current?.request({kind:'cancel-cloud',account});setCloudReview(undefined);})}>Cancel cloud import</button></section>}
     {review && <section className="review" aria-label="Application permissions"><h2>Review {review.info.application.title}</h2><p>Verified package signer:</p><code>{review.info.signers.join(', ')}</code><p>Only the collections listed in synchronized storage permissions enter shared history. Other state stays on this device.</p><ul>{review.info.application.capabilities.map((cap,index)=><li key={index}>{cap.kind === 'storage' ? `${cap.write ? 'Read and write' : 'Read'} ${cap.collections.join(', ')} ${cap.synchronized ? 'with encrypted synchronization' : 'on this device'}` : cap.kind === 'collaboration' ? `Collaboration: ${cap.write ? 'editable' : 'read only'}` : JSON.stringify(cap)}</li>)}</ul>
-      <button className="primary" disabled={busy} onClick={() => run(async () => {if(sandbox.current&&!await sandbox.current.confirmLeave())return;await show(await host.current?.request<EncryptedLoaded>({ kind: 'create', account, bytes: review.bytes, consent: true }));})}>Trust signer and save encrypted application</button><button disabled={busy} onClick={()=>setReview(undefined)}>Cancel</button></section>}
+      <button className="primary" disabled={busy} onClick={() => run(async () => {if(!await confirmLeave())return;await show(await host.current?.request<EncryptedLoaded>({ kind: 'create', account, bytes: review.bytes, consent: true }));})}>Trust signer and save encrypted application</button><button disabled={busy} onClick={()=>setReview(undefined)}>Cancel</button></section>}
     {loaded && renderer && <section className="viewer" aria-label="Encrypted application viewer"><div className="security-bar"><strong>{loaded.info.application.title}</strong><p>Encrypted browser storage · {loaded.pendingUploads} pending {loaded.pendingUploads === 1 ? 'change' : 'changes'}</p><code>Digest {loaded.info.digest}</code><div className="toolbar">
       <button disabled={busy} onClick={()=>run(async()=>{const bytes=await host.current?.request<Uint8Array>({kind:'export-package',account,instance:loaded.instance});if(bytes)download(`${loaded.info.application.title}.need`,new Uint8Array(bytes),'application/vnd.needware.package');})}>Export plaintext package</button>
       <button disabled={busy} onClick={()=>run(async()=>{const state=await host.current?.request<string>({kind:'export-state',account,instance:loaded.instance});if(state)download('needware-state.json',state,'application/json');})}>Export plaintext data</button>
@@ -132,8 +143,9 @@ export default function EncryptedApplications() {
         <label><input type="checkbox" checked={shareConsent} onChange={event=>setShareConsent(event.target.checked)} /> I verified this recipient device and approve sharing</label>
         <button disabled={busy||!recipient||!shareConsent} onClick={()=>run(async()=>{if(!recipient)return;const invitation=await host.current?.request({kind:'share',account,instance:loaded.instance,certificate:recipient,write:allowWrite,consent:true});if(invitation){download('needware-document-invitation.json',JSON.stringify(invitation),'application/json');setStatus('Recipient grant saved. Give the invitation to that person.');}})}>Approve recipient and download invitation</button>
       </details>}
+      <EffectReview ref={effectReview} key={`effect:${loaded.instance}`} broker={effectBroker} view={loaded.view} completed={result=>setLoaded(previous=>previous?.instance===loaded.instance?{...previous,...result}:previous)} />
       <Sandbox ref={sandbox} binding={`encrypted:${account}:${loaded.document}`} digest={loaded.info.digest} key={loaded.instance} title={loaded.info.application.title} document={frame} view={loaded.view} error={setError} durable={{save:async(id,drafts)=>{if(!host.current)throw Error('Encrypted runtime is unavailable.');await host.current.request({kind:'save-drafts',account,instance:loaded.instance,id,digest:loaded.info.digest,drafts});},summaries:async()=>{if(!host.current)throw Error('Encrypted runtime is unavailable.');return host.current.request({kind:'draft-summaries',account,instance:loaded.instance});},load:async(summary)=>{if(!host.current)throw Error('Encrypted runtime is unavailable.');return host.current.request({kind:'load-draft',account,instance:loaded.instance,source:summary.source,id:summary.id,generation:summary.generation});},forget:async(summary)=>{if(!host.current)throw Error('Encrypted runtime is unavailable.');await host.current.request({kind:'forget-draft',account,instance:loaded.instance,id:summary.id,generation:summary.generation});}}} selectPage={async(node,offset)=>{if(loaded.reviewRequired)throw Error('Review the current shared revision before changing pages.');if(!host.current)throw Error('Encrypted runtime is unavailable.');const result=await host.current.request<{view:ViewNode;pendingUploads:number}>({kind:'select-page',account,instance:loaded.instance,node,offset});setLoaded(previous=>previous?.instance===loaded.instance?{...previous,...result}:previous);}} dispatch={async(action,values)=>{if(loaded.reviewRequired)throw Error('Review the current shared revision before editing. Your old offline changes are preserved.');if(!host.current)throw Error('Encrypted runtime is unavailable.');try{const result=await host.current.request<{view:ViewNode;pendingUploads:number}>({kind:'dispatch',account,instance:loaded.instance,action,values});setLoaded(previous=>previous?.instance===loaded.instance?{...previous,...result}:previous);}catch(failure){if((failure as Error&{status?:number}).status===409)setLoaded(previous=>previous?.instance===loaded.instance?{...previous,reviewRequired:true}:previous);throw failure;}}} /></section>}
-    <section aria-label="Encrypted library"><h2>On this browser</h2>{entries.length ? <div className="library">{entries.map(entry=><article className="app-card" key={entry.document} data-document={entry.document}><strong>{entry.info.application.title}</strong><p>Signed package · Encrypted data</p><button disabled={busy} onClick={()=>run(async()=>{if(sandbox.current&&!await sandbox.current.confirmLeave())return;await show(await host.current?.request<EncryptedLoaded>({kind:'open',account,document:entry.document,consent:true}));})}>Open {entry.info.application.title}</button></article>)}</div> : <p>No encrypted applications saved yet.</p>}</section>
+    <section aria-label="Encrypted library"><h2>On this browser</h2>{entries.length ? <div className="library">{entries.map(entry=><article className="app-card" key={entry.document} data-document={entry.document}><strong>{entry.info.application.title}</strong><p>Signed package · Encrypted data</p><button disabled={busy} onClick={()=>run(async()=>{if(!await confirmLeave())return;await show(await host.current?.request<EncryptedLoaded>({kind:'open',account,document:entry.document,consent:true}));})}>Open {entry.info.application.title}</button></article>)}</div> : <p>No encrypted applications saved yet.</p>}</section>
     <footer>Exported package and data files are plaintext. Keep them private. Browser storage can be cleared or evicted.</footer>
   </main></>;
 }

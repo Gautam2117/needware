@@ -99,6 +99,7 @@ domain! {
         Conditional { condition:Expr, yes:Box<Action>, no:Option<Box<Action>> },
         Navigate { screen:String }, Back, Open { overlay:String }, Close { overlay:String },
         Effect { capability:Capability, input:Expr },
+        AwaitEffect { capability:Capability, input:Expr, output:Field, on_success:Box<Action>, on_failure:Box<Action> },
     }
     #[serde(deny_unknown_fields)]
     pub struct Node {

@@ -18,7 +18,12 @@ test('intent passes Rust compilation, permission review and WASM execution', asy
   await expect(frame.getByText('Read a chapter', { exact: true })).toBeVisible();
 });
 test('cancelled compilation does not start an application', async ({ page }) => {
-  await page.goto('/'); await page.getByLabel('Describe your application').fill('Track habits');
+  let resume!:()=>void;const scripts=new Promise<void>(resolve=>{resume=resolve;});
+  await page.route('**/_next/**/*.js',async route=>{await scripts;await route.continue();});
+  await page.goto('/',{waitUntil:'commit'});
+  await expect(page.getByLabel('Describe your application')).toBeDisabled();resume();
+  await expect(page.getByText('Local runtime ready',{exact:true})).toBeVisible();
+  await page.getByLabel('Describe your application').fill('Track habits');
   await page.getByRole('checkbox', { name: /Fixture mode: authored contract-test output/ }).check();
   await page.getByRole('button', { name: 'Create application', exact: true }).click();
   await page.getByRole('button', { name: 'Cancel creation', exact: true }).click();

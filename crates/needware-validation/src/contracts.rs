@@ -33,7 +33,10 @@ pub(super) fn validate_contracts(app: &Application) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-fn validate_fields(fields: &BTreeMap<String, Field>, app: &Application) -> Result<(), Diagnostic> {
+pub(super) fn validate_fields(
+    fields: &BTreeMap<String, Field>,
+    app: &Application,
+) -> Result<(), Diagnostic> {
     if fields.len() > 128 {
         return Err(fail("contracts", "input field limit"));
     }

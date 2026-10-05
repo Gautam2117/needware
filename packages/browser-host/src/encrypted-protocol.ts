@@ -9,6 +9,9 @@ export type EncryptedCommand = { account: string } & (
   | { kind: 'preview-generation'; job: string }
   | { kind: 'create'; bytes: Uint8Array; consent: true }
   | { kind: 'open'; document: string; consent: true }
+  | { kind:'effect-review'; instance:string }
+  | { kind:'begin-effect'|'finish-effect'|'discard-effect'; instance:string; id:string }
+  | { kind:'record-effect'; instance:string; id:string; outcome:unknown }
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
   | { kind: 'select-page'; instance: string; node: string; offset: number }
   | { kind: 'save-drafts'; instance:string; id:string; digest:string; drafts:unknown }

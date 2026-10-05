@@ -14,6 +14,10 @@ declare module 'needware-wasm-runtime' {
     savepoint(): BrowserRuntimeSavepoint;
     restore_savepoint(cut: BrowserRuntimeSavepoint): void;
     dispatch(event: string): string;
+    effect_checkpoint(): string;
+    restore_effect_checkpoint(checkpoint: string): void;
+    complete_effect(id: string, outcome: string): string;
+    discard_effect(id: string): void;
     select_page(node: string, offset: number): string;
     restore(state: string): void;
     preview_revision(bytes: Uint8Array, consent: boolean): string;
@@ -81,6 +85,10 @@ declare module 'needware-wasm-runtime' {
     checkpoint(): string;
     receive(frame: string): number;
     dispatch(event: string): string;
+    effect_checkpoint(): string;
+    restore_effect_checkpoint(checkpoint: string): void;
+    complete_effect(id: string, outcome: string): string;
+    discard_effect(id: string): void;
     select_page(node: string, offset: number): string;
     free(): void;
   }

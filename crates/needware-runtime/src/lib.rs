@@ -1,11 +1,13 @@
 //! Verified packages execute transactionally; platform effects remain typed data.
 mod controls;
+mod effects;
 mod inputs;
 mod revisions;
 mod visuals;
 mod widgets;
 pub use controls::RuntimeSavepoint;
 use controls::{Controls, change_controls};
+pub use effects::{EffectFlow, EffectOutcome};
 use needware_capabilities::{Capability, Grants, authorize};
 use needware_expr::{Budget, Context, boolean, evaluate};
 use needware_ir::*;
@@ -35,11 +37,14 @@ pub struct Event {
     pub now: String,
     pub timezone: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(deny_unknown_fields)]
 pub struct Effect {
     pub id: String,
     pub capability: Capability,
     pub input: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flow: Option<EffectFlow>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 pub struct ViewNode {
@@ -79,6 +84,8 @@ pub struct Runtime {
     instance: String,
     controls: Controls,
     input_fields: BTreeMap<String, inputs::Fields>,
+    execution_scope: String,
+    pending_effects: BTreeMap<String, effects::PendingEffect>,
 }
 impl Runtime {
     pub fn load(
@@ -99,11 +106,14 @@ impl Runtime {
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
         let screen = app.initial_screen.clone();
         let input_fields = inputs::contracts(app)?;
+        let execution_scope = format!("local:{}", package.application().application().id);
         Ok(Self {
             package,
             state,
             grants,
             input_fields,
+            execution_scope,
+            pending_effects: BTreeMap::new(),
             instance: uuid::Uuid::new_v4().to_string(),
             controls: Controls {
                 screen,
@@ -187,8 +197,10 @@ impl Runtime {
         {
             self.view_cut(&next, &controls)?;
         }
+        let pending_effects = self.stage_effects(&next, &event, &effects)?;
         self.state = next;
         self.controls = controls;
+        self.pending_effects = pending_effects;
         Ok(effects)
     }
     pub fn view(&self) -> Result<ViewNode, RuntimeError> {
@@ -432,6 +444,28 @@ fn apply(
         Action::Navigate { .. } | Action::Back | Action::Open { .. } | Action::Close { .. } => {
             change_controls(a, app, controls)?
         }
+        Action::AwaitEffect {
+            capability,
+            input,
+            output,
+            on_success,
+            on_failure,
+        } => {
+            permission(app, grants, capability)?;
+            if effects.len() >= 4 {
+                return Err(RuntimeError::Limit);
+            }
+            effects.push(Effect {
+                id: uuid::Uuid::new_v4().to_string(),
+                capability: capability.clone(),
+                input: value(input, state, event, None, app, budget)?,
+                flow: Some(EffectFlow {
+                    output: output.clone(),
+                    success: *on_success.clone(),
+                    failure: *on_failure.clone(),
+                }),
+            });
+        }
         Action::Effect { capability, input } => {
             permission(app, grants, capability)?;
             if effects.len() >= 4 {
@@ -441,6 +475,7 @@ fn apply(
                 id: uuid::Uuid::new_v4().to_string(),
                 capability: capability.clone(),
                 input: value(input, state, event, None, app, budget)?,
+                flow: None,
             });
         }
     }

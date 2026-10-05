@@ -1252,6 +1252,9 @@ impl BrowserSync {
         Ok(received)
     }
     pub fn dispatch(&mut self, event: &str) -> Result<String, JsValue> {
+        self.runtime
+            .bind_execution_scope(&self.binding()?)
+            .map_err(error)?;
         let event = needware_package::parse_json(event.as_bytes()).map_err(error)?;
         let before = self.runtime.savepoint();
         let effects = self.runtime.dispatch(&event).map_err(error)?;
@@ -1260,6 +1263,42 @@ impl BrowserSync {
             return Err(error(failure));
         }
         json(&effects)
+    }
+    pub fn effect_checkpoint(&mut self) -> Result<String, JsValue> {
+        if self.runtime.pending_effects().is_empty() {
+            self.runtime
+                .bind_execution_scope(&self.binding()?)
+                .map_err(error)?;
+        }
+        self.runtime.effect_checkpoint().map_err(error)
+    }
+    pub fn restore_effect_checkpoint(&mut self, checkpoint: &str) -> Result<(), JsValue> {
+        self.runtime
+            .bind_execution_scope(&self.binding()?)
+            .map_err(error)?;
+        self.runtime
+            .restore_effect_checkpoint(checkpoint)
+            .map_err(error)
+    }
+    pub fn complete_effect(&mut self, id: &str, outcome: &str) -> Result<String, JsValue> {
+        if outcome.len() > 1024 * 1024 {
+            return Err(error("effect outcome exceeds limit"));
+        }
+        self.runtime
+            .bind_execution_scope(&self.binding()?)
+            .map_err(error)?;
+        let outcome = needware_package::parse_json(outcome.as_bytes()).map_err(error)?;
+        let before = self.runtime.savepoint();
+        let view = self.runtime.complete_effect(id, outcome).map_err(error)?;
+        if let Err(failure) = self.replica.commit_state(self.runtime.state().clone()) {
+            self.runtime.restore_savepoint(&before).map_err(error)?;
+            return Err(error(failure));
+        }
+        json(&view)
+    }
+    pub fn discard_effect(&mut self, id: &str) -> Result<(), JsValue> {
+        // Removing a private pending intent never writes document state or an old-epoch frame.
+        self.runtime.discard_effect(id).map_err(error)
     }
     pub fn select_page(&mut self, node: &str, offset: usize) -> Result<String, JsValue> {
         json(&self.runtime.select_page(node, offset).map_err(error)?)

@@ -8,7 +8,7 @@ root = Path(__file__).resolve().parent.parent
 for target in ("signed_package", "strict_json", "runtime_transaction"):
     (root / "fuzz/corpus" / target).mkdir(parents=True, exist_ok=True)
 (root / "fuzz/corpus-seeds").mkdir(exist_ok=True)
-for selector, name in enumerate(("runtime", "widgets", "visuals")):
+for selector, name in enumerate(("runtime", "widgets", "visuals", "encrypted-effects")):
     source = root / f"artifacts/controls/{name}.need"
     payload = source.read_bytes()
     shutil.copyfile(source, root / f"fuzz/corpus-seeds/{name}.need")
@@ -34,3 +34,8 @@ for name, content in (("empty", b"{}"), ("duplicate", b'{"revision":"a","revisio
 for index, page in enumerate((("habits", 0), ("habits", 1), ("habits", 100), ("missing", 0), ("habits", 4294967295))):
     (root / f"fuzz/corpus/runtime_transaction/page-{index}").write_bytes(bytes([8]) + json.dumps(page, separators=(",", ":")).encode())
 print("Seeded three authored signed fixtures and action/state/page/duplicate-key corpora")
+
+checkpoint=(root / "artifacts/controls/effects-checkpoint.json").read_bytes()
+(root / "fuzz/corpus/runtime_transaction/effects-checkpoint").write_bytes(bytes([3|16])+checkpoint)
+for index,outcome in enumerate(({'status':'success','value':{'type':'string','value':'Authored result'}},{'status':'success','value':{'type':'boolean','value':True}},{'status':'failure','code':'clipboard_denied'},{'status':'failure','code':'Invalid error!'})):
+    (root / f"fuzz/corpus/runtime_transaction/effect-outcome-{index}").write_bytes(bytes([3|32])+json.dumps(outcome,separators=(",",":")).encode())

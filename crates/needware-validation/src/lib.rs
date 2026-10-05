@@ -43,6 +43,7 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
             "runtime_controls_v1",
             "declarative_widgets_v1",
             "visual_components_v1",
+            "typed_effects_v1",
         ]
         .contains(&f.as_str())
     }) || app.runtime_features.iter().collect::<BTreeSet<_>>().len()
@@ -642,6 +643,97 @@ fn validate_action(
                     return Err(fail("action", "unknown modal or drawer"));
                 }
             }
+        }
+        Action::AwaitEffect {
+            capability,
+            input,
+            output,
+            on_success,
+            on_failure,
+        } => {
+            if !app
+                .runtime_features
+                .iter()
+                .any(|feature| feature == "typed_effects_v1")
+                || !app
+                    .runtime_features
+                    .iter()
+                    .any(|feature| feature == "typed_contracts_v1")
+            {
+                return Err(fail(
+                    "effect",
+                    "completion contracts require typed_effects_v1 and typed_contracts_v1",
+                ));
+            }
+            if output.default.is_some()
+                || output.derived.is_some()
+                || event.is_some_and(|fields| {
+                    fields.contains_key("result") || fields.contains_key("error")
+                })
+            {
+                return Err(fail(
+                    "effect",
+                    "completion fields cannot have defaults, derived values or conflicting input names",
+                ));
+            }
+            contracts::validate_fields(&BTreeMap::from([("result".into(), output.clone())]), app)?;
+            capability
+                .validate()
+                .map_err(|_| fail("effect", "invalid capability"))?;
+            if !app
+                .capabilities
+                .iter()
+                .any(|declared| declared.covers(capability))
+            {
+                return Err(fail("effect", "undeclared capability"));
+            }
+            validate_expr(input, app, None, event, 0)?;
+            fn callback(action: &Action, depth: u32) -> Result<(), Diagnostic> {
+                if depth > 32 {
+                    return Err(fail("effect", "callback depth limit"));
+                }
+                match action {
+                    Action::Create { .. }
+                    | Action::Update { .. }
+                    | Action::Delete { .. }
+                    | Action::Set { .. } => Ok(()),
+                    Action::Sequence { actions } | Action::Parallel { actions } => {
+                        for action in actions {
+                            callback(action, depth + 1)?;
+                        }
+                        Ok(())
+                    }
+                    Action::Conditional { yes, no, .. } => {
+                        callback(yes, depth + 1)?;
+                        if let Some(no) = no {
+                            callback(no, depth + 1)?;
+                        }
+                        Ok(())
+                    }
+                    _ => Err(fail(
+                        "effect",
+                        "completion callbacks may only change validated application data",
+                    )),
+                }
+            }
+            callback(on_success, 0)?;
+            callback(on_failure, 0)?;
+            let mut success = event.cloned().unwrap_or_default();
+            success.insert("result".into(), output.clone());
+            validate_action(on_success, app, Some(&success), depth + 1)?;
+            let mut failure = event.cloned().unwrap_or_default();
+            failure.insert(
+                "error".into(),
+                Field {
+                    data_type: DataType::String,
+                    default: None,
+                    max_length: Some(64),
+                    minimum: None,
+                    maximum: None,
+                    derived: None,
+                },
+            );
+            validate_action(on_failure, app, Some(&failure), depth + 1)?;
         }
         Action::Effect { capability, input } => {
             capability

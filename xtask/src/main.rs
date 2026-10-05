@@ -25,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             needware_runtime::ViewNode::export_all(&config)?;
             needware_runtime::Event::export_all(&config)?;
             needware_runtime::Effect::export_all(&config)?;
+            needware_runtime::EffectOutcome::export_all(&config)?;
             needware_runtime::RevisionReport::export_all(&config)?;
             needware_compiler::protocol::CompileRequest::export_all(&config)?;
             needware_compiler::protocol::CompileMessage::export_all(&config)?;

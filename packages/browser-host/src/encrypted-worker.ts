@@ -16,7 +16,7 @@ const ready = (async () => { await initWasm({ module_or_path: '/wasm/needware_wa
 function info(bytes: Uint8Array): PackageInfo {
   const value = JSON.parse(inspect_package(bytes)) as PackageInfo;
   for (const screen of value.application.screens) requireSupported(screen.root);
-  if (value.application.capabilities.some(cap => cap.kind !== 'storage' && cap.kind !== 'collaboration')) throw new Error('This encrypted host currently supports storage and collaboration applications only.');
+  if (value.application.capabilities.some(cap => cap.kind !== 'storage' && cap.kind !== 'collaboration' && !(cap.kind==='clipboard'&&!cap.read&&value.application.runtime_features.includes('typed_effects_v1')))) throw new Error('This encrypted host supports storage, collaboration and reviewed typed clipboard writes.');
   return value;
 }
 async function openVault(id: string): Promise<void> {
@@ -154,6 +154,18 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
     case 'select-page': {
       if (!session || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
       return { view: JSON.parse(await session.selectPage(command.node, command.offset)), pendingUploads: session.pending().length };
+    }
+    case 'effect-review': case 'begin-effect': case 'record-effect': case 'finish-effect': case 'discard-effect': {
+      if(!session||!current||command.instance!==instance)throw new Error('Application instance is closed or stale');
+      if(command.kind==='effect-review')return session.effectReview()??null;
+      if(command.kind==='begin-effect'){
+        const effect=session.effectReview();
+        if(!effect||effect.request.capability.kind!=='clipboard'||effect.request.capability.read||effect.request.input.type!=='string'||effect.request.input.value.length>65536||effect.request.flow?.output.data_type.type!=='string')throw new Error('This capability requires a supported execution broker; original preserved');
+        return session.beginEffect(command.id);
+      }
+      if(command.kind==='record-effect'){await session.recordEffectResult(command.id,command.outcome);return null;}
+      if(command.kind==='discard-effect'){await session.discardEffect(command.id);return null;}
+      return {view:JSON.parse(await session.finishEffect(command.id)),pendingUploads:session.pending().length};
     }
     case 'dispatch': {
       if (!session || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');

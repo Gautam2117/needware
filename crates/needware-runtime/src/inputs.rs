@@ -48,9 +48,11 @@ fn committed(action: &Action) -> BTreeSet<String> {
         Action::Sequence { actions } | Action::Parallel { actions } => {
             actions.iter().flat_map(committed).collect()
         }
-        Action::Navigate { .. } | Action::Back | Action::Open { .. } | Action::Close { .. } => {
-            BTreeSet::new()
-        }
+        Action::Navigate { .. }
+        | Action::Back
+        | Action::Open { .. }
+        | Action::Close { .. }
+        | Action::AwaitEffect { .. } => BTreeSet::new(),
         Action::Create { .. }
         | Action::Update { .. }
         | Action::Delete { .. }
@@ -73,7 +75,9 @@ fn collect_action(action: &Action, fields: &mut BTreeSet<String>) {
         }
         Action::Delete { id, .. } => collect_expr(id, fields),
         Action::Set { value, .. } => collect_expr(value, fields),
-        Action::Effect { input, .. } => collect_expr(input, fields),
+        Action::Effect { input, .. } | Action::AwaitEffect { input, .. } => {
+            collect_expr(input, fields)
+        }
         Action::Sequence { actions } | Action::Parallel { actions } => {
             for action in actions {
                 collect_action(action, fields);

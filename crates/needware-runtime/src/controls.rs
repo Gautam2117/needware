@@ -13,6 +13,8 @@ pub struct RuntimeSavepoint {
     instance: String,
     state: State,
     controls: Controls,
+    execution_scope: String,
+    pending_effects: BTreeMap<String, effects::PendingEffect>,
 }
 
 impl Runtime {
@@ -50,6 +52,8 @@ impl Runtime {
             instance: self.instance.clone(),
             state: self.state.clone(),
             controls: self.controls.clone(),
+            execution_scope: self.execution_scope.clone(),
+            pending_effects: self.pending_effects.clone(),
         }
     }
 
@@ -61,6 +65,8 @@ impl Runtime {
         }
         self.state = cut.state.clone();
         self.controls = cut.controls.clone();
+        self.execution_scope = cut.execution_scope.clone();
+        self.pending_effects = cut.pending_effects.clone();
         Ok(())
     }
 }
