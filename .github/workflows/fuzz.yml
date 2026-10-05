@@ -1,0 +1,26 @@
+name: Native sanitizer fuzz
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: 1.99.0
+      - run: python3 scripts/token_guard.py run 'rustup toolchain install nightly-2026-10-04 --profile minimal && cargo install cargo-fuzz --version 0.13.2 --locked'
+      - run: python3 scripts/token_guard.py run 'python3 scripts/run-fuzz-acceptance.py --seconds 20'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-fuzz-evidence
+          path: |
+            artifacts/fuzz/
+            .logs/
+            fuzz/artifacts/
+          retention-days: 14

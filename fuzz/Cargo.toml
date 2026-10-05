@@ -1,0 +1,41 @@
+[package]
+name = "needware-fuzz"
+version = "0.0.0"
+publish = false
+license = "AGPL-3.0-or-later"
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+needware-package = { path = "../crates/needware-package", version = "=2026.10.0" }
+needware-ir = { path = "../crates/needware-ir", version = "=2026.10.0" }
+needware-runtime = { path = "../crates/needware-runtime", version = "=2026.10.0" }
+needware-capabilities = { path = "../crates/needware-capabilities", version = "=2026.10.0" }
+serde_json = "1"
+
+[[bin]]
+name = "signed_package"
+path = "fuzz_targets/signed_package.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "strict_json"
+path = "fuzz_targets/strict_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "runtime_transaction"
+path = "fuzz_targets/runtime_transaction.rs"
+test = false
+doc = false
+bench = false

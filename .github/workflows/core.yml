@@ -52,6 +52,12 @@ jobs:
         timeout-minutes: 20
       - run: pnpm test:backup
         timeout-minutes: 20
+      - run: python3 scripts/token_guard.py run 'cargo run --release -p xtask -- benchmark'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-benchmark-baseline
+          path: artifacts/benchmarks/
+          retention-days: 14
       - if: failure()
         run: python3 scripts/browser_diagnostics.py
       - if: failure()

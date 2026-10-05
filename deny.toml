@@ -7,6 +7,13 @@ confidence-threshold = 0.95
 include-dev = true
 allow = ["AGPL-3.0-or-later", "MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "CDLA-Permissive-2.0"]
 
+# LLVM libFuzzer is a development-only sanitizer harness, not a production dependency.
+# Its exact pinned crate also requires the permissive LLVM NCSA license.
+[[licenses.exceptions]]
+name = "libfuzzer-sys"
+version = "=0.4.13"
+allow = ["NCSA"]
+
 [bans]
 # HPKE and the existing AEAD primitives intentionally use distinct library generations.
 multiple-versions = "warn"

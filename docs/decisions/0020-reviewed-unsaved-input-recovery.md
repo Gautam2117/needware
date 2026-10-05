@@ -34,5 +34,5 @@ pending actions to 32 and shell recovery requests to eight with five-second time
 Three-engine acceptance exercises canceled application/link replacement, saved-state
 separation, explicit export/import, wrong-revision rejection, atomic malformed-field
 rejection, invalid raw decimal recovery and text edited while an earlier save is
-delayed. Real mobile termination recovery and durable encrypted draft storage remain
+delayed, plus rejected cross-tab durable writes retaining exportable drafts. Real mobile termination recovery and durable encrypted draft storage remain
 open; do not describe these warnings as protection against process loss.
