@@ -58,7 +58,7 @@ export default function AccountPanel({ providers, initialError = '' }: { provide
       {sessions.map(session => <article className="app-card" key={session.id} data-session={session.id}><strong>{session.id === data.session.id ? 'This browser' : 'Another browser'}</strong>
         <p>{sessionDescription(session.userAgent)} · {new Date(session.createdAt).toLocaleString()}</p>
         <button disabled={busy} onClick={() => run(async () => { checked(await authClient.revokeSession({ token: session.token })); setSessions(current => current.filter(value => value.id !== session.id)); await refetch(); })}>Revoke session</button></article>)}
-      <details><summary>Delete account</summary><p>Deletion removes your account, sessions, hosted encryption-device list and encrypted recovery backup. Local applications and your saved recovery file remain. Export anything you want to keep.</p>
+      <details><summary>Delete account</summary><p>Deletion removes your account, sessions, hosted encryption-device list and encrypted recovery backup. It also schedules billing customer deletion and subscription cancellation. Local applications and your saved recovery file remain. Export anything you want to keep.</p>
         <label><input type="checkbox" checked={deleteConfirmed} onChange={event => setDeleteConfirmed(event.target.checked)} /> I want to delete my account</label>
         <button disabled={busy || !deleteConfirmed} onClick={() => run(async () => { checked(await authClient.deleteUser({ callbackURL: '/account' })); setMessage('Check your email to confirm account deletion.'); })}>Send deletion confirmation</button>
       </details>

@@ -22,8 +22,10 @@
     "test:revisions": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --revisions'",
     "test:registry": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --registry'",
     "test:generation": "python3 scripts/token_guard.py run 'node scripts/run-generation-acceptance.mjs'",
+    "test:billing": "python3 scripts/token_guard.py run 'node scripts/run-billing-acceptance.mjs'",
     "mail:worker": "node scripts/mail-worker.mjs",
     "generation:worker": "node scripts/generation-worker.mjs",
+    "billing:worker": "node scripts/billing-worker.mjs",
     "contracts": "python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts'"
   },
   "devDependencies": { "esbuild": "0.28.2", "@playwright/test": "1.63.0" }

@@ -22,6 +22,7 @@ try {
   await pool.query(await readFile('services/control-plane/migrations/0006-account-root-rotation.sql', 'utf8'));
   await pool.query(await readFile('services/control-plane/migrations/0007-application-registry.sql', 'utf8'));
   await pool.query(await readFile('services/control-plane/migrations/0008-generation-jobs.sql', 'utf8'));
+  await pool.query(await readFile('services/control-plane/migrations/0009-billing.sql', 'utf8'));
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

@@ -49,8 +49,17 @@ published unlisted/public signed definitions. Stable links and immutable revisio
 links lead to signer/permission review. Independent remix copies the definition
 and assets, gives it a new identity/signer and records the signed source digest;
 existing application data and document access stay separate. These flows pass
-local acceptance; moderation, billing and public deployment remain unfinished.
+local acceptance; moderation and public deployment remain unfinished.
 See the [registry and sharing boundary](docs/decisions/0014-registry-sharing-and-remix.md).
+
+Billing requires `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_PRO_PRICE_ID` and `STRIPE_ACCOUNT_ID`, plus `pnpm billing:worker`.
+Configure `/api/billing/webhook` in the same Stripe account/mode. The consumer
+reviews the approved recurring price before checkout; current verified paid
+state activates Pro quotas. Account deletion queues Stripe customer cleanup.
+`pnpm test:billing` verifies the actual SDK against an authored HTTP fixture;
+real charges and production configuration remain unverified. See the
+[billing and deletion boundary](docs/decisions/0016-billing-entitlements-and-deletion.md).
 
 Native and browser revisions support explicit [preview, activation and recoverable rollback](docs/development/revisions.md). The browser retains the previous package and data atomically and rejects stale reviews. Durable synchronized schema publication and explicit stale-client review are implemented. Compiler-driven refinement and automatic compatible rebase remain under implementation.
 

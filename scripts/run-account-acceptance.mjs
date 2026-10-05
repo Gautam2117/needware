@@ -20,7 +20,8 @@ try {
       ...(process.argv.includes('--roots') ? { NEEDWARE_TEST_ROOT_FOCUS: '1' } : {}),
       ...(process.argv.includes('--revisions') ? { NEEDWARE_TEST_REVISION_FOCUS: '1' } : {}),
       ...(process.argv.includes('--registry') ? { NEEDWARE_TEST_REGISTRY_FOCUS: '1' } : {}),
-      ...(process.argv.includes('--generation') ? { NEEDWARE_TEST_GENERATION_FOCUS: '1' } : {}) },
+      ...(process.argv.includes('--generation') ? { NEEDWARE_TEST_GENERATION_FOCUS: '1' } : {}),
+      ...(process.argv.includes('--billing') ? { NEEDWARE_TEST_BILLING_FOCUS: '1' } : {}) },
   });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;

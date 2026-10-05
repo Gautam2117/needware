@@ -35,18 +35,20 @@ actual local browser acceptance; public integration remains unverified.
    Selected-recipient rewrapping, immutable recipient proof archives and named-device
    rotation review now pass actual PostgreSQL/three-engine acceptance. Native/WASM
    root chains and cross-root checkpoint/recovery verification are implemented.
-   Continue atomic account-root/device cloud and browser publication and
-   production storage operations.
+   Atomic account-root/device cloud and browser publication now pass actual
+   local acceptance and exact-commit CI. Continue production storage operations.
    Authentication alone cannot enroll
    a device into the encryption vault.
 5. Registry and sharing: immutable revisions, private/unlisted/public URLs,
    encrypted private definitions/assets, lineage/remix, access revocation,
-   reports and audited operator controls. Depends on cloud authorization and
-   cryptographic sharing.
+   reports and audited operator controls. Registry, stable URLs and signed remix
+   pass actual local acceptance and CI; reports/operator controls remain open.
 6. Hosted generation and subscriptions: durable compiler jobs, installation
    signing identity, quotas, semantic corpus, real provider checks, configured
    entitlements and verified/idempotent billing webhooks. Existing four adapter
-   HTTP fixtures establish transport behavior only.
+   HTTP fixtures establish transport behavior only. Durable encrypted jobs and
+   quotas pass local acceptance and CI. Billing SDK/HTTP/browser contracts now
+   pass locally; real model/payment accounts and production acceptance remain open.
 7. Consumer UI and deployment: library, sharing, recovery/device management,
    billing, responsive/accessibility checks, PWA updates and recovery UX;
    environment preflight, migration/backup/restore, observability/rate controls,
