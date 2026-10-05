@@ -29,6 +29,7 @@ declare module 'needware-wasm-runtime' {
     recover(code: string, envelope: string, context: string, pin: string): void;
     start_document(bytes: Uint8Array, instance: string, scope: string, epoch: number, consent: boolean): BrowserSync;
     prepare_document_epoch(session: BrowserSync, consent: boolean): BrowserEpoch;
+    prepare_revision_document_epoch(session: BrowserSync, review: BrowserRevisionReview, approved_digest: string, consent: boolean, destructive_consent: boolean): BrowserEpoch;
     prepare_root_rotation(approved: boolean): BrowserRootRotation;
     accept_root_rotation(proof: string, enrollment: string, expected_context: string, pinned_authority: string): BrowserRootRotation;
     prepare_root_document_epoch(session: BrowserSync, rotation: string, consent: boolean): BrowserEpoch;
@@ -48,6 +49,8 @@ declare module 'needware-wasm-runtime' {
     free(): void;
   }
   export class BrowserSync {
+    review_revision(packageBytes: Uint8Array, scope: string): BrowserRevisionReview;
+    install_revision_epoch(checkpoint: Uint8Array, previousBinding: string): string;
     fork_session(): BrowserSync;
     activate_document_key(vault: BrowserVault): void;
     matches_epoch_cut(transition: string): boolean;
@@ -69,6 +72,10 @@ declare module 'needware-wasm-runtime' {
     checkpoint(): string;
     receive(frame: string): number;
     dispatch(event: string): string;
+    free(): void;
+  }
+  export class BrowserRevisionReview {
+    info(): string;
     free(): void;
   }
   export class BrowserEpoch {

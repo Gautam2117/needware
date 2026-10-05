@@ -3,6 +3,7 @@ use needware_ir::{Application, DataType, Expr, Field, Value};
 use needware_vault::{AccountVault, DocumentRole, VerifiedMembership};
 use proptest::prelude::*;
 mod epoch_tests;
+mod revision_tests;
 type TestResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 const RECORD: &str = "fc7c4ce0-9885-4875-9e77-149b16778983";
 fn app() -> TestResult<ValidatedApplication> {

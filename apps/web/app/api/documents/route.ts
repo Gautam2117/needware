@@ -1,32 +1,15 @@
 import { createHash } from 'node:crypto';
 import canonicalize from 'canonicalize';
-import type { PoolClient } from 'pg';
 import { accountRequest, canonicalBody, cloudFailure, cloudResponse, CloudError } from '../../../lib/cloud-request';
-import { object, operationProof, certificate, context, publicKey, bytes, uuid } from '../../../lib/vault-proof';
-import { binding, ciphertext, membership, type Membership } from '../../../lib/document-proof';
+import { object, operationProof, certificate, uuid } from '../../../lib/vault-proof';
+import { binding, ciphertext, membership } from '../../../lib/document-proof';
 import {epochAction,readEpoch,type RelayDocument} from '../../../lib/document-epoch-store';
+import {charge,envelope,encodedSize} from '../../../lib/relay-storage';
+import {ROOT_RELAY_LOCK,rootEpochAccess} from '../../../lib/root-account-store';
 export const runtime = 'nodejs';
 const hash = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 const same = (left: unknown, right: unknown) => canonicalize(left) === canonicalize(right);
-const encodedSize = (value: unknown) => Buffer.byteLength(canonicalize(value)!);
 type DocumentRow = RelayDocument;
-function envelope(value: unknown, grant: Membership, recipient: ReturnType<typeof certificate>): void {
-  const fields = object(value,['kind','value']);
-  if (fields.kind === 'held') {
-    const held = object(fields.value,['document','holder','authority','ciphertext']);
-    context(held.holder,recipient.context.account); publicKey(held.authority); bytes(held.ciphertext,72);
-    if (!same(held.document,grant.document) || !same(held.holder,recipient.context) || !same(held.authority,recipient.authority)) throw new CloudError(403,'Held key does not match its recipient');
-  } else if (fields.kind === 'offer') {
-    const offer = object(fields.value,['membership','envelope']);
-    if (!same(offer.membership,grant) || encodedSize(offer.envelope)>16*1024) throw new CloudError(400,'Invalid document-key offer');
-  } else throw new CloudError(400,'Invalid document-key envelope');
-}
-async function charge(client: PoolClient, doc: DocumentRow, amount: number, count = 0): Promise<void> {
-  const updated = await client.query(`UPDATE needware_relay_usage SET bytes=bytes+$2,documents=documents+$3 WHERE account_id=$1
-    AND bytes+$2 BETWEEN 0 AND 134217728 AND documents+$3 BETWEEN 0 AND 256 RETURNING account_id`,[doc.owner_id,amount,count]);
-  if (!updated.rowCount) throw new CloudError(409,'Cloud encrypted storage quota exceeded');
-  await client.query('UPDATE needware_document SET storage_bytes=storage_bytes+$2 WHERE id=$1',[doc.id,amount]);
-}
 export async function GET(request: Request) {
   try {
     const {session,pool}=await accountRequest(request);
@@ -47,6 +30,7 @@ export async function POST(request: Request) {
     const client=await pool.connect();
     try{
       await client.query('BEGIN');
+      await client.query(ROOT_RELAY_LOCK);
       // Registered device identity and nonce are rechecked inside the actual write transaction.
       const registered=await client.query(`SELECT v.context,v.authority,d.certificate FROM needware_account_vault v
         JOIN needware_vault_device d ON d.account_id=v.account_id WHERE v.account_id=$1 AND d.device_id=$2 FOR SHARE OF v,d`,[account,device]);
@@ -61,7 +45,7 @@ export async function POST(request: Request) {
         object(payload,['action','document','descriptor','membership','key_envelope']);
         const descriptor=object(payload.descriptor,['binding','configuration','package_digest','package_bytes']);
         const bound=binding(descriptor.binding,document);
-        if(bound.document.account!==account || bound.document.epoch!==1 || bound.generation!==1 || bound.schema_epoch!==1)throw new CloudError(403,'Initial document must belong to the pinned account');
+        if(bound.document.account!==account)throw new CloudError(403,'Initial document must belong to the pinned account');
         if(typeof descriptor.package_digest!=='string' || !/^[0-9a-f]{64}$/.test(descriptor.package_digest)
           || !Number.isInteger(descriptor.package_bytes) || Number(descriptor.package_bytes)<40 || Number(descriptor.package_bytes)>33554472)throw new CloudError(400,'Invalid encrypted package manifest');
         ciphertext(descriptor.configuration,40,32*1024);
@@ -89,10 +73,10 @@ export async function POST(request: Request) {
         const member=await client.query(`SELECT membership,key_envelope FROM needware_document_member
           WHERE document_id=$1 AND account_id=$2 AND device_id=$3 AND NOT revoked`,[document,account,device]);
         const owner=doc.owner_id===account && doc.authority.equals(Buffer.from(proof.certificate.authority)) && Number(doc.root_epoch)===proof.certificate.context.epoch;
-        if(!member.rowCount && !(owner && ['grant','recover','delete','epoch_status','epoch_cancel','epoch_archive','epoch_archive_download'].includes(payload.action)))throw new CloudError(403,'This device has no current document grant');
+        if(!member.rowCount && !(owner && ['grant','recover','delete','epoch_status','epoch_cancel','epoch_archive','epoch_archive_download','epoch_history'].includes(payload.action)))throw new CloudError(403,'This device has no current document grant');
         const grant=member.rowCount?membership(member.rows[0].membership,doc.binding,doc.authority,Number(doc.root_epoch)):undefined;
         if(grant && !same(grant.device,proof.certificate.device))throw new CloudError(403,'Document device mismatch');
-        if(payload.action.startsWith('epoch_'))data=await epochAction(client,doc,payload,{account,device,certificate:proof.certificate,owner,grant},charge,envelope);
+        if(payload.action.startsWith('epoch_'))data=await epochAction(client,doc,payload,{account,device,certificate:proof.certificate,owner,grant},charge,envelope,'root_rotation' in payload?await rootEpochAccess(client,doc,proof.certificate,uuid(payload.root_rotation)):undefined);
         else switch(payload.action){
           case 'recipients':{
             object(payload,['action','document']);if(!owner)throw new CloudError(403,'Pinned document owner required');
@@ -136,19 +120,24 @@ export async function POST(request: Request) {
             const frames=await client.query('SELECT frame,sequence FROM needware_document_frame WHERE document_id=$1 AND sequence>$2 ORDER BY sequence LIMIT 8',[document,payload.cursor]);
             const batch: string[]=[];let total=0;let cursor=payload.cursor;
             for(const row of frames.rows){const length=Buffer.byteLength(row.frame);if(total+length>2500000)break;batch.push(row.frame);total+=length;cursor=String(row.sequence);}
-            const roster=await client.query('SELECT membership FROM needware_document_member WHERE document_id=$1 AND NOT revoked ORDER BY device_id',[document]);
-            data={descriptor:doc.descriptor,epoch:await readEpoch(client,doc),membership:member.rows[0].membership,key_envelope:member.rows[0].key_envelope,roster:roster.rows.map(row=>row.membership),frames:batch,cursor,more:Number(cursor)<Number(doc.next_sequence)};break;
+            const roster=await client.query(`SELECT DISTINCT ON(device_id) device_id,membership FROM (
+              SELECT device_id,membership FROM needware_document_member WHERE document_id=$1 AND NOT revoked
+              UNION ALL SELECT device_id,membership FROM needware_document_retained_author WHERE document_id=$1 AND generation=$2
+              ) authors ORDER BY device_id`,[document,doc.binding.generation]);
+            const pending=await client.query('SELECT 1 FROM needware_document_rekey WHERE document_id=$1 AND generation=$2 LIMIT 1',[document,doc.binding.generation]);
+            data={descriptor:doc.descriptor,epoch:await readEpoch(client,doc),membership:member.rows[0].membership,key_envelope:member.rows[0].key_envelope,roster:roster.rows.map(row=>row.membership),frames:batch,cursor,more:Number(cursor)<Number(doc.next_sequence),owner_rekey_required:!!pending.rowCount};break;
           }
           case 'download':{
             object(payload,['action','document','index']);if(!doc.ready)throw new CloudError(409,'Encrypted package upload incomplete');
             if(!Number.isInteger(payload.index)||Number(payload.index)<0||Number(payload.index)>=Math.ceil(doc.package_bytes/1048576))throw new CloudError(400,'Invalid encrypted package chunk');
-            const chunk=doc.binding.generation===1
-              ?await client.query('SELECT ciphertext FROM needware_document_chunk WHERE document_id=$1 AND chunk_index=$2',[document,payload.index])
-              :await client.query('SELECT ciphertext FROM needware_document_epoch_chunk WHERE document_id=$1 AND generation=$2 AND kind=\'package\' AND chunk_index=$3',[document,doc.binding.generation,payload.index]);
+            const chunk=await client.query(`SELECT ciphertext FROM needware_document_chunk WHERE document_id=$1 AND chunk_index=$3
+              UNION ALL SELECT ciphertext FROM needware_document_epoch_chunk WHERE document_id=$1 AND generation=$2 AND kind='package' AND chunk_index=$3 LIMIT 1`,[document,doc.binding.generation,payload.index]);
             if(!chunk.rowCount)throw new CloudError(404,'Encrypted package chunk unavailable');data={index:payload.index,ciphertext:chunk.rows[0].ciphertext.toString('base64')};break;
           }
           case 'upload':{
             object(payload,['action','document','frame']);if(!doc.ready||grant?.role!=='write')throw new CloudError(403,'Current write grant required');
+            const pending=await client.query('SELECT 1 FROM needware_document_rekey WHERE document_id=$1 AND generation=$2 LIMIT 1',[document,doc.binding.generation]);
+            if(pending.rowCount)throw new CloudError(409,'Document owner must renew its key before further shared writes');
             if(typeof payload.frame!=='string'||Buffer.byteLength(payload.frame)>2097152)throw new CloudError(413,'Encrypted frame size limit');
             let frame: Record<string,unknown>;try{frame=object(JSON.parse(payload.frame),['binding','ciphertext']);}catch{throw new CloudError(400,'Invalid encrypted frame');}
             if(canonicalize(frame)!==payload.frame||!same(frame.binding,doc.binding)||!Array.isArray(frame.ciphertext)||frame.ciphertext.length<40

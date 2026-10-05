@@ -1,7 +1,7 @@
 -- Upgrade only the reviewed operation allowlist; existing challenge rows are retained.
 ALTER TABLE needware_vault_challenge DROP CONSTRAINT IF EXISTS needware_vault_challenge_operation_check;
 ALTER TABLE needware_vault_challenge ADD CONSTRAINT needware_vault_challenge_operation_check
-  CHECK (operation IN ('create_vault','register_device','relay_document'));
+  CHECK (operation IN ('create_vault','register_device','relay_document','rotate_root'));
 CREATE TABLE IF NOT EXISTS needware_document (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL REFERENCES needware_account_vault(account_id) ON DELETE CASCADE,

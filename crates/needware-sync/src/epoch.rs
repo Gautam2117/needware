@@ -127,7 +127,7 @@ impl Replica {
         next_membership: &VerifiedMembership,
         consent: bool,
     ) -> Result<PreparedEpoch> {
-        self.prepare_authorized_epoch(owner, next_key, next_membership, None, consent)
+        self.prepare_authorized_epoch(owner, next_key, next_membership, None, None, consent)
     }
     pub fn prepare_root_epoch(
         &mut self,
@@ -137,14 +137,22 @@ impl Replica {
         next_membership: &VerifiedMembership,
         consent: bool,
     ) -> Result<PreparedEpoch> {
-        self.prepare_authorized_epoch(owner, next_key, next_membership, Some(rotation), consent)
+        self.prepare_authorized_epoch(
+            owner,
+            next_key,
+            next_membership,
+            Some(rotation),
+            None,
+            consent,
+        )
     }
-    fn prepare_authorized_epoch(
+    pub(crate) fn prepare_authorized_epoch(
         &mut self,
         owner: &AccountVault,
         next_key: DocumentKey,
         next_membership: &VerifiedMembership,
         rotation: Option<&RootRotation>,
+        revision: Option<&RevisionEpochReview>,
         consent: bool,
     ) -> Result<PreparedEpoch> {
         let (authority, root_epoch) = if let Some(rotation) = rotation {
@@ -182,20 +190,42 @@ impl Replica {
         {
             return Err(SyncError::Authorization);
         }
+        let (app, scope, state, schema_epoch) = if let Some(review) = revision {
+            if rotation.is_some() {
+                return Err(SyncError::Protocol);
+            }
+            (
+                review.app.clone(),
+                review.scope.clone(),
+                &review.state,
+                self.binding
+                    .schema_epoch
+                    .checked_add(1)
+                    .ok_or(SyncError::Limit)?,
+            )
+        } else {
+            (
+                self.app.clone(),
+                self.scope.clone(),
+                &self.state,
+                self.binding.schema_epoch,
+            )
+        };
         let mut next = Self::new(
-            self.app.clone(),
-            self.scope.clone(),
+            app,
+            scope,
             next_key,
             self.device.fork_session(),
             next_membership,
-            self.binding.schema_epoch,
+            schema_epoch,
         )?;
-        let mut cells = mapping::flatten(&self.state, self.app.application(), &self.scope)?;
+        let mut cells = mapping::flatten(state, next.app.application(), &next.scope)?;
         // Retain delete-wins UUID tombstones across compaction, including losing
         // concurrent deletes. Hidden/deleted record contents are not copied.
         for key in self.doc.keys(ROOT) {
             let address = mapping::Address::parse(&key, self.app.application(), &self.scope)?;
-            if !matches!(address, mapping::Address::Record { .. }) {
+            if !matches!(&address, mapping::Address::Record { collection, .. } if next.scope.collections.contains(collection))
+            {
                 continue;
             }
             for (value, _) in self
@@ -243,8 +273,8 @@ impl Replica {
             next.commit_baseline_batch()?;
         }
         Self::check_log(&next.log)?;
-        next.state = mapping::project(&next.doc, &self.state, next.app.application(), &next.scope)?;
-        if next.state != self.state {
+        next.state = mapping::project(&next.doc, state, next.app.application(), &next.scope)?;
+        if &next.state != state {
             return Err(SyncError::Invalid);
         }
         let entries = next
@@ -304,7 +334,7 @@ impl Replica {
         if checkpoint.root_rotation.is_some() {
             return Err(SyncError::Authorization);
         }
-        self.install_verified_checkpoint(checkpoint, trust)
+        self.install_verified_checkpoint(checkpoint, trust, false)
     }
     pub fn install_root_epoch(
         &mut self,
@@ -322,7 +352,7 @@ impl Replica {
         if verified.context() != trust.epoch.root || verified.public() != trust.epoch.authority {
             return Err(SyncError::Authorization);
         }
-        self.install_verified_checkpoint(checkpoint, trust.epoch)
+        self.install_verified_checkpoint(checkpoint, trust.epoch, false)
     }
     /// A recovered client anchors the historical pin at its independently trusted current root.
     pub fn install_accepted_root_epoch(
@@ -338,12 +368,26 @@ impl Replica {
         rotation
             .verify_current(trust.root, trust.authority)
             .map_err(|_| SyncError::Authorization)?;
-        self.install_verified_checkpoint(checkpoint, trust)
+        self.install_verified_checkpoint(checkpoint, trust, false)
+    }
+    /// A schema transition is opt-in after package, scope and permission review.
+    /// Ordinary compaction and root installers never accept a changed schema.
+    pub fn install_revision_epoch(
+        &mut self,
+        ciphertext: &[u8],
+        trust: EpochTrust<'_>,
+    ) -> Result<DocumentTransition> {
+        let checkpoint = EpochCheckpoint::open(&self.key, ciphertext)?;
+        if checkpoint.root_rotation.is_some() {
+            return Err(SyncError::Authorization);
+        }
+        self.install_verified_checkpoint(checkpoint, trust, true)
     }
     fn install_verified_checkpoint(
         &mut self,
         checkpoint: EpochCheckpoint,
         trust: EpochTrust<'_>,
+        revision: bool,
     ) -> Result<DocumentTransition> {
         if !self.log.is_empty() || !self.doc.get_changes(&[]).is_empty() {
             return Err(SyncError::Protocol);
@@ -365,9 +409,15 @@ impl Replica {
             || transition.authority != self.authority
             || transition.root.epoch != self.root_epoch
             || trust.previous.application != self.binding.application
-            || trust.previous.revision != self.binding.revision
-            || trust.previous.schema_epoch != self.binding.schema_epoch
-            || trust.previous.schema_digest != self.binding.schema_digest
+            || if revision {
+                trust.previous.revision == self.binding.revision
+                    || trust.previous.schema_epoch.checked_add(1) != Some(self.binding.schema_epoch)
+                    || trust.previous.schema_digest == self.binding.schema_digest
+            } else {
+                trust.previous.revision != self.binding.revision
+                    || trust.previous.schema_epoch != self.binding.schema_epoch
+                    || trust.previous.schema_digest != self.binding.schema_digest
+            }
         {
             return Err(SyncError::Protocol);
         }

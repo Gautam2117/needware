@@ -10,6 +10,7 @@ async function fileValue<T>(file: File | undefined): Promise<T> {
   if (!file || file.size > 16 * 1024) throw new Error('Select a Needware JSON file smaller than 16 KiB');
   return JSON.parse(await file.text()) as T;
 }
+import RootPanel from './root-panel';
 export default function VaultPanel({ account }: { account: string }) {
   const [client, setClient] = useState<AccountVaultClient>(); const [status, setStatus] = useState('loading');
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [message, setMessage] = useState('');
@@ -69,9 +70,13 @@ export default function VaultPanel({ account }: { account: string }) {
       </>}
       {status === 'pending' && <><p>Keys are safe on this browser. Finish registering this encryption device with your account.</p>
         <button disabled={busy || !label.trim()} onClick={() => run(async () => { await client.registerRecovered(label); setMessage('Encryption device registered.'); })}>Register this browser</button></>}
+      {status==='rotating'&&<><p role="status">Account key rotation is saved on this browser. Resume publication after an interruption.</p>
+        <button disabled={busy} onClick={()=>run(async()=>{const pending=await client.resumeRootPublication();setMessage(pending?`${pending} shared applications still require their owner's fresh keys.`:'Account key publication recovered.');})}>Resume account key rotation</button>
+        <button disabled={busy} onClick={()=>run(async()=>{await client.cancelRootPublication();setMessage('Staged account key rotation cancelled; original keys and applications preserved.');})}>Cancel staged account key rotation</button></>}
       {status === 'ready' && <>
         <p role="status">Encryption keys are ready on this browser.</p>
         <h3>Trusted encryption devices</h3>
+        <RootPanel client={client} busy={busy} run={run}/>
         {client.devices().map(device => <article className="app-card" key={device.device_id}><strong>{device.label}</strong>
           <p>{device.device_id === client.deviceId() ? 'This browser' : 'Another trusted device'} · <code>{device.device_id}</code></p></article>)}
         <details><summary>Approve another device</summary><p>Only approve a request you created on your other browser. Compare its device identity before downloading the approval.</p>

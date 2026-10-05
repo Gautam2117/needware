@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import { createRequire } from 'node:module';
 import { chromium } from '@playwright/test';
 import { loadEnvironment } from './load-environment.mjs';
+import { advanceAcceptanceWindow } from './acceptance-clock.mjs';
 import { verifyAccountVault } from './verify_account_vault.mjs';
 loadEnvironment(); mkdirSync('.logs', { recursive: true });
 const listener = createServer();
@@ -23,13 +24,16 @@ const require = createRequire(new URL('../apps/web/package.json', import.meta.ur
 const { createRateLimitKey } = await import(require.resolve('@better-auth/core/utils/ip'));
 const rateKeys = ['/sign-in/email', '/sign-up/email', '/request-password-reset', '/send-verification-email']
   .map(path => createRateLimitKey('127.0.0.1', path));
-// Preserve real shared counters across reruns; allow their normal window to expire.
-const prior = await pool.query('SELECT max("lastRequest") AS latest FROM auth_rate_limit WHERE key = ANY($1)', [rateKeys]);
-const wait = Math.max(0, Number(prior.rows[0].latest ?? 0) + 61_000 - Date.now());
-if (wait) {
-  console.log('Account acceptance waiting for the existing local rate-limit window');
-  await new Promise(resolve => setTimeout(resolve, Math.min(wait, 61_000)));
+async function authWindow() {
+  // Separate fixture phases; HTTP limits remain enforced within each phase.
+  const prior = await pool.query('SELECT max("lastRequest") AS latest FROM auth_rate_limit WHERE key = ANY($1)', [rateKeys]);
+  const wait = Math.max(0, Number(prior.rows[0].latest ?? 0) + 61_000 - Date.now());
+  if (wait && !await advanceAcceptanceWindow(pool, { authKeys: rateKeys })) {
+    console.log('Account acceptance waiting for the existing local rate-limit window');
+    await new Promise(resolve => setTimeout(resolve, Math.min(wait, 61_000)));
+  }
 }
+await authWindow();
 const email = `needware-${crypto.randomUUID()}@example.invalid`;
 const password = crypto.randomUUID() + crypto.randomUUID();
 const nextPassword = crypto.randomUUID() + crypto.randomUUID();
@@ -132,6 +136,7 @@ try {
     await page.goto(`${origin}/account`);return {page,context,account:identity.user.id};
   };
   await verifyAccountVault({ page, context, pool, account: userId, origin, email, password, createCollaborator });
+  await authWindow();
   await page.screenshot({ path: 'artifacts/account-acceptance.png', fullPage: true });
   const cookies = await context.cookies(); const sessionCookie = cookies.find(value => value.name.endsWith('session_token'));
   assert(sessionCookie?.httpOnly); assert.equal(sessionCookie.sameSite, 'Lax'); assert.equal(sessionCookie.secure, false);
@@ -139,7 +144,7 @@ try {
   response = await other.request.post(`${origin}/api/auth/sign-in/email`, { data: { email, password }, headers: { Origin: origin } }); assert.equal(response.status(), 200);
   const otherSession = await (await other.request.get(`${origin}/api/auth/get-session`)).json(); assert.equal(otherSession.user.id, userId);
   await page.reload();
-  const otherCard = page.locator('article').filter({ has: page.getByText('Another browser', { exact: true }) });
+  const otherCard = page.locator(`[data-session="${otherSession.session.id}"]`);
   await otherCard.getByRole('button', { name: 'Revoke session', exact: true }).click();
   await otherCard.waitFor({ state: 'hidden' });
   assert.equal(await (await other.request.get(`${origin}/api/auth/get-session`)).json(), null);
@@ -171,7 +176,7 @@ try {
   assert.equal((await pool.query('SELECT id FROM auth_session WHERE "userId"=$1', [userId])).rowCount, 0);
   assert.equal((await pool.query('SELECT id FROM auth_account WHERE "userId"=$1', [userId])).rowCount, 0);
   assert.equal((await pool.query('SELECT id FROM needware_email_outbox WHERE user_id=$1', [userId])).rowCount, 0);
-  for (const table of ['needware_account_vault', 'needware_vault_device', 'needware_vault_challenge', 'needware_account_limit', 'needware_document_member', 'needware_relay_usage']) {
+  for (const table of ['needware_account_vault', 'needware_vault_device', 'needware_vault_challenge', 'needware_account_limit', 'needware_document_member', 'needware_relay_usage','needware_root_rotation','needware_document_rekey']) {
     assert.equal((await pool.query(`SELECT account_id FROM ${table} WHERE account_id=$1`, [userId])).rowCount, 0);
   }
   assert.equal((await pool.query('SELECT id FROM needware_document WHERE owner_id=$1', [userId])).rowCount, 0);

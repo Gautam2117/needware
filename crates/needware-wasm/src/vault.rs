@@ -1,5 +1,6 @@
 //! Opaque keys live in Rust handles owned by the trusted browser host, never the app frame.
 mod local;
+mod revision;
 use super::error;
 use needware_capabilities::{Capability, Grants};
 use needware_crypto::SecretKey;

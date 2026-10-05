@@ -24,6 +24,7 @@ apps/web/public/vault-store.js
 apps/web/public/encrypted-worker.js
 apps/web/public/sync-journal.js
 apps/web/public/relay-client.js
+apps/web/public/root-publication.js
 apps/web/public/sw.js
 apps/web/next-env.d.ts
 *.profraw

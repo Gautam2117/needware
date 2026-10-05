@@ -1479,6 +1479,8 @@ dependencies = [
  "needware-crypto",
  "needware-expr",
  "needware-ir",
+ "needware-migrations",
+ "needware-package",
  "needware-validation",
  "needware-vault",
  "proptest",

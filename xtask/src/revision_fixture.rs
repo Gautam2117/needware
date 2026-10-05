@@ -20,6 +20,15 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
             },
         );
     let bytes = needware_package::build(source.clone(), vec![], &key)?;
+    let mut sync_source = source.clone();
+    sync_source.capabilities.extend([
+        needware_capabilities::Capability::Collaboration { write: true },
+        needware_capabilities::Capability::Storage {
+            collections: vec!["habits".into()],
+            synchronized: true,
+            write: true,
+        },
+    ]);
     let digest = needware_package::verify(&bytes)?.digest();
     let mut target = source.clone();
     target.title = "Habit tracker revised".into();
@@ -63,6 +72,14 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
     target.parent = Some("00".repeat(32));
     std::fs::write(
         "artifacts/revisions/wrong-parent.need",
+        needware_package::build(target.clone(), vec![], &key)?,
+    )?;
+    let sync_bytes = needware_package::build(sync_source.clone(), vec![], &key)?;
+    target.parent = Some(needware_package::verify(&sync_bytes)?.digest());
+    target.capabilities = sync_source.capabilities;
+    std::fs::write("artifacts/revisions/sync-source.need", sync_bytes)?;
+    std::fs::write(
+        "artifacts/revisions/sync-target.need",
         needware_package::build(target, vec![], &key)?,
     )?;
     println!("Signed authored revision fixtures generated; no inference occurred");

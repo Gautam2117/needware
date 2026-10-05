@@ -19,6 +19,7 @@ try {
   await pool.query(await readFile('services/control-plane/migrations/0003-document-relay.sql', 'utf8'));
   await pool.query(await readFile('services/control-plane/migrations/0004-document-epochs.sql', 'utf8'));
   await pool.query(await readFile('services/control-plane/migrations/0005-epoch-recipient-certificates.sql', 'utf8'));
+  await pool.query(await readFile('services/control-plane/migrations/0006-account-root-rotation.sql', 'utf8'));
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

@@ -55,7 +55,7 @@ export default function AccountPanel({ providers, initialError = '' }: { provide
       <div className="toolbar"><button disabled={busy} onClick={() => run(async () => { checked(await authClient.signOut()); await refetch(); })}>Sign out</button>
         <button disabled={busy} onClick={() => run(async () => { checked(await authClient.revokeSessions()); checked(await authClient.signOut()); await refetch(); })}>Sign out everywhere</button></div>
       <h2>Your sessions</h2><p>Revoking a login session prevents account access. Encryption-device revocation also requires rotating future document keys.</p>
-      {sessions.map(session => <article className="app-card" key={session.id}><strong>{session.id === data.session.id ? 'This browser' : 'Another browser'}</strong>
+      {sessions.map(session => <article className="app-card" key={session.id} data-session={session.id}><strong>{session.id === data.session.id ? 'This browser' : 'Another browser'}</strong>
         <p>{sessionDescription(session.userAgent)} · {new Date(session.createdAt).toLocaleString()}</p>
         <button disabled={busy} onClick={() => run(async () => { checked(await authClient.revokeSession({ token: session.token })); setSessions(current => current.filter(value => value.id !== session.id)); await refetch(); })}>Revoke session</button></article>)}
       <details><summary>Delete account</summary><p>Deletion removes your account, sessions, hosted encryption-device list and encrypted recovery backup. Local applications and your saved recovery file remain. Export anything you want to keep.</p>

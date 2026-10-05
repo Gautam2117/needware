@@ -16,6 +16,7 @@ await mkdir(`${publicDir}/sqlite`, { recursive: true });
 await build({ entryPoints: ['packages/browser-host/src/vault-store.ts'], outfile: `${publicDir}/vault-store.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
 await build({ entryPoints: ['packages/browser-host/src/sync-journal.ts'], outfile: `${publicDir}/sync-journal.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
 await build({ entryPoints: ['packages/browser-host/src/relay-client.ts'], outfile: `${publicDir}/relay-client.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
+await build({ entryPoints: ['packages/browser-host/src/root-publication.ts'], outfile: `${publicDir}/root-publication.js`, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
 const sqliteDir = 'packages/browser-host/node_modules/@sqlite.org/sqlite-wasm/dist';
 await cp(`${sqliteDir}/sqlite3.wasm`, `${publicDir}/sqlite3.wasm`);
 for (const name of await readdir(sqliteDir)) if (name.endsWith('.wasm') || name.endsWith('.js')) await cp(`${sqliteDir}/${name}`, `${publicDir}/sqlite/${name}`);

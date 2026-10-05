@@ -10,6 +10,8 @@ needware-vault = { path = "../needware-vault", version = "=2026.10.0" }
 needware-ir = { path = "../needware-ir", version = "=2026.10.0" }
 needware-validation = { path = "../needware-validation", version = "=2026.10.0" }
 needware-expr = { path = "../needware-expr", version = "=2026.10.0" }
+needware-migrations = { path = "../needware-migrations", version = "=2026.10.0" }
+needware-package = { path = "../needware-package", version = "=2026.10.0" }
 serde.workspace = true
 serde_json.workspace = true
 serde_json_canonicalizer.workspace = true

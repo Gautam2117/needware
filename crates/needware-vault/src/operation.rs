@@ -6,6 +6,7 @@ pub enum AccountOperationKind {
     CreateVault,
     RegisterDevice,
     RelayDocument,
+    RotateRoot,
 }
 
 /// Device possession proof; the service independently expires and consumes its nonce.

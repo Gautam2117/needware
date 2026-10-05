@@ -40,7 +40,8 @@ export default function EncryptedApplications() {
     const id = new URLSearchParams(location.hash.slice(1)).get('account') || localStorage.getItem('needware-encrypted-account') || '';
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) return;
     localStorage.setItem('needware-encrypted-account',id);
-    const client = new WorkerHost<EncryptedCommand>('/encrypted-worker.js'); host.current = client; let active = true;
+    const cloudCommands = new Set(['sync', 'preview-cloud', 'rotate-epoch', 'cancel-epoch', 'epoch-recipients', 'share']);
+    const client = new WorkerHost<EncryptedCommand>('/encrypted-worker.js', command => cloudCommands.has(command.kind) ? 300_000 : 30_000); host.current = client; let active = true;
     client.request<EncryptedEntry[]>({ kind: 'list', account: id }).then(value => { if (active) { setAccount(id); setEntries(value); setStatus('Encrypted browser storage ready'); } }).catch(failure => { if (active) { setError(String(failure)); setStatus('Trusted device required'); } });
     fetch('/frame.js').then(async response => {
       if (!response.ok) throw new Error('Renderer download failed'); const code = (await response.text()).replace(/<\/script/gi,'<\\/script');

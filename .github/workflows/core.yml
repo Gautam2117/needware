@@ -29,13 +29,15 @@ jobs:
           pnpm --filter @needware/web start --port 3108 > /tmp/needware-server.log 2>&1 &
           for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3108/ > /dev/null && break; sleep 1; done
           python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test local-runtime.spec.ts'
-      - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- revision-fixture && NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test revisions.spec.ts'
-      - run: python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test encrypted-sync.spec.ts vault-storage.spec.ts held-documents.spec.ts document-journal.spec.ts encrypted-library.spec.ts journal-local-state.spec.ts document-epochs.spec.ts'
+      - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- revision-fixture && NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test revisions.spec.ts synchronized-revisions.spec.ts'
+      - run: python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test encrypted-sync.spec.ts vault-storage.spec.ts held-documents.spec.ts document-journal.spec.ts encrypted-library.spec.ts journal-local-state.spec.ts document-epochs.spec.ts root-epochs.spec.ts root-retained-device.spec.ts root-rotation-store.spec.ts foreign-root-cut.spec.ts'
       - run: pnpm test:compiler
         timeout-minutes: 10
       - run: python3 scripts/token_guard.py run 'pnpm bootstrap && python3 scripts/verify_local_services.py'
         timeout-minutes: 5
       - run: pnpm test:accounts
+        timeout-minutes: 20
+      - run: pnpm test:roots
         timeout-minutes: 20
       - if: failure()
         run: python3 scripts/browser_diagnostics.py

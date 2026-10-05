@@ -15,7 +15,8 @@ interface Journal {
 export interface EpochRecipient { certificate: string; context: string; authority: string; write: boolean }
 export interface CloudEpochIntent { next: string; transition: unknown; checkpoint: { digest: string; bytes: number }; sourceCursor: string; recipients?: {recipient:unknown;membership:unknown;key_envelope:unknown}[] }
 export interface CloudArtifact { descriptor: { binding: unknown; configuration: string; package_digest: string; package_bytes: number }; ciphertext: string; membership: unknown; key_envelope: unknown; uploadedChunks?: number }
-export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact; epoch?: {checkpoint:string;previous:string} } }
+export interface RootCloudCut { cut:RootJournalCut; source:{document:string;binding:unknown;cursor:string;history:{generation:number;held:unknown}[]}; prepare:Record<string,unknown> }
+export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact; epoch?: {checkpoint:string;previous:string;acceptedRoot?:true} } }
 const encoder = new TextEncoder(); const decoder = new TextDecoder('utf-8', { fatal: true });
 function encode(bytes: Uint8Array): string {
   const parts: string[] = [];
@@ -174,6 +175,46 @@ export class DurableSyncSession {
       const candidate=this.session.fork_session();try{await this.publish(candidate,previous);}catch(error){candidate.free();throw error;}});
   }
   private requireActiveEpoch(): void {if(this.journal.pendingEpoch)throw new Error('Key rotation is pending. Resume or cancel it before changing this application.');}
+  async prepareCloudRootCut(candidate:BrowserVault,rotation:BrowserRootRotation,id:string,recipients:EpochRecipient[],consent:boolean,historical:{generation:number;held:string;binding:string}[]=[]):Promise<RootCloudCut>{
+    return this.serial(async()=>{
+      this.requireActiveEpoch();
+      if(!this.journal.cloud||this.journal.cursor===null||this.journal.queued.length)throw new Error('Synchronize and review shared edits before the account root cut');
+      if((this.journal.archive?.length??0)>=4)throw new Error('Retained epoch archive limit; original preserved');
+      const {archive:prior,...previous}=this.journal;
+      const retain=(serialized:string):string=>{const historical=parse(encoder.encode(serialized),previous.account,previous.document);historical.held=rotation.rewrap_held_backup(historical.held,JSON.stringify(JSON.parse(historical.binding).document));return JSON.stringify(historical);};
+      const archive=[...(prior??[]).map(retain),retain(JSON.stringify(previous))];
+      candidate.forget_document(previous.document);candidate.restore_held_document_key(JSON.parse(archive[archive.length-1]!).held,JSON.stringify(JSON.parse(previous.binding).document));
+      const prepared=candidate.prepare_root_document_epoch(this.session,rotation.proof(),consent),checkpoint=prepared.checkpoint(),next=prepared.preview();
+      const packageBytes=decode(previous.package);let content:Uint8Array|undefined,configuration:Uint8Array|undefined;
+      try{
+        const retained=[];for(const target of recipients){const offer=JSON.parse(prepared.offer_document(candidate,target.certificate,target.context,target.authority,target.write,true));retained.push({recipient:JSON.parse(target.certificate),membership:offer.membership,key_envelope:{kind:'offer',value:offer}});}
+        const roster=JSON.stringify([JSON.parse(next.membership()),...retained.map(target=>target.membership)]);next.set_roster(roster);next.view();
+        const ownerEpoch=JSON.parse(candidate.account_context()).epoch,authority=candidate.account_authority(),binding=next.binding(),held=prepared.held_backup();
+        content=next.seal_payload(packageBytes,`NEEDWARE-CLOUD-PACKAGE-v1:${previous.document}`);
+        const parameters=encoder.encode(JSON.stringify({binding,scope:previous.scope,ownerEpoch,authority}));try{configuration=next.seal_payload(parameters,`NEEDWARE-CLOUD-CONFIGURATION-v1:${previous.document}`);}finally{parameters.fill(0);}
+        const digest=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes)))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+        const cloud:CloudArtifact={descriptor:{binding:JSON.parse(binding),configuration:encode(configuration),package_digest:await digest(content),package_bytes:content.length},ciphertext:encode(content),membership:JSON.parse(next.membership()),key_envelope:{kind:'held',value:JSON.parse(held)}};
+        const journal:Journal={...previous,binding,ownerEpoch,authority,membership:next.membership(),held,roster,frames:[],queued:[],cursor:'0',state:next.snapshot(),cloud,epoch:{checkpoint:encode(checkpoint),previous:previous.binding,acceptedRoot:true},archive};
+        const transition=JSON.parse(prepared.transition()),history=new Map<number,unknown>();
+        for(const value of historical){if(JSON.parse(value.binding).document.document!==previous.document)throw new Error('Historical root cut document mismatch');history.set(value.generation,JSON.parse(rotation.rewrap_held_backup(value.held,JSON.stringify(JSON.parse(value.binding).document))));}
+        const current=JSON.parse(archive[archive.length-1]!);history.set(JSON.parse(current.binding).generation,JSON.parse(current.held));
+        const published=prepared.publish(candidate);published.free();
+        return {cut:{document:previous.document,generation:this.generation,bytes:encoder.encode(JSON.stringify(journal))},source:{document:previous.document,binding:JSON.parse(previous.binding),cursor:previous.cursor!,history:[...history].map(([generation,held])=>({generation,held})).sort((a,b)=>a.generation-b.generation)},prepare:{action:'epoch_prepare',document:previous.document,root_rotation:id,descriptor:cloud.descriptor,transition,checkpoint:{digest:await digest(checkpoint),bytes:checkpoint.length},source_cursor:previous.cursor,membership:cloud.membership,key_envelope:cloud.key_envelope,recipients:retained}};
+      }finally{next.free();prepared.free();checkpoint.fill(0);packageBytes.fill(0);content?.fill(0);configuration?.fill(0);}
+    });
+  }
+  async prepareForeignRootCut(candidate:BrowserVault,rotation:BrowserRootRotation,consent:boolean):Promise<RootJournalCut>{
+    return this.serial(async()=>{
+      this.requireActiveEpoch();
+      if(!consent||JSON.parse(this.journal.binding).document.account===this.journal.account||JSON.parse(candidate.account_context()).account!==this.journal.account)throw new Error('Review the foreign-owner document before rewrapping its held key');
+      const rewrap=(value:Journal):Journal=>({...value,held:rotation.rewrap_held_backup(value.held,JSON.stringify(JSON.parse(value.binding).document))});
+      const next=rewrap(this.journal);
+      if(this.journal.archive)next.archive=this.journal.archive.map(serialized=>JSON.stringify(rewrap(parse(encoder.encode(serialized),this.journal.account,this.journal.document))));
+      if(next.cloud)next.cloud={...next.cloud,key_envelope:{kind:'held',value:JSON.parse(next.held)}};
+      candidate.forget_document(this.journal.document);candidate.restore_held_document_key(next.held,JSON.stringify(JSON.parse(next.binding).document));
+      return {document:this.journal.document,generation:this.generation,bytes:encoder.encode(JSON.stringify(next))};
+    });
+  }
   async prepareLocalRootCut(candidate: BrowserVault, rotation: BrowserRootRotation, consent: boolean): Promise<RootJournalCut> {
     return this.serial(async () => {
       if(this.journal.cloud)throw new Error('Cloud document requires an atomic account cloud rotation');
@@ -181,6 +222,7 @@ export class DurableSyncSession {
       const {archive:prior,...previous}=this.journal;
       const retain=(serialized:string):string=>{const historical=parse(encoder.encode(serialized),previous.account,previous.document);historical.held=rotation.rewrap_held_backup(historical.held,JSON.stringify(JSON.parse(historical.binding).document));return JSON.stringify(historical);};
       const archive=[...(prior??[]).map(retain),retain(JSON.stringify(previous))];
+      candidate.forget_document(previous.document);candidate.restore_held_document_key(JSON.parse(archive[archive.length-1]!).held,JSON.stringify(JSON.parse(previous.binding).document));
       const prepared=candidate.prepare_root_document_epoch(this.session,rotation.proof(),consent),checkpoint=prepared.checkpoint();let next:BrowserSync|undefined;
       try {
         next=prepared.publish(candidate);next.view();
@@ -224,7 +266,6 @@ export class DurableSyncSession {
     return this.serial(async () => {
       this.requireActiveEpoch();
       if (this.journal.cloud) return structuredClone(this.journal.cloud);
-      if (this.journal.epoch) throw new Error('Compacted document requires the cloud epoch publication protocol');
       const candidate = this.session.fork_session(); const packageBytes = decode(this.journal.package);
       const metadata = `NEEDWARE-CLOUD-PACKAGE-v1:${this.journal.document}`;
       let content: Uint8Array; let configuration: Uint8Array | undefined;
@@ -236,7 +277,8 @@ export class DurableSyncSession {
         const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(content));
         const cloud: CloudArtifact = { descriptor: { binding: JSON.parse(this.journal.binding), configuration: encode(configuration), package_digest: [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2,'0')).join(''), package_bytes: content.length },
           ciphertext: encode(content), membership: JSON.parse(this.journal.membership), key_envelope: { kind: 'held', value: JSON.parse(this.journal.held) } };
-        await this.publish(candidate, { ...this.journal, cloud }); return structuredClone(cloud);
+        const initial=this.journal.epoch?exportFrames(candidate,'[]'):undefined;
+        await this.publish(candidate, { ...this.journal, cloud, ...(initial?{frames:initial,queued:[...initial]}:{}) }); return structuredClone(cloud);
       } catch (error) { candidate.free(); throw error; }
       finally { packageBytes.fill(0); configuration?.fill(0); }
     });

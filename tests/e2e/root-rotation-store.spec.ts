@@ -17,6 +17,8 @@ test('root and every journal publish atomically after offline restart, preservin
       await journal.dispatch(JSON.stringify({action:'add',values:{record_id:{type:'string',value:crypto.randomUUID()},name:{type:'string',value:`Root rotation document ${i}`}},now:'2026-10-04T00:00:00Z',timezone:'UTC'}));
       sessions.push({native,journal});documents.push(document);states.push(journal.snapshot());
     }
+    // A cold journal is authoritative even when the live vault has not cached its key.
+    vault.forget_document(documents[1]!);
     const rotation=vault.prepare_root_rotation(true),candidate=rotation.preview(),cuts:any[]=[];
     for(let i=0;i<documents.length;i++){
       const saved=await store.documents.load(account,documents[i]);saved.bytes.fill(0);

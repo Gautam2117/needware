@@ -3,7 +3,7 @@ import type { BrowserVault, BrowserSync } from 'needware-wasm-runtime';
 import { DurableSyncSession, type CloudArtifact, type JournalOptions } from './sync-journal';
 import type { EncryptedDocumentStore } from './journal-store';
 type Descriptor = CloudArtifact['descriptor'];
-export type RelayRead = { descriptor: Descriptor; epoch?: {previous_binding:unknown;transition:unknown;checkpoint_manifest:{digest:string;bytes:number}}|null; membership: { root_epoch: number; authority: number[] }; key_envelope: { kind: 'held' | 'offer'; value: unknown }; roster: unknown[]; frames: string[]; cursor: string; more: boolean };
+export type RelayRead = { descriptor: Descriptor; epoch?: {previous_binding:unknown;transition:unknown;checkpoint_manifest:{digest:string;bytes:number};root_rotation?:unknown}|null; membership: { root_epoch: number; authority: number[] }; key_envelope: { kind: 'held' | 'offer'; value: unknown }; roster: unknown[]; frames: string[]; cursor: string; more: boolean;owner_rekey_required?:boolean };
 export class RelayFailure extends Error { constructor(readonly status: number, readonly retryAfter: number, message: string) { super(message); } }
 const encode = (bytes: Uint8Array) => { const parts=[];for(let i=0;i<bytes.length;i+=8192)parts.push(String.fromCharCode(...bytes.subarray(i,i+8192)));return btoa(parts.join('')); };
 const decode = (value: string) => Uint8Array.from(atob(value),char=>char.charCodeAt(0));
@@ -18,6 +18,12 @@ async function response<T>(value: Response, limit: number): Promise<T> {
 export class DocumentRelay {
   constructor(private readonly vault: BrowserVault) {}
   async request<T>(payload: unknown): Promise<T> {
+    for(let attempt=0;;attempt++){try{return await this.requestOnce<T>(payload);}catch(error){
+      if(!(error instanceof RelayFailure)||error.status!==429||attempt>=2)throw error;
+      await new Promise(resolve=>setTimeout(resolve,Math.min(60,error.retryAfter)*1000));
+    }}
+  }
+  private async requestOnce<T>(payload:unknown):Promise<T>{
     const nonce=await response<{nonce:string}>(await fetch('/api/vault/challenge',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:canonicalize({operation:'relay_document'}),signal:AbortSignal.timeout(10_000)}),32768);
     const plaintext=new TextEncoder().encode(canonicalize(payload)!);const hash=await digest(plaintext);plaintext.fill(0);
     const proof=JSON.parse(this.vault.account_operation(nonce.nonce,JSON.stringify('relay_document'),hash));
@@ -139,17 +145,21 @@ export class DocumentRelay {
       if(configuration.authority!==pin||configuration.ownerEpoch!==ownerEpoch||canonicalize(JSON.parse(configuration.binding))!==canonicalize(binding))throw new Error('Encrypted configuration pin mismatch');
       session=staged.open_shared_document(bytes,document,canonicalize(read.membership)!,ownerEpoch,pin,binding.generation,configuration.scope,binding.schema_epoch,true);
       session.set_roster(canonicalize(read.roster)!);
-      let importedEpoch:{checkpoint:string;previous:string}|undefined;
-      if(binding.generation>1){
+      let importedEpoch:{checkpoint:string;previous:string;acceptedRoot?:true}|undefined;
+      if(read.epoch){
+        if(binding.generation<2)throw new Error('Unexpected initial document epoch checkpoint');
         const expected=read.epoch?.checkpoint_manifest;
         if(!expected||!Number.isInteger(expected.bytes)||expected.bytes<40||expected.bytes>16777256||typeof expected.digest!=='string'||!/^[0-9a-f]{64}$/.test(expected.digest))throw new Error('Encrypted epoch checkpoint manifest unavailable');
         const checkpoint=new Uint8Array(expected.bytes);try{
           for(let offset=0;offset<checkpoint.length;offset+=1048576){const index=offset/1048576,chunk=await this.request<{index:number;ciphertext:string}>({action:'epoch_download',document,index});const decoded=decode(chunk.ciphertext);
             try{if(chunk.index!==index||decoded.length!==Math.min(1048576,checkpoint.length-offset))throw new Error('Encrypted checkpoint chunk mismatch');checkpoint.set(decoded,offset);}finally{decoded.fill(0);}}
           if(await digest(checkpoint)!==expected.digest)throw new Error('Encrypted checkpoint digest mismatch');
-          const previous=canonicalize(read.epoch!.previous_binding)!;session.install_epoch(checkpoint,previous);importedEpoch={checkpoint:encode(checkpoint),previous};
+          const previous=canonicalize(read.epoch!.previous_binding)!;
+          if(read.epoch!.root_rotation){session.install_accepted_root_epoch(checkpoint,previous);importedEpoch={checkpoint:encode(checkpoint),previous,acceptedRoot:true};}
+          else{session.install_epoch(checkpoint,previous);importedEpoch={checkpoint:encode(checkpoint),previous};}
         }finally{checkpoint.fill(0);}
-      }else if(read.epoch)throw new Error('Unexpected initial document epoch checkpoint');
+      }
+      session.set_roster(canonicalize(read.roster)!);
       let batch=read;let batches=0;
       for(;;){for(const frame of batch.frames)session.receive(frame);if(!batch.more)break;if(++batches>=128)throw new Error('Import history batch limit');
         batch=await this.request<RelayRead>({action:'read',document,cursor:batch.cursor});session.set_roster(canonicalize(batch.roster)!);}

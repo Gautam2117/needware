@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {expect} from '@playwright/test';
+import {advanceAcceptanceWindow} from './acceptance-clock.mjs';
 async function rateWindow(pool,account){
+  if(await advanceAcceptanceWindow(pool,{account}))return;
   const row=await pool.query('SELECT count,reset_at FROM needware_account_limit WHERE account_id=$1',[account]);
   if(row.rowCount&&row.rows[0].count>12){const wait=Math.max(0,new Date(row.rows[0].reset_at).getTime()-Date.now()+100);if(wait)await new Promise(resolve=>setTimeout(resolve,Math.min(wait,60_000)));}
   for(;;){

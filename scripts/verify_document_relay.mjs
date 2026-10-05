@@ -4,15 +4,18 @@ import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import {verifyCloudEpochs} from './verify_cloud_epochs.mjs';
+import {verifyCloudRoots} from './verify_cloud_roots.mjs';
+import {advanceAcceptanceWindow} from './acceptance-clock.mjs';
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url));
 const {default:canonicalize}=await import(require.resolve('canonicalize'));
 async function rateWindow(pool,account){
+  if(await advanceAcceptanceWindow(pool,{account,threshold:10}))return;
   const current=await pool.query('SELECT reset_at,count FROM needware_account_limit WHERE account_id=$1',[account]);
   if(current.rowCount&&current.rows[0].count>10){const remaining=Math.max(0,new Date(current.rows[0].reset_at).getTime()-Date.now()+100);
     if(remaining){console.log('Relay acceptance waiting for the existing account quota window');await new Promise(resolve=>setTimeout(resolve,Math.min(remaining,60_000)));}}
 }
-export async function verifyDocumentRelay({page,context,otherPage,otherContext,otherAccount,recoveredPage,enrolledPage,pool,account,origin}){
-  if(process.env.NEEDWARE_TEST_EPOCH_FOCUS==='1'){
+export async function verifyDocumentRelay({page,context,otherPage,otherContext,otherAccount,recoveredPage,enrolledPage,pool,account,origin,email,password}){
+  if(process.env.NEEDWARE_TEST_EPOCH_FOCUS==='1'||process.env.NEEDWARE_TEST_ROOT_FOCUS==='1'){
     // Diagnostic subset; CI and the full release check always retain the relay corpus below.
     for(const [client,name] of [[page,'__needwareRelay'],[otherPage,'__editableRelay']])await client.evaluate(async name=>{
       const wasm=await import('/wasm/needware_wasm.js');await wasm.default({module_or_path:'/wasm/needware_wasm_bg.wasm'});
@@ -20,7 +23,8 @@ export async function verifyDocumentRelay({page,context,otherPage,otherContext,o
       const account=(await(await fetch('/api/auth/get-session')).json()).user.id,store=await openVaultStore(),root=await store.load(account),vault=wasm.BrowserVault.from_local_backup(root.bytes);root.bytes.fill(0);
       globalThis[name]={wasm,store,vault,relay:new DocumentRelay(vault)};
     },name);
-    await verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPage,pool,account,otherAccount,origin});return;
+    if(process.env.NEEDWARE_TEST_ROOT_FOCUS==='1')await verifyCloudRoots({page,otherPage,recoveredPage,enrolledPage,pool,account,otherAccount,origin,email,password});
+    else await verifyCloudEpochs({page,otherPage,recoveredPage,enrolledPage,pool,account,otherAccount,origin});return;
   }
   await rateWindow(pool,account);
   execFileSync('cargo',['run','-p','xtask','--','relay-fixture'],{stdio:'inherit'});
