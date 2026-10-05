@@ -1,5 +1,6 @@
 import { getAuth } from '../../../../lib/auth';
 import { accountEmailStatus, authConfigured, authResources } from '../../../../lib/auth-options';
+import {trustedClientAddress} from '../../../../lib/ingress';
 export const runtime = 'nodejs';
 const fail = (message: string, status: number) => Response.json({ message }, { status, headers: { 'Cache-Control': 'no-store' } });
 async function handle(request: Request) {
@@ -11,7 +12,7 @@ async function handle(request: Request) {
     // Never accept the caller's internal rate-limit identity header.
     headers.delete('x-needware-auth-ip');
     const local = ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname);
-    const ip = process.env.VERCEL === '1' && process.env.NEEDWARE_TRUST_PROXY === 'vercel' ? headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() : undefined;
+    const ip = trustedClientAddress(headers);
     headers.set('x-needware-auth-ip', ip || (local ? '127.0.0.1' : '0.0.0.0'));
     let body: Uint8Array<ArrayBuffer> | undefined;
     if (request.method === 'POST') {

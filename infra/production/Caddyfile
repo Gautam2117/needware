@@ -1,0 +1,13 @@
+{$NEEDWARE_PUBLIC_HOST} {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    # Do not retain access logs containing auth verification/reset link queries.
+    # Only the public web service is exposed; the Rust gateway stays loopback.
+    reverse_proxy 127.0.0.1:3000 {
+        header_up -X-Needware-Auth-IP
+        header_up X-Needware-Client-IP {remote_host}
+        header_up -X-Forwarded-For
+        header_up -X-Vercel-Forwarded-For
+        header_up -X-Real-IP
+    }
+}

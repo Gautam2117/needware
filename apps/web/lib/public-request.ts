@@ -1,11 +1,10 @@
 import 'server-only';
 import {createHmac} from 'node:crypto';
-import {isIP} from 'node:net';
+import {trustedClientAddress} from './ingress';
 import type {Pool} from 'pg';
 import {CloudError} from './cloud-request';
 export async function publicRequest(request:Request,pool:Pool,bytes=0){
-  const supplied=process.env.VERCEL==='1'&&process.env.NEEDWARE_TRUST_PROXY==='vercel'?request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim():undefined;
-  const address=supplied&&isIP(supplied)?supplied:'conservative-shared-ingress';
+  const address=trustedClientAddress(request.headers)??'conservative-shared-ingress';
   const key=createHmac('sha256',process.env.BETTER_AUTH_SECRET!).update(`registry:${address}`).digest('hex');
   const result=await pool.query(`INSERT INTO needware_public_limit(key,count,bytes,reset_at) VALUES($1,1,$2,now()+interval '1 minute')
     ON CONFLICT(key) DO UPDATE SET count=CASE WHEN needware_public_limit.reset_at<=now() THEN 1 ELSE needware_public_limit.count+1 END,

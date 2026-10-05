@@ -22,7 +22,7 @@ export function productionConfiguration(env){
   check(env.NODE_TLS_REJECT_UNAUTHORIZED!=='0','NODE_TLS_REJECT_UNAUTHORIZED');
   for(const key of ['NEEDWARE_FIXTURE_MODE','NEEDWARE_BILLING_FIXTURE','NEEDWARE_ALLOW_LOOPBACK'])check(!env[key]||env[key]==='0',key);
   for(const key of ['NEEDWARE_BILLING_API_URL','NEEDWARE_ACCEPTANCE_DATABASE'])check(!env[key],key);
-  check(!env.NEEDWARE_TRUST_PROXY||env.NEEDWARE_TRUST_PROXY==='vercel','NEEDWARE_TRUST_PROXY');
+  check(!env.NEEDWARE_TRUST_PROXY||['vercel','caddy-loopback'].includes(env.NEEDWARE_TRUST_PROXY),'NEEDWARE_TRUST_PROXY');
   check(env.NEEDWARE_HOSTED_GENERATION==='1','NEEDWARE_HOSTED_GENERATION');
   check(/^[A-Za-z0-9]{32,128}$/.test(env.NEEDWARE_CONTROL_TOKEN??''),'NEEDWARE_CONTROL_TOKEN');
   check(control&&((control.protocol==='http:'&&control.hostname==='127.0.0.1')||(control.protocol==='https:'&&publicHost(control.hostname)))&&control.pathname==='/'&&!control.search&&!control.hash&&!control.username&&!control.password,'NEEDWARE_CONTROL_URL');

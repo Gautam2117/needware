@@ -1,0 +1,32 @@
+[Unit]
+Description=Needware production %i
+After=network-online.target postgresql.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=needware
+Group=needware
+WorkingDirectory=/opt/needware/current
+EnvironmentFile=/etc/needware/production.env
+Environment=PATH=/opt/needware/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/needware/node/bin/node scripts/production-service.mjs %i
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/needware/current/apps/web/.next/cache /opt/needware/current/apps/web/.next/server/route-cache
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

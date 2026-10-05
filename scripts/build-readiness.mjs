@@ -14,7 +14,8 @@ export async function buildReceipt(){
   const generated=['runtime-worker.js','encrypted-worker.js','vault-store.js','sync-journal.js','relay-client.js','root-publication.js','frame.js','wasm/needware_wasm.js','wasm/needware_wasm_bg.wasm','sqlite3.wasm','sw.js'];
   const server=(await walk('apps/web/.next/server')).filter(name=>!name.startsWith('apps/web/.next/server/route-cache/'));
   const names=[...await walk('apps/web/.next/static'),...server,...await walk('apps/web/public/sqlite'),...generated.map(name=>`apps/web/public/${name}`),'apps/web/.next/BUILD_ID','apps/web/.next/routes-manifest.json','apps/web/.next/required-server-files.json'].sort();
-  return {version:1,source:await sourceDigest(),files:await Promise.all(names.map(async name=>({name,sha256:hash(await readFile(name))})))};
+  let control=null;try{control=hash(await readFile('target/release/needware-control-plane'));}catch{}
+  return {version:1,source:await sourceDigest(),control,files:await Promise.all(names.map(async name=>({name,sha256:hash(await readFile(name))})))};
 }
 export async function buildReady(){
   try{return JSON.stringify(JSON.parse(await readFile(receipt,'utf8')))===JSON.stringify(await buildReceipt());}catch{return false;}
