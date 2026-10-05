@@ -35,7 +35,9 @@ Install `infra/production/production.env.example` as
 `/etc/needware/production.env` owned by root, mode 600. Populate actual secrets,
 origin and release SHA. The service user `needware` owns only its runtime
 cache directories; release source, dependencies, `.git` and binaries remain
-readable and immutable to that user. Configure PostgreSQL backups with the
+readable and immutable to that user. Release Git reads trust only the current checkout through command-scoped
+`safe.directory`; no global ownership-check exception is installed.
+Configure PostgreSQL backups with the
 existing `scripts/backup.mjs backup|restore` commands and a separately retained key;
 perform an empty-target restore before release.
 

@@ -15,7 +15,7 @@ if(Number(process.versions.node.split('.')[0])!==24)issues.push('NODE_24_REQUIRE
 if(!Object.hasOwn(commands,role))issues.push('SERVICE_ROLE');
 if(process.env.NEEDWARE_CONTROL_URL!=='http://127.0.0.1:3001'||process.env.NEEDWARE_CONTROL_PORT&&process.env.NEEDWARE_CONTROL_PORT!=='3001')issues.push('LOOPBACK_GATEWAY_TOPOLOGY');
 if(!await buildReady())issues.push('BUILD_ARTIFACTS');
-try{const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();if(process.env.NEEDWARE_RELEASE_SHA!==head||execFileSync('git',['status','--porcelain','--untracked-files=normal'],{encoding:'utf8'}).trim())issues.push('EXACT_CLEAN_RELEASE');}catch{issues.push('EXACT_CLEAN_RELEASE');}
+try{const head=execFileSync('git',['-c',`safe.directory=${root}`,'rev-parse','HEAD'],{encoding:'utf8'}).trim();if(process.env.NEEDWARE_RELEASE_SHA!==head||execFileSync('git',['-c',`safe.directory=${root}`,'status','--porcelain','--untracked-files=normal'],{encoding:'utf8'}).trim())issues.push('EXACT_CLEAN_RELEASE');}catch{issues.push('EXACT_CLEAN_RELEASE');}
 if(role==='control'){try{const receipt=JSON.parse(await readFile('apps/web/.next/needware-build-receipt.json','utf8'));if(!receipt.control)issues.push('CONTROL_RELEASE_BINARY');}catch{issues.push('CONTROL_RELEASE_BINARY');}}
 if(issues.length){console.error(JSON.stringify({status:'FAIL',issues}));process.exitCode=1;}
 else{

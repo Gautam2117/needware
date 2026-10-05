@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const receipt='apps/web/.next/needware-build-receipt.json';
 export async function sourceDigest(){
-  const names=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z','--','apps/web','packages','crates','services/control-plane','Cargo.lock','Cargo.toml','rust-toolchain.toml','pnpm-lock.yaml','package.json','scripts'],{encoding:'utf8'}).split('\0').filter(Boolean).sort();
+  const names=execFileSync('git',['-c',`safe.directory=${process.cwd()}`,'ls-files','--cached','--others','--exclude-standard','-z','--','apps/web','packages','crates','services/control-plane','Cargo.lock','Cargo.toml','rust-toolchain.toml','pnpm-lock.yaml','package.json','scripts'],{encoding:'utf8'}).split('\0').filter(Boolean).sort();
   const digest=createHash('sha256');for(const name of names)digest.update(name+'\0').update(await readFile(name));return digest.digest('hex');
 }
 async function walk(dir){return (await Promise.all((await readdir(dir,{withFileTypes:true})).map(entry=>entry.isDirectory()?walk(`${dir}/${entry.name}`):[`${dir}/${entry.name}`]))).flat();}
