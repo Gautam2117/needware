@@ -8,6 +8,7 @@ export interface LibraryEntry { id: string; title: string; digest: string; bytes
 export type Command =
   | { kind: 'example' }
   | { kind: 'inspect'; bytes: Uint8Array }
+  | { kind: 'remix'; bytes: Uint8Array; application: string; revision: string; consent: true }
   | { kind: 'library' }
   | { kind: 'load'; bytes: Uint8Array; consent: true }
   | { kind: 'preview-revision'; bytes: Uint8Array; consent: true }

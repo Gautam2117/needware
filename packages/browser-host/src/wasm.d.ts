@@ -3,6 +3,7 @@ declare module 'needware-wasm-runtime' {
   export function authored_example(): Uint8Array;
   export function authored_sync_example(): Uint8Array;
   export function inspect_package(bytes: Uint8Array): string;
+  export function remix_package(bytes: Uint8Array, application: string, revision: string, consent: boolean): Uint8Array;
   export class BrowserRuntime {
     constructor(bytes: Uint8Array, state: string | undefined, consent: boolean);
     view(): string;

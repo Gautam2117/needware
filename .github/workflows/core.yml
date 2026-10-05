@@ -41,6 +41,8 @@ jobs:
         timeout-minutes: 20
       - run: pnpm test:revisions
         timeout-minutes: 20
+      - run: pnpm test:registry
+        timeout-minutes: 20
       - if: failure()
         run: python3 scripts/browser_diagnostics.py
       - if: failure()

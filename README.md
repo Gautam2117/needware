@@ -44,6 +44,14 @@ and remove old collaborator grants. See the [relay boundary](docs/decisions/0009
 
 ## Engineering boundaries
 
+The application registry supports private encrypted entries and deliberately
+published unlisted/public signed definitions. Stable links and immutable revision
+links lead to signer/permission review. Independent remix copies the definition
+and assets, gives it a new identity/signer and records the signed source digest;
+existing application data and document access stay separate. These flows pass
+local acceptance; moderation, billing and public deployment remain unfinished.
+See the [registry and sharing boundary](docs/decisions/0014-registry-sharing-and-remix.md).
+
 Native and browser revisions support explicit [preview, activation and recoverable rollback](docs/development/revisions.md). The browser retains the previous package and data atomically and rejects stale reviews. Durable synchronized schema publication and explicit stale-client review are implemented. Compiler-driven refinement and automatic compatible rebase remain under implementation.
 
 - Deny-by-default capability authorization bound to application and revision.

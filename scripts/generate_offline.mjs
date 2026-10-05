@@ -24,6 +24,8 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
 })()));
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
+  // Next navigation responses are component streams, not the cached HTML shell.
+  if(event.request.headers.get('RSC')==='1'||url.searchParams.has('_rsc')) return;
   if(event.request.method!=='GET'||url.origin!==self.location.origin||!ASSETS.includes(url.pathname)) return;
   event.respondWith((async()=>{
     const cache=await caches.open(CACHE);

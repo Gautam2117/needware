@@ -1,5 +1,5 @@
 import initSqlite from '@sqlite.org/sqlite-wasm';
-import initWasm, { BrowserRuntime, authored_example, inspect_package } from 'needware-wasm-runtime';
+import initWasm, { BrowserRuntime, authored_example, inspect_package, remix_package } from 'needware-wasm-runtime';
 import type { Command, LibraryEntry, Loaded, PackageInfo, WorkerReply } from './protocol';
 import { coordinatedSqlite, type Persistence } from './coordinator';
 import { requireSupported } from '../../renderer/src/registry';
@@ -124,6 +124,7 @@ async function execute(command: Command): Promise<unknown> {
   switch (command.kind) {
     case 'example': return authored_example();
     case 'inspect': return JSON.parse(inspect_package(command.bytes)) as PackageInfo;
+    case 'remix': return remix_package(command.bytes,command.application,command.revision,command.consent);
     case 'library': return persistence.list();
     case 'history': return persistence.history(command.id);
     case 'preview-revision': {

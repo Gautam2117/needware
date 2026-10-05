@@ -17,6 +17,31 @@ pub fn authored_example() -> Result<Vec<u8>, JsValue> {
     needware_package::build(needware_ir::examples::typed_habit_tracker(), vec![], &key)
         .map_err(error)
 }
+/// Copy only a verified definition/assets; runtime state and document keys never enter a remix.
+#[wasm_bindgen]
+pub fn remix_package(
+    bytes: &[u8],
+    application: &str,
+    revision: &str,
+    consent: bool,
+) -> Result<Vec<u8>, JsValue> {
+    if !consent {
+        return Err(error("explicit remix consent required"));
+    }
+    let source = needware_package::verify(bytes).map_err(error)?;
+    let mut app = source.application().application().clone();
+    if application == app.id || revision == app.revision {
+        return Err(error(
+            "remix requires a new application and revision identity",
+        ));
+    }
+    app.id = application.into();
+    app.revision = revision.into();
+    app.parent = Some(source.digest());
+    app.migrations.clear();
+    let key = needware_crypto::SecretKey::random().map_err(error)?;
+    needware_package::build(app, source.assets().values().cloned().collect(), &key).map_err(error)
+}
 #[wasm_bindgen]
 pub struct BrowserRuntime {
     inner: Runtime,

@@ -20,6 +20,7 @@
     "test:accounts": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs'",
     "test:roots": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --roots'",
     "test:revisions": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --revisions'",
+    "test:registry": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --registry'",
     "mail:worker": "node scripts/mail-worker.mjs",
     "contracts": "python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts'"
   },
