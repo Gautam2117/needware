@@ -1,5 +1,6 @@
 //! Canonical, model-independent Needware application language.
 pub mod examples;
+pub mod visuals_example;
 pub mod widgets_example;
 use needware_capabilities::Capability;
 use schemars::JsonSchema;

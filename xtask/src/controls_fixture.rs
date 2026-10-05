@@ -10,5 +10,19 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
         "artifacts/controls/widgets.need",
         needware_package::build(needware_ir::widgets_example::application(), vec![], &key)?,
     )?;
+    let raster = include_bytes!("../../tests/fixtures/raster.png");
+    let asset = needware_package::Asset {
+        media_type: "image/png".into(),
+        bytes: raster.to_vec(),
+    };
+    let digest = needware_crypto::digest(raster)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let app = needware_ir::visuals_example::application(&digest);
+    std::fs::write(
+        "artifacts/controls/visuals.need",
+        needware_package::build(app, vec![asset], &key)?,
+    )?;
     Ok(())
 }

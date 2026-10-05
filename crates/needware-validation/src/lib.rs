@@ -1,6 +1,7 @@
 //! Semantic checks construct the unforgeable validated-application boundary.
 mod contracts;
 pub mod derived;
+mod visuals;
 mod widgets;
 use contracts::validate_contracts;
 pub use contracts::validate_event;
@@ -41,6 +42,7 @@ pub fn validate(app: Application) -> Result<ValidatedApplication, Diagnostic> {
             "derived_fields_v1",
             "runtime_controls_v1",
             "declarative_widgets_v1",
+            "visual_components_v1",
         ]
         .contains(&f.as_str())
     }) || app.runtime_features.iter().collect::<BTreeSet<_>>().len()
@@ -664,6 +666,7 @@ fn validate_node(
 ) -> Result<(), Diagnostic> {
     let item = scope.item;
     let form = widgets::validate_node(node, app, scope)?;
+    visuals::validate_node(node, app)?;
     *count += 1;
     if *count > 4096 || depth > 32 {
         return Err(fail("ui", "component limit"));

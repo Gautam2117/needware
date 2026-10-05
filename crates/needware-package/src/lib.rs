@@ -58,6 +58,21 @@ impl VerifiedPackage {
     pub fn assets(&self) -> &BTreeMap<String, Asset> {
         &self.assets
     }
+    pub fn raster_dimensions(&self, digest: &str) -> Result<(u32, u32), PackageError> {
+        let asset = self
+            .assets
+            .get(digest)
+            .ok_or_else(|| invalid("unknown signed raster"))?;
+        let format = match asset.media_type.as_str() {
+            "image/png" => image::ImageFormat::Png,
+            "image/jpeg" => image::ImageFormat::Jpeg,
+            "image/webp" => image::ImageFormat::WebP,
+            _ => return Err(invalid("unsupported raster")),
+        };
+        image::ImageReader::with_format(std::io::Cursor::new(&asset.bytes), format)
+            .into_dimensions()
+            .map_err(invalid)
+    }
 }
 fn invalid(e: impl std::fmt::Display) -> PackageError {
     PackageError::Invalid(e.to_string())

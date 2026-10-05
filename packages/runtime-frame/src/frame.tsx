@@ -6,6 +6,7 @@ import { supported } from '../../renderer/src/registry';
 import {RuntimeDialog} from './dialog';
 import {RuntimeInput} from './input';
 import {valuesFor} from './bindings';
+import {RuntimeImage,RuntimeIcon,RuntimeTable,RuntimeTabs,RuntimeChart,RuntimeCalendar} from './visuals';
 
 let channel: MessagePort | undefined;
 let report=(message:string)=>{void message;};
@@ -17,11 +18,20 @@ function fire(node: ViewNode) {
 }
 function Node({ node }: { node: ViewNode }) {
   if(!node.open)return null;
+  return <div className={`runtime-node tone-${node.style.tone} size-${node.style.size}`}><Body node={node}/></div>;
+}
+function Body({node}:{node:ViewNode}){
   const children = node.children.map(child => <Node key={child.id} node={child} />);
   switch (node.kind) {
     case 'heading': return <h2>{node.text}</h2>;
     case 'text': return <p>{node.text}</p>;
     case 'button': return <button type="button" disabled={node.disabled} onClick={event=>{event.currentTarget.focus();fire(node);}}>{node.text}</button>;
+    case 'icon': return node.action?<button type="button" disabled={node.disabled} aria-label={node.text} onClick={()=>fire(node)}><RuntimeIcon node={node}/></button>:<RuntimeIcon node={node}/>;
+    case 'image': return node.action?<button type="button" disabled={node.disabled} onClick={()=>fire(node)}><RuntimeImage node={node}/></button>:<RuntimeImage node={node}/>;
+    case 'table': return <RuntimeTable node={node} render={child=><Node key={child.id} node={child}/>}/>;
+    case 'tabs': return <RuntimeTabs node={node} render={child=><Node key={child.id} node={child}/>}/>;
+    case 'chart': return <RuntimeChart node={node}/>;
+    case 'calendar': return <RuntimeCalendar node={node}/>;
     case 'modal': case 'drawer': return <RuntimeDialog node={node} close={()=>fire(node)}>{children}</RuntimeDialog>;
     case 'divider': return <hr />;
     case 'spacer': return <div className="spacer" aria-hidden="true" />;
@@ -37,7 +47,7 @@ function Node({ node }: { node: ViewNode }) {
     default: return <div>{node.text}{children}</div>;
   }
 }
-function RuntimeView({node}:{node:ViewNode}){const [error,setError]=useState('');useEffect(()=>{report=setError;return()=>{report=()=>{};};},[]);return <>{error&&<p role="alert">{error}</p>}<Node node={node}/></>;}
+function RuntimeView({node}:{node:ViewNode}){const [error,setError]=useState('');useEffect(()=>{report=setError;return()=>{report=()=>{};};},[]);return <div className="runtime-app" data-accent={node.theme?.accent??'teal'} data-density={node.theme?.density??'comfortable'} data-radius={node.theme?.radius??'rounded'}>{error&&<p role="alert">{error}</p>}<Node node={node}/></div>;}
 function validView(node: ViewNode, count: { value: number }, depth = 0): boolean {
   if (!node || typeof node.id !== 'string' || typeof node.text !== 'string' || typeof node.open!=='boolean'||typeof node.disabled!=='boolean'||typeof node.active_overlay!=='boolean'|| !Array.isArray(node.children) || !supported.has(node.kind) || depth > 32 || ++count.value > 4096) return false;
   return node.children.every(child => validView(child, count, depth + 1));

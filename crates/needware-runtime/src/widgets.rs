@@ -4,6 +4,7 @@ pub(crate) struct RenderScope<'a> {
     pub controls: &'a Controls,
     pub form: Option<&'a str>,
     pub scope_id: Option<&'a str>,
+    pub package: &'a VerifiedPackage,
 }
 
 pub(crate) fn binding(

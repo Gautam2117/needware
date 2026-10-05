@@ -1,6 +1,7 @@
 //! Verified packages execute transactionally; platform effects remain typed data.
 mod controls;
 mod revisions;
+mod visuals;
 mod widgets;
 pub use controls::RuntimeSavepoint;
 use controls::{Controls, change_controls};
@@ -12,6 +13,7 @@ pub use revisions::{RevisionPreview, RevisionReport};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
+pub use visuals::Raster;
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
@@ -47,6 +49,8 @@ pub struct ViewNode {
     pub input_contract: Option<Field>,
     pub form_scope: Option<String>,
     pub disabled: bool,
+    pub raster: Option<Raster>,
+    pub theme: Option<Theme>,
     pub field: Option<String>,
     pub action: Option<String>,
     pub event_fields: Option<Vec<String>>,
@@ -107,6 +111,14 @@ impl Runtime {
     pub fn restore(&mut self, state: State) -> Result<(), RuntimeError> {
         needware_validation::validate_state(&state, self.application())
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
+        if self
+            .application()
+            .runtime_features
+            .iter()
+            .any(|feature| feature == "declarative_widgets_v1")
+        {
+            self.view_cut(&state, &self.controls)?;
+        }
         self.state = state;
         Ok(())
     }
@@ -204,9 +216,10 @@ impl Runtime {
                 controls,
                 form: None,
                 scope_id: None,
+                package: &self.package,
             },
             &mut Budget::new(1_000_000),
-            &mut 0,
+            &mut visuals::RenderMeter::default(),
         )
     }
 }
@@ -449,10 +462,15 @@ fn render(
     record: Option<&str>,
     scope: &widgets::RenderScope<'_>,
     budget: &mut Budget,
-    count: &mut u32,
+    meter: &mut visuals::RenderMeter,
 ) -> Result<ViewNode, RuntimeError> {
-    *count += 1;
-    if *count > 4096 {
+    meter.nodes += 1;
+    let theme = if meter.nodes == 1 {
+        Some(app.theme.clone())
+    } else {
+        None
+    };
+    if meter.nodes > 4096 {
         return Err(RuntimeError::Limit);
     }
     let text = match &node.text {
@@ -471,6 +489,7 @@ fn render(
     let nested_scope = widgets::RenderScope {
         controls: scope.controls,
         form,
+        package: scope.package,
         scope_id: if node.kind == Component::Form {
             Some(&node.id)
         } else {
@@ -478,6 +497,7 @@ fn render(
         },
     };
     let (input_contract, value, disabled) = widgets::binding(node, app, ctx, form, budget)?;
+    let raster = visuals::prepare(node, &value, &text, scope.package, meter)?;
     if open && matches!(node.kind, Component::List | Component::Table) {
         let collection = node
             .collection
@@ -501,7 +521,7 @@ fn render(
                     Some(id),
                     &nested_scope,
                     budget,
-                    count,
+                    meter,
                 )?);
             }
         }
@@ -514,7 +534,7 @@ fn render(
                 record,
                 &nested_scope,
                 budget,
-                count,
+                meter,
             )?);
         }
     }
@@ -532,6 +552,8 @@ fn render(
             None => name.into(),
         }),
         disabled,
+        raster,
+        theme,
         field: node.field.clone(),
         action: node.action.clone(),
         event_fields: node
