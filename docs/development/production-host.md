@@ -1,5 +1,13 @@
 # Production host and release procedure
 
+The owner's current deployment budget is zero. Use Oracle Always Free capacity
+only; do not upgrade the tenancy, spend trial credits on paid resources, or
+repurpose existing workloads. See [free hosting status](production-free-tier.md)
+for the verified capacity blocker and merchant approval boundary. The Stripe
+configuration below describes the current implementation, not an approved
+production merchant choice. Razorpay/Cashfree integration and approval remain
+release blockers; do not substitute another business's credentials.
+
 Use one Linux host with systemd, Node 24.21.0 at `/opt/needware/node/bin/node`,
 the pinned repository Rust toolchain, pnpm 11.5.3, wasm-bindgen 0.2.129, Git,
 PostgreSQL 18.6 and Caddy. Only SSH and Caddy's HTTPS/HTTP ports are public.
