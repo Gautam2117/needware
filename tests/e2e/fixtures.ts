@@ -1,11 +1,14 @@
 import { test as base, type Page } from '@playwright/test';
 import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
-export const test = base.extend<{ offlineServer: { url: string; stop(): Promise<void> } }>({
+export const test = base.extend<{ offlineServer: { url: string; stop(): Promise<void>;update():void } }>({
   offlineServer: async ({ baseURL }, use) => {
     const upstream = new URL(baseURL ?? 'http://127.0.0.1:3108');
+    let revision=0;
     const server = createServer((incoming, outgoing) => {
-      const relay = request({ hostname: upstream.hostname, port: upstream.port, path: incoming.url, method: incoming.method, headers: { ...incoming.headers, host: upstream.host } }, response => {
+      const isWorker=incoming.url?.split('?')[0]==='/sw.js'&&incoming.method==='GET';const headers={...incoming.headers,host:upstream.host};if(isWorker){delete headers['if-none-match'];delete headers['if-modified-since'];headers['accept-encoding']='identity';}
+      const relay = request({ hostname: upstream.hostname, port: upstream.port, path: incoming.url, method: incoming.method, headers }, response => {
+        if(isWorker&&revision){const parts:Buffer[]=[];response.on('data',part=>parts.push(part));response.on('end',()=>{const body=Buffer.concat(parts).toString().replace('const CACHE="needware-',`const CACHE="needware-test-update-${revision}-`);const changed={...response.headers,'cache-control':'no-store'};delete changed['content-length'];delete changed.etag;outgoing.writeHead(response.statusCode??502,changed);outgoing.end(body);});return;}
         outgoing.writeHead(response.statusCode ?? 502, response.headers); response.pipe(outgoing);
       });
       relay.on('error', () => { if (!outgoing.headersSent) outgoing.writeHead(502); outgoing.end(); });
@@ -14,7 +17,7 @@ export const test = base.extend<{ offlineServer: { url: string; stop(): Promise<
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     let stopped = false;
     const stop = async () => { if (stopped) return; stopped = true; server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); };
-    try { await use({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/`, stop }); }
+    try { await use({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/`, stop,update(){revision++;} }); }
     finally { await stop(); }
   },
 });

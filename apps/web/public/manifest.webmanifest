@@ -1,1 +1,31 @@
-{"id":"/","name":"Needware","short_name":"Needware","description":"Software when you need it.","start_url":"/","scope":"/","display":"standalone","background_color":"#f5f4ef","theme_color":"#18594e"}
+{
+  "id": "/",
+  "name": "Needware",
+  "short_name": "Needware",
+  "description": "Software when you need it.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f4ef",
+  "theme_color": "#18594e",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

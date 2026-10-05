@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { EncryptedCommand, EncryptedEntry, EncryptedLoaded, CloudEntry, EpochRecipientChoice, SharedRevisionReview } from '../../../../packages/browser-host/src/encrypted-protocol';
 import type { PackageInfo } from '../../../../packages/browser-host/src/protocol';
 import { WorkerHost } from '../../../../packages/browser-host/src/worker-host';
 import Sandbox from '../sandbox';
+import OfflineLink from '../offline-link';
 import type {SandboxHandle} from '../draft-recovery';
 import RevisionReview from '../revision-review';
 import { frameDocument } from '../frame-document';
@@ -91,7 +91,7 @@ export default function EncryptedApplications() {
     await show(await host.current?.request<EncryptedLoaded>({kind:'publish-shared-revision',account,instance:loaded.instance,digest:schemaReview.review_digest,destructive,permissions:true,retained}));setSchemaReview(undefined);setStatus('Reviewed shared revision published. The previous revision remains in recovery history.');
   }
   const frame = frameDocument(renderer);
-  return <><header><Link href="/">needware /</Link><nav><Link href="/account">Your account</Link></nav></header><main id="main">
+  return <><header><OfflineLink href="/">needware /</OfflineLink><nav><OfflineLink href="/account">Your account</OfflineLink></nav></header><main id="main">
     <span className="eyebrow">Your trusted browser</span><h1>Encrypted applications</h1><p>Your application and its data are encrypted before being saved on this browser. Already saved applications work offline after the shell finishes caching.</p>
     <p className="notice">Choose Sync to upload encrypted definitions and shared changes to your account. Other application state stays on this device. Pending changes remain durable here until the service acknowledges them. Cloud recovery needs your account keys and a current document grant.</p>
     <div role="status" aria-live="polite">{busy ? 'Saving encrypted application…' : status}</div>{error && <p className="notice error" role="alert">{error}</p>}
