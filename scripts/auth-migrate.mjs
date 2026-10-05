@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { loadEnvironment } from './load-environment.mjs';
+import {migrationFiles,verifyMigrationFiles,assertPriorSchema,recordSchemaReadiness} from './schema-readiness.mjs';
 // Run with configured environment; no reset/drop operation is performed.
 loadEnvironment();
 const require = createRequire(new URL('../apps/web/package.json', import.meta.url));
@@ -9,6 +10,9 @@ const { default: canonicalize } = await import(require.resolve('canonicalize'));
 const { authResources } = await import('../apps/web/lib/auth-options.ts');
 const { options, pool } = authResources();
 try {
+  const files=await migrationFiles();
+  await verifyMigrationFiles(pool,files);
+  await assertPriorSchema(pool);
   const migrations = await getMigrations(options);
   if (migrations.unsafeChanges.length || migrations.schemaProblems.length) throw new Error('Unsafe account migration requires a reviewed repair');
   const sql = await migrations.compileMigrations();
@@ -37,6 +41,7 @@ try {
         await client.query('UPDATE needware_document_member SET metadata_bytes=$4 WHERE document_id=$1 AND account_id=$2 AND device_id=$3', [id, member.account_id, member.device_id, size]);
       }
     }
+    await recordSchemaReadiness(client,files);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }

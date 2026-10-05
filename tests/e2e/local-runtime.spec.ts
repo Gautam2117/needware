@@ -33,6 +33,7 @@ test('two tabs reject stale writes and recover database leadership', async ({ pa
   const other = await context.newPage(); await other.goto('/');
   await other.getByRole('button', { name: 'Open Habit tracker' }).click();
   const first = page.frameLocator('iframe'); const second = other.frameLocator('iframe');
+  await expect(second.getByLabel('Habit name')).toBeVisible();
   await first.getByLabel('Habit name').fill('Stale writer');
   await first.getByRole('button', { name: 'Add habit', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: /another writer|Concurrent state change/ })).toBeVisible();

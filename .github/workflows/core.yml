@@ -24,6 +24,7 @@ jobs:
       - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts && git diff --exit-code -- packages/ir-types specs/application.schema.json'
       - run: python3 scripts/token_guard.py run 'cargo install wasm-bindgen-cli --version 0.2.129 --locked'
       - run: python3 scripts/token_guard.py run 'pnpm build'
+      - run: python3 scripts/token_guard.py run 'node scripts/verify_build_readiness.mjs'
       - run: python3 scripts/token_guard.py run 'pnpm exec playwright install --with-deps chromium firefox webkit'
       - run: |
           pnpm --filter @needware/web start --port 3108 > /tmp/needware-server.log 2>&1 &
@@ -38,6 +39,7 @@ jobs:
         timeout-minutes: 5
       - run: pnpm test:accounts
         timeout-minutes: 20
+      - run: python3 scripts/token_guard.py run 'node scripts/verify_schema_readiness.mjs && node scripts/build-readiness.mjs'
       - run: pnpm test:roots
         timeout-minutes: 20
       - run: pnpm test:revisions

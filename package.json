@@ -8,7 +8,9 @@
   },
   "scripts": {
     "build:browser": "python3 scripts/token_guard.py run 'node scripts/build_browser.mjs'",
-    "build": "pnpm build:browser && pnpm --filter @needware/web build && node scripts/generate_offline.mjs",
+    "build": "pnpm build:browser && pnpm --filter @needware/web build && node scripts/generate_offline.mjs && node scripts/build-readiness.mjs --record",
+    "production:preflight": "node scripts/production-preflight.mjs",
+    "test:preflight": "python3 scripts/token_guard.py run 'node --test scripts/production-preflight.test.mjs'",
     "test:e2e": "python3 scripts/token_guard.py run 'node scripts/run-browser-acceptance.mjs'",
     "test:compiler": "python3 scripts/token_guard.py run 'node scripts/verify_compiler.mjs'",
     "dev": "pnpm build:browser && node scripts/dev.mjs",
