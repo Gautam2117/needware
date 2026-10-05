@@ -17,7 +17,8 @@ try {
   const isolated = new URL(source); isolated.pathname = `/${database}`;
   const result = spawnSync(process.execPath, ['scripts/verify_accounts.mjs'], {
     stdio: 'inherit', env: { ...process.env, DATABASE_URL: isolated.toString(), NEEDWARE_ACCEPTANCE_DATABASE: database,
-      ...(process.argv.includes('--roots') ? { NEEDWARE_TEST_ROOT_FOCUS: '1' } : {}) },
+      ...(process.argv.includes('--roots') ? { NEEDWARE_TEST_ROOT_FOCUS: '1' } : {}),
+      ...(process.argv.includes('--revisions') ? { NEEDWARE_TEST_REVISION_FOCUS: '1' } : {}) },
   });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;

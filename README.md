@@ -38,13 +38,13 @@ Opt-in synchronization uploads private ciphertext, enforces registered-device an
 owner-signed grants, and retains outgoing changes through failed uploads. Cloud
 package imports require a fresh signer/permission review. Owner-approved fresh
 document epochs stage under quota, retain encrypted history, activate atomically
-and remove old collaborator grants. See the [relay boundary](docs/decisions/0009-authorized-ciphertext-relay.md) and [cloud epoch protocol](docs/decisions/0011-atomic-cloud-document-epochs.md). Account-root/device revocation, synchronized revision rebase and production deployment remain unfinished.
+and remove old collaborator grants. See the [relay boundary](docs/decisions/0009-authorized-ciphertext-relay.md) and [cloud epoch protocol](docs/decisions/0011-atomic-cloud-document-epochs.md). Atomic account-root/device revocation and durable synchronized revision publication pass local acceptance. Stale clients preserve old-schema edits for explicit review; automatic compatible rebase and production deployment remain unfinished. See the [schema revision boundary](docs/decisions/0013-durable-synchronized-schema-revisions.md).
 
 `pnpm dev` starts the shell and local Rust compiler gateway. Configure an approved provider using `.env.example`; without a provider, generation is unavailable. Creation requires disclosure of the recipient and installation-owned credentials. Four HTTP adapters feed a bounded Rust validation/signing pipeline. `pnpm test:compiler` explicitly starts a free HTTP fixture and verifies the browser wiring; it does not call a model. See [compiler setup and limitations](docs/development/compiler.md). Account services remain under implementation.
 
 ## Engineering boundaries
 
-Native and browser revisions support explicit [preview, activation and recoverable rollback](docs/development/revisions.md). The browser retains the previous package and data atomically and rejects stale reviews. Compiler-driven refinement and synchronized schema transitions remain under implementation.
+Native and browser revisions support explicit [preview, activation and recoverable rollback](docs/development/revisions.md). The browser retains the previous package and data atomically and rejects stale reviews. Durable synchronized schema publication and explicit stale-client review are implemented. Compiler-driven refinement and automatic compatible rebase remain under implementation.
 
 - Deny-by-default capability authorization bound to application and revision.
 - Canonical domain types in Rust; mechanically generated browser contracts.

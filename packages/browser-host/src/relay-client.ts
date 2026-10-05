@@ -1,10 +1,13 @@
 import canonicalize from 'canonicalize';
 import type { BrowserVault, BrowserSync } from 'needware-wasm-runtime';
-import { DurableSyncSession, type CloudArtifact, type JournalOptions } from './sync-journal';
+import { DurableSyncSession, type CloudArtifact, type JournalOptions, type JournalEpoch, type RetainedJournal } from './sync-journal';
 import type { EncryptedDocumentStore } from './journal-store';
 type Descriptor = CloudArtifact['descriptor'];
 export type RelayRead = { descriptor: Descriptor; epoch?: {previous_binding:unknown;transition:unknown;checkpoint_manifest:{digest:string;bytes:number};root_rotation?:unknown}|null; membership: { root_epoch: number; authority: number[] }; key_envelope: { kind: 'held' | 'offer'; value: unknown }; roster: unknown[]; frames: string[]; cursor: string; more: boolean;owner_rekey_required?:boolean };
 export class RelayFailure extends Error { constructor(readonly status: number, readonly retryAfter: number, message: string) { super(message); } }
+export class RevisionReviewRequired extends RelayFailure {
+  constructor(){super(409,0,'The shared application changed. Offline edits are preserved. Review the current revision before reconnecting.');}
+}
 const encode = (bytes: Uint8Array) => { const parts=[];for(let i=0;i<bytes.length;i+=8192)parts.push(String.fromCharCode(...bytes.subarray(i,i+8192)));return btoa(parts.join('')); };
 const decode = (value: string) => Uint8Array.from(atob(value),char=>char.charCodeAt(0));
 const digest = async (bytes: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes)))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
@@ -39,9 +42,10 @@ export class DocumentRelay {
     // Only the owner publishes package/configuration. Collaborators use their granted existing descriptor.
     if(document.account===account){
       let exists=false;
-      try {const remote=await this.request<RelayRead>({action:'read',document:document.document,cursor:session.cursor()||'0'});exists=canonicalize(remote.descriptor)===canonicalize(artifact.descriptor);
+      try {const remote=await this.request<RelayRead>({action:'read',document:document.document,cursor:'0'});exists=canonicalize(remote.descriptor)===canonicalize(artifact.descriptor);
+        if(canonicalize(remote.descriptor.binding)!==canonicalize(JSON.parse(session.binding())))throw new RevisionReviewRequired();
         if(!exists)throw new Error('Pinned cloud package differs; local application preserved');}
-      catch(error){if(!(error instanceof RelayFailure)||![404,409].includes(error.status))throw error;}
+      catch(error){if(error instanceof RevisionReviewRequired||!(error instanceof RelayFailure)||![404,409].includes(error.status))throw error;}
       if(!exists){
         await this.request({action:'create',document:document.document,descriptor:artifact.descriptor,membership:artifact.membership,key_envelope:artifact.key_envelope});
         const content=decode(artifact.ciphertext);
@@ -50,7 +54,11 @@ export class DocumentRelay {
         await this.request({action:'finalize',document:document.document});
       }
     }
-    const pulled=await this.request<RelayRead>({action:'read',document:document.document,cursor:session.cursor()||'0'});
+    // A migrated epoch resets its cursor. Authenticate its binding before sending an old cursor.
+    let pulled=await this.request<RelayRead>({action:'read',document:document.document,cursor:'0'});
+    if(canonicalize(pulled.descriptor.binding)!==canonicalize(JSON.parse(session.binding())))throw new RevisionReviewRequired();
+    if(session.cursor()&&session.cursor()!=='0')pulled=await this.request<RelayRead>({action:'read',document:document.document,cursor:session.cursor()!});
+    if(canonicalize(pulled.descriptor.binding)!==canonicalize(JSON.parse(session.binding())))throw new RevisionReviewRequired();
     await session.receiveWithRoster(pulled.frames,pulled.cursor,JSON.stringify(pulled.roster));
     let uploaded=0;
     for(const frame of session.pending()){
@@ -78,7 +86,7 @@ export class DocumentRelay {
     if(status&&canonicalize(status.binding)!==canonicalize(binding))throw new Error('Cloud epoch intent differs; local history preserved');
     if(status?.status==='active'){await session.finishCloudEpoch(this.vault);return;}
     if(status&&status.status!=='staging')throw new Error('Epoch has been superseded; review retained local history');
-    await this.request({action:'epoch_prepare',document,descriptor:artifact.descriptor,transition:intent.transition,checkpoint:intent.checkpoint,source_cursor:intent.sourceCursor,membership:artifact.membership,key_envelope:artifact.key_envelope,...(intent.recipients?{recipients:intent.recipients}: {})});
+    await this.request({action:'epoch_prepare',document,descriptor:artifact.descriptor,transition:intent.transition,checkpoint:intent.checkpoint,source_cursor:intent.sourceCursor,membership:artifact.membership,key_envelope:artifact.key_envelope,...(intent.recipients?{recipients:intent.recipients}: {}),...(next.epoch.revision?{schema_revision:true}:{})});
     for(const [kind,encoded] of [['package',artifact.ciphertext],['checkpoint',next.epoch.checkpoint]] as const){
       const content=decode(encoded);try{for(let offset=0;offset<content.length;offset+=1048576){const index=offset/1048576;
         if(status?.chunks.some(chunk=>chunk.kind===kind&&chunk.chunk_index===index))continue;
@@ -145,7 +153,7 @@ export class DocumentRelay {
       if(configuration.authority!==pin||configuration.ownerEpoch!==ownerEpoch||canonicalize(JSON.parse(configuration.binding))!==canonicalize(binding))throw new Error('Encrypted configuration pin mismatch');
       session=staged.open_shared_document(bytes,document,canonicalize(read.membership)!,ownerEpoch,pin,binding.generation,configuration.scope,binding.schema_epoch,true);
       session.set_roster(canonicalize(read.roster)!);
-      let importedEpoch:{checkpoint:string;previous:string;acceptedRoot?:true}|undefined;
+      let importedEpoch:JournalEpoch|undefined;
       if(read.epoch){
         if(binding.generation<2)throw new Error('Unexpected initial document epoch checkpoint');
         const expected=read.epoch?.checkpoint_manifest;
@@ -156,6 +164,7 @@ export class DocumentRelay {
           if(await digest(checkpoint)!==expected.digest)throw new Error('Encrypted checkpoint digest mismatch');
           const previous=canonicalize(read.epoch!.previous_binding)!;
           if(read.epoch!.root_rotation){session.install_accepted_root_epoch(checkpoint,previous);importedEpoch={checkpoint:encode(checkpoint),previous,acceptedRoot:true};}
+          else if(binding.schema_epoch!==JSON.parse(previous).schema_epoch){session.install_revision_epoch(checkpoint,previous);importedEpoch={checkpoint:encode(checkpoint),previous,revision:true};}
           else{session.install_epoch(checkpoint,previous);importedEpoch={checkpoint:encode(checkpoint),previous};}
         }finally{checkpoint.fill(0);}
       }
@@ -164,18 +173,35 @@ export class DocumentRelay {
       for(;;){for(const frame of batch.frames)session.receive(frame);if(!batch.more)break;if(++batches>=128)throw new Error('Import history batch limit');
         batch=await this.request<RelayRead>({action:'read',document,cursor:batch.cursor});session.set_roster(canonicalize(batch.roster)!);}
       const cloud:CloudArtifact={descriptor:read.descriptor,ciphertext:encode(encrypted),membership:read.membership,key_envelope:{kind:'held',value:JSON.parse(staged.held_document_key_backup(document))}};
-      const proposal=new PreparedImport(store,this.vault,bytes,session,{account,rootGeneration,scope:configuration.scope,ownerEpoch,authority:pin,roster:canonicalize(batch.roster)!,imported:{cursor:batch.cursor,cloud,epoch:importedEpoch}},staged);session=undefined;bytes=undefined;
+      const saved=await store.load(account,document);let retained:RetainedJournal|undefined;
+      if(saved){try{
+        const source=new TextDecoder('utf-8',{fatal:true}).decode(saved.bytes),prior=JSON.parse(source);
+        if(prior.account!==account||prior.document!==document||prior.authority!==pin)throw new Error('Existing owner pin differs; original preserved');
+        const wasmPath='/wasm/needware_wasm.js';const {inspect_package}=await import(/* webpackIgnore: true */wasmPath) as typeof import('needware-wasm-runtime');
+        const previousPackage=decode(prior.package);let previousInfo;
+        try{previousInfo=JSON.parse(inspect_package(previousPackage));}finally{previousPackage.fill(0);}
+        const nextInfo=JSON.parse(inspect_package(bytes));
+        if(previousInfo.application.id!==nextInfo.application.id||!importedEpoch)throw new Error('Shared revision chain needs further review; original preserved');
+        const oldBinding=JSON.parse(prior.binding);
+        if(importedEpoch.revision){
+          if(canonicalize(JSON.parse(importedEpoch.previous))!==canonicalize(oldBinding)||nextInfo.application.parent!==previousInfo.digest)throw new Error('Updated package does not name the exact signed parent and source epoch; original preserved');
+        }else if(previousInfo.digest!==nextInfo.digest||oldBinding.document.account!==(binding.document as {account?:string}).account||oldBinding.document.document!==binding.document.document||oldBinding.schema_epoch!==binding.schema_epoch||oldBinding.generation>=binding.generation)throw new Error('Shared recovery requires an unchanged signed package and schema; original preserved');
+        retained={source,generation:saved.generation,rootGeneration:saved.rootGeneration};
+      }finally{saved.bytes.fill(0);}}
+      const proposal=new PreparedImport(store,this.vault,bytes,session,{account,rootGeneration,scope:configuration.scope,ownerEpoch,authority:pin,roster:canonicalize(batch.roster)!,imported:{cursor:batch.cursor,cloud,epoch:importedEpoch}},staged,retained);session=undefined;bytes=undefined;
       return proposal;
     }finally{encrypted.fill(0);bytes?.fill(0);configBytes?.fill(0);session?.free();}
     }catch(error){staged.free();throw error;}
   }
 }
 export class PreparedImport {
-  constructor(private readonly store:EncryptedDocumentStore,private readonly vault:BrowserVault,private readonly bytes:Uint8Array,private session:BrowserSync|undefined,private readonly options:JournalOptions,private readonly staged:BrowserVault){}
+  constructor(private readonly store:EncryptedDocumentStore,private readonly vault:BrowserVault,private readonly bytes:Uint8Array,private session:BrowserSync|undefined,private readonly options:JournalOptions,private readonly staged:BrowserVault,private readonly retained?:RetainedJournal){}
   inspect<T>(inspect:(bytes:Uint8Array)=>T):T{if(!this.session)throw new Error('Import review closed');return inspect(this.bytes);}
-  async commit():Promise<DurableSyncSession>{if(!this.session)throw new Error('Import review closed');
+  offlineReview():{pending:number;state:string}|undefined{if(!this.session)throw new Error('Import review closed');if(!this.retained)return;const source=JSON.parse(this.retained.source);return {pending:source.queued.length,state:source.state};}
+  async commit(preserveOffline=false):Promise<DurableSyncSession>{if(!this.session)throw new Error('Import review closed');
+    if(this.retained&&!preserveOffline)throw new Error('Review and explicitly retain the old revision and offline edits before adopting the shared revision');
     const backup=this.vault.local_backup();let probe:BrowserVault;try{probe=(this.vault.constructor as typeof BrowserVault).from_local_backup(backup);}finally{backup.fill(0);}
     try{this.session.activate_document_key(probe);}finally{probe.free();}
-    const durable=await DurableSyncSession.create(this.store,this.staged,this.bytes,this.session,this.options);this.session.activate_document_key(this.vault);this.session=undefined;this.bytes.fill(0);return durable;}
+    const durable=await DurableSyncSession.create(this.store,this.staged,this.bytes,this.session,this.options,this.retained);this.session.activate_document_key(this.vault);this.session=undefined;this.bytes.fill(0);return durable;}
   close():void{this.session?.free();this.session=undefined;this.bytes.fill(0);this.staged.free();}
 }

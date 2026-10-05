@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import type { RevisionReport } from '../../../packages/browser-host/src/protocol';
-export default function RevisionReview({ report, busy, activate, cancel }: { report: RevisionReport; busy: boolean; activate: (destructive: boolean, permissions: boolean) => void; cancel: () => void }) {
+export default function RevisionReview({ report, busy, approvalBlocked=false, activate, cancel }: { report: RevisionReport; busy: boolean; approvalBlocked?: boolean; activate: (destructive: boolean, permissions: boolean) => void; cancel: () => void }) {
   const [destructive, setDestructive] = useState(false);
   const [permissions, setPermissions] = useState(false);
   return <section className="review" aria-labelledby="revision-title">
@@ -12,7 +12,7 @@ export default function RevisionReview({ report, busy, activate, cancel }: { rep
     {!!report.permissions_added.length && <><p>New or broader permissions:</p><pre>{JSON.stringify(report.permissions_added, null, 2)}</pre><label><input type="checkbox" checked={permissions} onChange={e => setPermissions(e.target.checked)} /> Allow the new permissions for this revision</label></>}
     {!!report.permissions_removed.length && <><p>Permissions being removed:</p><pre>{JSON.stringify(report.permissions_removed, null, 2)}</pre></>}
     {report.migration.requires_confirmation && <label><input type="checkbox" checked={destructive} onChange={e => setDestructive(e.target.checked)} /> I approve these destructive data changes</label>}
-    <button disabled={busy || (report.migration.requires_confirmation && !destructive) || (!!report.permissions_added.length && !permissions)} onClick={() => activate(destructive, permissions)}>Activate reviewed revision</button>
+    <button disabled={busy || approvalBlocked || (report.migration.requires_confirmation && !destructive) || (!!report.permissions_added.length && !permissions)} onClick={() => activate(destructive, permissions)}>Activate reviewed revision</button>
     <button disabled={busy} onClick={cancel}>Cancel revision</button>
   </section>;
 }

@@ -7,7 +7,7 @@ export type Device = { id: string; encryption: number[]; signing: number[] };
 export type Membership = { document: DocumentContext; root_epoch: number; authority: number[]; generation: number; device: Device; role: 'read' | 'write'; signature: number[] };
 export type Binding = { protocol: 1; document: DocumentContext; application: string; revision: string; schema_epoch: number; schema_digest: string; generation: number };
 export type DocumentTransition = { previous: DocumentContext; next: DocumentContext; root: Context; authority: number[]; previous_generation: number; next_generation: number; digests: { previous_binding: number[]; next_binding: number[]; history: number[]; baseline: number[] }; signature: number[] };
-export function transition(value: unknown, previous: Binding, next: Binding, owner: Context, authority: Buffer): DocumentTransition {
+export function transition(value: unknown, previous: Binding, next: Binding, owner: Context, authority: Buffer, revision = false): DocumentTransition {
   const fields = object(value,['previous','next','root','authority','previous_generation','next_generation','digests','signature']);
   const before = documentContext(fields.previous), after = documentContext(fields.next), root = context(fields.root,owner.account);
   const key = publicKey(fields.authority), signature = bytes(fields.signature,64);
@@ -19,7 +19,9 @@ export function transition(value: unknown, previous: Binding, next: Binding, own
     ||canonicalize(root)!==canonicalize(owner)||!authority.equals(Buffer.from(key))
     ||before.account!==owner.account||before.document!==after.document||before.account!==after.account||before.epoch+1!==after.epoch
     ||fields.previous_generation!==previous.generation||fields.next_generation!==next.generation||previous.generation+1!==next.generation
-    ||previous.application!==next.application||previous.revision!==next.revision||previous.schema_epoch!==next.schema_epoch||previous.schema_digest!==next.schema_digest
+    ||previous.application!==next.application
+    ||(revision ? previous.revision===next.revision||previous.schema_epoch+1!==next.schema_epoch||previous.schema_digest===next.schema_digest
+      :previous.revision!==next.revision||previous.schema_epoch!==next.schema_epoch||previous.schema_digest!==next.schema_digest)
     ||!hash(previous).equals(Buffer.from(digests.previous_binding as number[]))||!hash(next).equals(Buffer.from(digests.next_binding as number[])))throw new CloudError(403,'Document transition does not match its pinned source');
   checkSignature(key,'NEEDWARE-DOCUMENT-TRANSITION-v1',[before,after,root,key,previous.generation,next.generation,digests],signature);
   return fields as DocumentTransition;

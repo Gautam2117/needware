@@ -1,4 +1,5 @@
 import initWasm, { BrowserVault, authored_sync_example, inspect_package } from 'needware-wasm-runtime';
+import type { BrowserRevisionReview } from 'needware-wasm-runtime';
 import { openVaultStore, type EncryptedVaultStore } from './vault-store';
 import { DurableSyncSession } from './sync-journal';
 import type { EncryptedCommand, EncryptedLoaded, EncryptedEntry } from './encrypted-protocol';
@@ -6,6 +7,8 @@ import type { PackageInfo, WorkerReply } from './protocol';
 import { requireSupported } from '../../renderer/src/registry';
 import { DocumentRelay, RelayFailure, type PreparedImport } from './relay-client';
 let proposal: { document: string; value: PreparedImport; info: PackageInfo } | undefined;
+let revision: {instance:string;bytes:Uint8Array;scope:string;value:BrowserRevisionReview;info:PackageInfo}|undefined;
+function cancelRevision(){revision?.value.free();revision?.bytes.fill(0);revision=undefined;}
 let store: EncryptedVaultStore; let vault: BrowserVault | undefined;
 let account: string | undefined; let rootGeneration = 0;
 let session: DurableSyncSession | undefined; let current: EncryptedEntry | undefined; let instance = '';
@@ -18,6 +21,7 @@ function info(bytes: Uint8Array): PackageInfo {
 }
 async function openVault(id: string): Promise<void> {
   if (id === account && vault) return;
+  cancelRevision();
   proposal?.value.close(); proposal = undefined;
   await session?.close(); session = undefined; current = undefined; vault?.free(); vault = undefined; account = undefined;
   const root = await store.load(id);
@@ -27,6 +31,7 @@ async function openVault(id: string): Promise<void> {
   account = id; rootGeneration = root.generation;
 }
 async function activate(next: DurableSyncSession, entry: EncryptedEntry): Promise<EncryptedLoaded> {
+  cancelRevision();
   const view = JSON.parse(next.view()); await session?.close(); session = next; current = entry; instance = crypto.randomUUID();
   return { ...entry, instance, view, pendingUploads: next.pending().length, cloudEnabled: next.cloudEnabled(),epochPending:Boolean(next.cloudEpochIntent()),isOwner:JSON.parse(next.binding()).document.account===JSON.parse(vault!.account_context()).account };
 }
@@ -45,23 +50,43 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
       if(!owned)throw new Error('Cloud document unavailable');
       const own=(owned.binding as {document:{account:string}}).document.account===command.account;
       if(own)await relay.recoverOwnerGrant(command.document);
-      const pin=own?vault.account_authority():command.pin;const ownerEpoch=own?JSON.parse(vault.account_context()).epoch:command.ownerEpoch;
+      const trust=current?.document===command.document?session?.ownerTrust():undefined;
+      const pin=own?vault.account_authority():command.pin??trust?.pin;const ownerEpoch=own?JSON.parse(vault.account_context()).epoch:command.ownerEpoch??trust?.epoch;
       if(!pin||!ownerEpoch)throw new Error('Use the document invitation to verify its owner before importing');
       const value=await relay.prepareImport(store.documents,command.account,rootGeneration,command.document,pin,ownerEpoch,true);
-      try{const inspected=value.inspect(info);proposal={document:command.document,value,info:inspected};return {document:command.document,info:inspected};}
+      try{const inspected=value.inspect(info);proposal={document:command.document,value,info:inspected};return {document:command.document,info:inspected,offline:value.offlineReview()};}
       catch(error){value.close();throw error;}
     }
     case 'accept-cloud':{
       if(!command.consent||!proposal||proposal.document!==command.document)throw new Error('Review this cloud package before importing');
       const review=proposal;proposal=undefined;
-      try{return await activate(await review.value.commit(),{document:review.document,info:review.info});}finally{review.value.close();}
+      try{return await activate(await review.value.commit(command.preserveOffline),{document:review.document,info:review.info});}finally{review.value.close();}
     }
     case 'cancel-cloud':proposal?.value.close();proposal=undefined;return null;
     case 'sync':{
       if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');
-      const result=await new DocumentRelay(vault).synchronize(session);return {view:JSON.parse(session.view()),pendingUploads:result.pending,more:result.more,cloudEnabled:session.cloudEnabled(),epochPending:Boolean(session.cloudEpochIntent())};
+      const result=await new DocumentRelay(vault).synchronize(session),bytes=session.packageBytes();let updated;
+      try{updated=info(bytes);}finally{bytes.fill(0);}
+      if(current&&current.info.digest!==updated.digest){cancelRevision();current={document:current.document,info:updated};instance=crypto.randomUUID();}
+      return {info:updated,instance,view:JSON.parse(session.view()),pendingUploads:result.pending,more:result.more,cloudEnabled:session.cloudEnabled(),epochPending:Boolean(session.cloudEpochIntent())};
     }
     case 'epoch-state':if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');return {epochPending:Boolean(session.cloudEpochIntent())};
+    case 'preview-shared-revision':{
+      if(!session||!current||command.instance!==instance||!session.cloudEnabled())throw new Error('Open and synchronize the cloud application before reviewing its revision');
+      cancelRevision();const relay=new DocumentRelay(vault),synced=await relay.synchronize(session);
+      if(synced.more||synced.pending)throw new Error('Finish synchronization before reviewing the shared history cut');
+      const inspected=info(command.bytes),collections=[...new Set(inspected.application.capabilities.flatMap(cap=>cap.kind==='storage'&&cap.synchronized?cap.collections:[]))].sort(),scope=JSON.stringify({values:[],collections});
+      const value=await session.reviewRevision(command.bytes,scope);revision={instance,bytes:new Uint8Array(command.bytes),scope,value,info:inspected};return JSON.parse(value.info());
+    }
+    case 'cancel-shared-revision':cancelRevision();return null;
+    case 'publish-shared-revision':{
+      if(!session||!current||command.instance!==instance||!revision||revision.instance!==instance||command.permissions!==true)throw new Error('Review this signed revision and approve its permissions first');
+      const retained=(command.retained??[]).map(target=>{const certificate=JSON.parse(target.certificate);return {...target,context:JSON.stringify(certificate.context),authority:certificate.authority.map((byte:number)=>byte.toString(16).padStart(2,'0')).join('')};});
+      await session.stageCloudEpoch(vault,true,retained,{bytes:revision.bytes,scope:revision.scope,review:revision.value,digest:command.digest,destructive:command.destructive});
+      await new DocumentRelay(vault).resumeEpoch(session);
+      const entry={document:current.document,info:revision.info};cancelRevision();current=entry;instance=crypto.randomUUID();
+      return {...entry,instance,view:JSON.parse(session.view()),pendingUploads:session.pending().length,cloudEnabled:true,isOwner:true,epochPending:false};
+    }
     case 'epoch-recipients':{
       if(!session||!current||command.instance!==instance)throw new Error('Application instance is closed or stale');
       return await new DocumentRelay(vault).request({action:'recipients',document:current.document});
@@ -113,6 +138,7 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
       await session.dispatch(JSON.stringify({ action: command.action, values: command.values, now: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
       return { view: JSON.parse(session.view()), pendingUploads: session.pending().length };
     }
+    case 'recovery-history':if(!session||command.instance!==instance)throw new Error('Application instance is closed or stale');return session.recoveryHistory();
     case 'export-package': case 'export-state': {
       if (!session || command.instance !== instance) throw new Error('Application instance is closed or stale');
       return command.kind === 'export-package' ? session.packageBytes() : session.snapshot();

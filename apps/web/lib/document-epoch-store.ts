@@ -46,11 +46,13 @@ export async function epochAction(client:PoolClient,doc:RelayDocument,payload:Re
   }
   const rootFields=root?['root_rotation']:[],owner=root?.owner??identity.certificate,authority=root?Buffer.from(owner.authority):doc.authority,rootEpoch=root?owner.context.epoch:Number(doc.root_epoch);
   if(action==='epoch_prepare'){
-    object(payload,['action','document','descriptor','transition','checkpoint','source_cursor','membership','key_envelope',...('recipients' in payload?['recipients']:[]),...rootFields]);writer(identity);
+    const revision='schema_revision' in payload;
+    if(revision&&(payload.schema_revision!==true||root))throw new CloudError(400,'Schema and account-root changes require separate reviewed cuts');
+    object(payload,['action','document','descriptor','transition','checkpoint','source_cursor','membership','key_envelope',...('recipients' in payload?['recipients']:[]),...(revision?['schema_revision']:[]),...rootFields]);writer(identity);
     if(!doc.ready)throw new CloudError(409,'Current encrypted package is incomplete');
     const descriptor=object(payload.descriptor,['binding','configuration','package_digest','package_bytes']);
     const next=binding(descriptor.binding,doc.id);manifest({digest:descriptor.package_digest,bytes:descriptor.package_bytes},33554472);ciphertext(descriptor.configuration,40,32768);
-    const proof=transition(payload.transition,doc.binding,next,owner.context,authority);
+    const proof=transition(payload.transition,doc.binding,next,owner.context,authority,revision);
     const checkpoint=manifest(payload.checkpoint,16777256);
     if(typeof payload.source_cursor!=='string'||!/^(0|[1-9][0-9]{0,5})$/.test(payload.source_cursor)||Number(payload.source_cursor)!==Number(doc.next_sequence))throw new CloudError(409,'Source history changed; pull and review before preparing another cut');
     const grant=membership(payload.membership,next,authority,rootEpoch);

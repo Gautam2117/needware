@@ -1,14 +1,18 @@
 // Only the trusted host/worker may hold this session. Renderer frames receive views and effects.
-import type { BrowserRootRotation, BrowserSync, BrowserVault } from 'needware-wasm-runtime';
+import canonicalize from 'canonicalize';
+import type { BrowserRevisionReview, BrowserRootRotation, BrowserSync, BrowserVault } from 'needware-wasm-runtime';
 import type { RootJournalCut } from './root-rotation-store';
 import type { EncryptedDocumentStore } from './journal-store';
 interface Binding { document: { document: string }; generation: number; schema_epoch: number }
+export interface JournalEpoch { checkpoint: string; previous: string; acceptedRoot?: true; revision?: true }
+export interface SchemaCut { bytes: Uint8Array; scope: string; review: BrowserRevisionReview; digest: string; destructive: boolean }
+export interface RetainedJournal { generation: number; rootGeneration: number; source: string }
 interface Journal {
   version: 1; account: string; document: string; binding: string; scope: string;
   ownerEpoch: number; authority: string; membership: string; held: string; package: string;
   roster: string; frames: string[]; state: string; queued: string[]; cursor: string | null;
   cloud?: CloudArtifact;
-  epoch?: { checkpoint: string; previous: string; acceptedRoot?: true };
+  epoch?: JournalEpoch;
   archive?: string[];
   pendingEpoch?: CloudEpochIntent;
 }
@@ -16,7 +20,7 @@ export interface EpochRecipient { certificate: string; context: string; authorit
 export interface CloudEpochIntent { next: string; transition: unknown; checkpoint: { digest: string; bytes: number }; sourceCursor: string; recipients?: {recipient:unknown;membership:unknown;key_envelope:unknown}[] }
 export interface CloudArtifact { descriptor: { binding: unknown; configuration: string; package_digest: string; package_bytes: number }; ciphertext: string; membership: unknown; key_envelope: unknown; uploadedChunks?: number }
 export interface RootCloudCut { cut:RootJournalCut; source:{document:string;binding:unknown;cursor:string;history:{generation:number;held:unknown}[]}; prepare:Record<string,unknown> }
-export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact; epoch?: {checkpoint:string;previous:string;acceptedRoot?:true} } }
+export interface JournalOptions { account: string; rootGeneration: number; scope: string; ownerEpoch: number; authority: string; roster: string; imported?: { cursor: string; cloud: CloudArtifact; epoch?: JournalEpoch } }
 const encoder = new TextEncoder(); const decoder = new TextDecoder('utf-8', { fatal: true });
 function encode(bytes: Uint8Array): string {
   const parts: string[] = [];
@@ -39,7 +43,7 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
       || (value.cursor !== null && (typeof value.cursor !== 'string' || value.cursor.length > 256))) throw new Error('Invalid document journal; original preserved');
   const binding = JSON.parse(value.binding) as Binding;
   if (binding.document.document !== document) throw new Error('Journal document mismatch');
-  if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== (value.epoch.acceptedRoot===true?'acceptedRoot,checkpoint,previous':'checkpoint,previous') || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
+  if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== (value.epoch.acceptedRoot===true?'acceptedRoot,checkpoint,previous':value.epoch.revision===true?'checkpoint,previous,revision':'checkpoint,previous') || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
   if (value.archive !== undefined && (!Array.isArray(value.archive) || value.archive.length > 4 || value.archive.some(item => typeof item !== 'string'))) throw new Error('Invalid retained epoch archive');
   const intentFields=['checkpoint','next','sourceCursor','transition'];
   if(value.pendingEpoch?.recipients!==undefined){
@@ -54,7 +58,7 @@ export class DurableSyncSession {
   private closed = false;
   private closing = false;
   private constructor(private readonly store: EncryptedDocumentStore, private session: BrowserSync, private journal: Journal, private generation: number, private readonly rootGeneration: number) {}
-  static async create(store: EncryptedDocumentStore, vault: BrowserVault, packageBytes: Uint8Array, session: BrowserSync, options: JournalOptions): Promise<DurableSyncSession> {
+  static async create(store: EncryptedDocumentStore, vault: BrowserVault, packageBytes: Uint8Array, session: BrowserSync, options: JournalOptions, retained?: RetainedJournal): Promise<DurableSyncSession> {
     if (JSON.parse(vault.account_context()).account !== options.account) throw new Error('Vault account mismatch');
     const membership = JSON.parse(session.membership());
     if (membership.authority.map((byte: number) => byte.toString(16).padStart(2,'0')).join('') !== options.authority || membership.root_epoch !== options.ownerEpoch) throw new Error('Document owner pin mismatch');
@@ -67,9 +71,16 @@ export class DurableSyncSession {
       authority: options.authority, membership: session.membership(), held: vault.held_document_key_backup(document), package: encode(packageBytes),
       roster: options.roster, frames, state: session.snapshot(), queued: options.imported ? [] : [...frames], cursor: options.imported?.cursor ?? null,
       ...(options.imported ? { cloud: options.imported.cloud, ...(options.imported.epoch ? {epoch:options.imported.epoch} : {}) } : {}) };
+    if(retained){
+      if(retained.rootGeneration!==options.rootGeneration)throw new Error('Account changed after revision review; original preserved');
+      const previous=parse(encoder.encode(retained.source),options.account,document);
+      if(previous.pendingEpoch)throw new Error('Finish the pending epoch before reviewing another revision');
+      if((previous.archive?.length??0)>=4)throw new Error('Recovery archive is full; export it before adopting another revision');
+      const {archive,...source}=previous;journal.archive=[...(archive??[]),JSON.stringify(source)];
+    }
     const bytes = encoder.encode(JSON.stringify(journal));
     let generation: number;
-    try { generation = await store.save(options.account, document, bytes, null, options.rootGeneration); } finally { bytes.fill(0); }
+    try { generation = await store.save(options.account, document, bytes, retained?.generation??null, options.rootGeneration); } finally { bytes.fill(0); }
     return new DurableSyncSession(store, session, journal, generation, options.rootGeneration);
   }
   static async open(store: EncryptedDocumentStore, vault: BrowserVault, account: string, document: string, consent: boolean): Promise<DurableSyncSession> {
@@ -96,7 +107,7 @@ export class DurableSyncSession {
       session.set_roster(journal.roster);
       if (journal.epoch) {
         const checkpoint = decode(journal.epoch.checkpoint);
-        try { if(journal.epoch.acceptedRoot)session.install_accepted_root_epoch(checkpoint,journal.epoch.previous);else session.install_epoch(checkpoint, journal.epoch.previous); } finally { checkpoint.fill(0); }
+        try { if(journal.epoch.acceptedRoot)session.install_accepted_root_epoch(checkpoint,journal.epoch.previous);else if(journal.epoch.revision)session.install_revision_epoch(checkpoint,journal.epoch.previous);else session.install_epoch(checkpoint, journal.epoch.previous); } finally { checkpoint.fill(0); }
       }
       for (const frame of journal.frames) session.receive(frame);
       session.restore_local_state(journal.state);
@@ -106,6 +117,9 @@ export class DurableSyncSession {
   }
   view(): string { this.assertOpen(); return this.session.view(); }
   packageBytes(): Uint8Array<ArrayBuffer> { this.assertOpen(); return decode(this.journal.package); }
+  recoveryHistory(): {revision:string;pending:number;state:string;package:Uint8Array<ArrayBuffer>}[] {
+    this.assertOpen();return (this.journal.archive??[]).map(source=>{const journal=parse(encoder.encode(source),this.journal.account,this.journal.document);return {revision:JSON.parse(journal.binding).revision,pending:journal.queued.length,state:journal.state,package:decode(journal.package)};});
+  }
   static async inspect<T>(store: EncryptedDocumentStore, account: string, document: string, inspect: (bytes: Uint8Array) => T): Promise<T> {
     const saved = await store.load(account, document); if (!saved) throw new Error('Document is unavailable');
     let journal: Journal;
@@ -117,15 +131,21 @@ export class DurableSyncSession {
   cursor(): string | null { this.assertOpen(); return this.journal.cursor; }
   binding(): string { this.assertOpen(); return this.journal.binding; }
   cloudEnabled(): boolean { this.assertOpen(); return Boolean(this.journal.cloud); }
+  ownerTrust():{pin:string;epoch:number}{this.assertOpen();return {pin:this.journal.authority,epoch:this.journal.ownerEpoch};}
   cloudEpochIntent(): CloudEpochIntent | undefined { this.assertOpen();return this.journal.pendingEpoch?structuredClone(this.journal.pendingEpoch):undefined; }
-  async stageCloudEpoch(vault: BrowserVault, consent: boolean, retained: readonly EpochRecipient[] = []): Promise<CloudEpochIntent> {
+  async reviewRevision(bytes: Uint8Array, scope: string): Promise<BrowserRevisionReview> {
+    return this.serial(async()=>{this.requireActiveEpoch();return this.session.review_revision(bytes,scope);});
+  }
+  async stageCloudEpoch(vault: BrowserVault, consent: boolean, retained: readonly EpochRecipient[] = [], revision?: SchemaCut): Promise<CloudEpochIntent> {
     return this.serial(async () => {
-      if(this.journal.pendingEpoch)return structuredClone(this.journal.pendingEpoch);
+      if(this.journal.pendingEpoch){if(revision)throw new Error('Finish or cancel the pending cut before reviewing another revision');return structuredClone(this.journal.pendingEpoch);}
       if(!this.journal.cloud||this.journal.queued.length||this.journal.cursor===null)throw new Error('Finish encrypted cloud synchronization before approving a new epoch');
       if((this.journal.archive?.length??0)>=4)throw new Error('Retained epoch archive limit; original preserved');
-      const prepared=vault.prepare_document_epoch(this.session,consent),candidate=prepared.preview(),checkpoint=prepared.checkpoint();
-      const packageBytes=decode(this.journal.package);let content:Uint8Array|undefined,configuration:Uint8Array|undefined;
+      if(revision&&canonicalize(JSON.parse(revision.scope))!==canonicalize(JSON.parse(revision.review.info()).scope))throw new Error('Revision scope does not match the reviewed cut');
+      const prepared=revision?vault.prepare_revision_document_epoch(this.session,revision.review,revision.digest,consent,revision.destructive):vault.prepare_document_epoch(this.session,consent),candidate=prepared.preview(),checkpoint=prepared.checkpoint();
+      const packageBytes=revision?new Uint8Array(revision.bytes):decode(this.journal.package);let content:Uint8Array|undefined,configuration:Uint8Array|undefined;
       try{
+        candidate.verify_package(packageBytes);
         if(retained.length>255)throw new Error('Retained recipient limit');
         const recipients=retained.map(target=>{
           const recipient=JSON.parse(target.certificate),context=JSON.parse(target.context);
@@ -139,9 +159,9 @@ export class DurableSyncSession {
         const roster=JSON.stringify([JSON.parse(candidate.membership()),...recipients.map(item=>item.membership)]);
         candidate.set_roster(roster);
         const {archive:prior,...previous}=this.journal;
-        const next:Journal={...previous,binding:candidate.binding(),membership:candidate.membership(),held:prepared.held_backup(),
+        const next:Journal={...previous,package:encode(packageBytes),scope:revision?.scope??previous.scope,binding:candidate.binding(),membership:candidate.membership(),held:prepared.held_backup(),
           roster,frames:[],queued:[],cursor:'0',state:candidate.snapshot(),
-          epoch:{checkpoint:encode(checkpoint),previous:this.journal.binding},archive:[...(prior??[]),JSON.stringify(previous)]};
+          epoch:{checkpoint:encode(checkpoint),previous:this.journal.binding,...(revision?{revision:true as const}:{})},archive:[...(prior??[]),JSON.stringify(previous)]};
         content=candidate.seal_payload(packageBytes,`NEEDWARE-CLOUD-PACKAGE-v1:${next.document}`);
         const configBytes=encoder.encode(JSON.stringify({binding:next.binding,scope:next.scope,ownerEpoch:next.ownerEpoch,authority:next.authority}));
         try{configuration=candidate.seal_payload(configBytes,`NEEDWARE-CLOUD-CONFIGURATION-v1:${next.document}`);}finally{configBytes.fill(0);}
@@ -164,7 +184,8 @@ export class DurableSyncSession {
       try{
         staged.forget_document(next.document);staged.restore_held_document_key(next.held,JSON.stringify(JSON.parse(next.binding).document));
         candidate=staged.open_shared_document(packageBytes,next.document,next.membership,next.ownerEpoch,next.authority,JSON.parse(next.binding).generation,next.scope,JSON.parse(next.binding).schema_epoch,true);
-        if(candidate.binding()!==next.binding)throw new Error('Epoch package binding mismatch');candidate.set_roster(next.roster);candidate.install_epoch(checkpoint,next.epoch.previous);
+        if(candidate.binding()!==next.binding)throw new Error('Epoch package binding mismatch');candidate.set_roster(next.roster);
+        if(next.epoch.revision)candidate.install_revision_epoch(checkpoint,next.epoch.previous);else candidate.install_epoch(checkpoint,next.epoch.previous);
         candidate.restore_local_state(next.state);candidate.activate_document_key(probe);candidate.view();
         await this.publish(candidate,next);candidate=undefined;this.session.activate_document_key(vault);
       }finally{packageBytes.fill(0);checkpoint.fill(0);candidate?.free();staged.free();probe.free();}
