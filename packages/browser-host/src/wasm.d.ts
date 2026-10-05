@@ -14,6 +14,7 @@ declare module 'needware-wasm-runtime' {
     savepoint(): BrowserRuntimeSavepoint;
     restore_savepoint(cut: BrowserRuntimeSavepoint): void;
     dispatch(event: string): string;
+    select_page(node: string, offset: number): string;
     restore(state: string): void;
     preview_revision(bytes: Uint8Array, consent: boolean): string;
     approve_revision(review: string, destructive: boolean, permissions: boolean): BrowserRuntime;
@@ -79,6 +80,7 @@ declare module 'needware-wasm-runtime' {
     checkpoint(): string;
     receive(frame: string): number;
     dispatch(event: string): string;
+    select_page(node: string, offset: number): string;
     free(): void;
   }
   export class BrowserRevisionReview {

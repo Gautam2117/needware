@@ -31,4 +31,6 @@ for selector, name in enumerate(("runtime", "widgets", "visuals")):
         (root / f"fuzz/corpus/runtime_transaction/{name}-{action}-empty").write_bytes(bytes([selector]) + json.dumps(event, separators=(",", ":")).encode())
 for name, content in (("empty", b"{}"), ("duplicate", b'{"revision":"a","revision":"b","values":{},"collections":{}}')):
     (root / f"fuzz/corpus/strict_json/{name}").write_bytes(content)
-print("Seeded three authored signed fixtures and action/state/duplicate-key corpora")
+for index, page in enumerate((("habits", 0), ("habits", 1), ("habits", 100), ("missing", 0), ("habits", 4294967295))):
+    (root / f"fuzz/corpus/runtime_transaction/page-{index}").write_bytes(bytes([8]) + json.dumps(page, separators=(",", ":")).encode())
+print("Seeded three authored signed fixtures and action/state/page/duplicate-key corpora")

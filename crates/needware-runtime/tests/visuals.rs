@@ -179,3 +179,54 @@ fn compressed_images_cannot_exceed_the_aggregate_decode_budget() -> Result {
     ));
     Ok(())
 }
+
+#[test]
+fn a_failed_later_page_preserves_the_exact_current_projection() -> Result {
+    let mut definition = app();
+    let mut image = definition.screens[0].root.clone();
+    image.id = "page_image".into();
+    image.kind = Component::Image;
+    image.children.clear();
+    image.text = Some(Expr::Literal {
+        value: Value::String("Verified page image".into()),
+    });
+    image.value = Some(Expr::Item {
+        field: "name".into(),
+    });
+    let root = &mut definition.screens[0].root;
+    root.kind = Component::List;
+    root.collection = Some("habits".into());
+    root.children = vec![image];
+    let mut runtime = load(definition, true)?;
+    let digest = hex::encode(needware_crypto::digest(include_bytes!(
+        "../../../tests/fixtures/raster.png"
+    )));
+    let mut state = runtime.state().clone();
+    for index in 1..=101 {
+        state
+            .collections
+            .get_mut("habits")
+            .ok_or("missing habits")?
+            .insert(
+                uuid::Uuid::from_u128(index).to_string(),
+                BTreeMap::from([
+                    (
+                        "name".into(),
+                        Value::String(if index == 101 {
+                            "missing".into()
+                        } else {
+                            digest.clone()
+                        }),
+                    ),
+                    ("done".into(), Value::Boolean(false)),
+                ]),
+            );
+    }
+    runtime.restore(state.clone())?;
+    let view = runtime.view()?;
+    let before = serde_json::to_string(&view)?;
+    assert!(runtime.select_page(&view.id, 100).is_err());
+    assert_eq!(runtime.state(), &state);
+    assert_eq!(serde_json::to_string(&runtime.view()?)?, before);
+    Ok(())
+}

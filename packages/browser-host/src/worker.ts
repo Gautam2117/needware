@@ -179,6 +179,10 @@ async function execute(command: Command): Promise<unknown> {
         return { instance, info, view, storage } satisfies Loaded;
       } catch (error) { next.free(); throw error; }
     }
+    case 'select-page': {
+      if (!runtime || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
+      return JSON.parse(runtime.select_page(command.node, command.offset));
+    }
     case 'dispatch': {
       if (!runtime || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
       const previous = runtime.savepoint();

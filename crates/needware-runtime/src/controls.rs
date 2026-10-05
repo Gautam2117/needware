@@ -5,6 +5,7 @@ pub(crate) struct Controls {
     pub screen: String,
     pub history: Vec<String>,
     pub overlays: Vec<String>,
+    pub pages: BTreeMap<String, usize>,
 }
 
 /// An opaque rollback cut belongs to one runtime instance, never to serialized input.
@@ -15,6 +16,35 @@ pub struct RuntimeSavepoint {
 }
 
 impl Runtime {
+    /// Change a bounded projection without writing document data or emitting effects.
+    pub fn select_page(&mut self, node: &str, offset: usize) -> Result<ViewNode, RuntimeError> {
+        fn find<'a>(view: &'a ViewNode, id: &str) -> Option<&'a Pagination> {
+            if !view.open || view.disabled {
+                return None;
+            }
+            if view.id == id {
+                return view.pagination.as_ref();
+            }
+            view.children.iter().find_map(|child| find(child, id))
+        }
+        let view = self.view()?;
+        let page = find(&view, node)
+            .ok_or_else(|| RuntimeError::Invalid("unavailable collection page".into()))?;
+        if !offset.is_multiple_of(page.limit) || (offset != 0 && offset >= page.total) {
+            return Err(RuntimeError::Invalid(
+                "invalid collection page offset".into(),
+            ));
+        }
+        let mut controls = self.controls.clone();
+        if !controls.pages.contains_key(node) && controls.pages.len() >= 4096 {
+            return Err(RuntimeError::Limit);
+        }
+        controls.pages.insert(node.into(), offset);
+        let next = self.view_cut(&self.state, &controls)?;
+        self.controls = controls;
+        Ok(next)
+    }
+
     pub fn savepoint(&self) -> RuntimeSavepoint {
         RuntimeSavepoint {
             instance: self.instance.clone(),

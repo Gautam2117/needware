@@ -27,7 +27,18 @@ fuzz_target!(|bytes: &[u8]| {
     let before = runtime.state().clone();
     let view = serde_json::to_vec(&runtime.view().expect("initial projected view"))
         .expect("bounded view serializes");
-    if bytes[0] & 4 == 0 {
+    if bytes[0] & 8 != 0 {
+        if let Ok((node, offset)) = needware_package::parse_json::<(String, usize)>(&bytes[1..]) {
+            let result = runtime.select_page(&node, offset);
+            assert_eq!(runtime.state(), &before);
+            if result.is_err() {
+                assert_eq!(
+                    serde_json::to_vec(&runtime.view().expect("rejected page preserves view")).ok(),
+                    Some(view)
+                );
+            }
+        }
+    } else if bytes[0] & 4 == 0 {
         if let Ok(event) = needware_package::parse_json::<needware_runtime::Event>(&bytes[1..]) {
             if runtime.dispatch(&event).is_err() {
                 assert_eq!(runtime.state(), &before);

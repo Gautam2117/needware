@@ -16,6 +16,7 @@ export type Command =
   | { kind: 'history'; id: string }
   | { kind: 'rollback'; id: string; snapshot: number; expected: number; consent: true }
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
+  | { kind: 'select-page'; instance: string; node: string; offset: number }
   | { kind: 'delete'; id: string }
   | { kind: 'export-state' };
 export interface WorkerReply { id: number; ok: boolean; data?: unknown; error?: string; retryAfter?: number; status?: number }
@@ -24,4 +25,10 @@ export function frameEvent(value: unknown): value is { action: string; values: R
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   return typeof v.action === 'string' && v.action.length <= 64 && !!v.values && typeof v.values === 'object' && !Array.isArray(v.values) && Object.keys(v.values).length <= 128;
+}
+export function framePage(value: unknown): value is { node: string; offset: number } {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.node === 'string' && v.node.length > 0 && v.node.length <= 2048 &&
+    Number.isSafeInteger(v.offset) && (v.offset as number) >= 0 && (v.offset as number) <= 0xffffffff;
 }

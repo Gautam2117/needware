@@ -8,7 +8,7 @@ The default stable toolchain remains unchanged.
 The runner seeds only authored public control, widget and visual fixtures. It
 never reads user applications, account keys, recovery codes or private states.
 Signed-package decoding, duplicate-rejecting strict IR/state/event JSON, and
-native rejected-event/restore state-and-view invariants execute with AddressSanitizer.
+native rejected-event/restore/page state-and-view invariants execute with AddressSanitizer.
 Campaign limits are 1 MiB input, five seconds per input and 1 GiB RSS. The explicit
 2 MiB IR and 16 MiB state boundary tests remain separate: the campaign does not
 claim to fuzz every production-sized input. Larger/longer campaigns, independent
@@ -44,3 +44,14 @@ the same bounds and no detected crash, sanitizer, unit-timeout or rollback failu
 Logs are `.logs/fuzz-20261005T133607Z-*.log`. The subsequent local release medians
 were 417.542 microseconds for verification, 5.250 for projection, 6.750 for dispatch
 and 388.209 for strict 4 MiB decoding. These receipts retain the limitations above.
+
+
+After bounded pagination, the 15:04 UTC campaign recorded signed_package
+2,622,196 executions / 502 MiB peak RSS; strict_json 456,735 / 536 MiB;
+runtime_transaction 21,516 / 506 MiB. All three passed: 3,100,447 executions
+with the same bounds and no detected crash, sanitizer, unit-timeout or rollback
+failure. Page requests preserve document state and rejected requests preserve
+serialized views. Logs are `.logs/fuzz-20261005T150414Z-*.log`. The subsequent
+release baseline, measured after sanitizer completion, had medians 379.167
+microseconds for verification, 4.958 for projection, 6.583 for dispatch and
+386.625 for strict 4 MiB decoding. These remain local microbenchmarks.

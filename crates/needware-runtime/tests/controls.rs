@@ -322,3 +322,76 @@ fn overlay_declarations_require_feature_target_and_own_close_action()
     assert!(needware_validation::validate(app).is_err());
     Ok(())
 }
+
+#[test]
+fn pages_reach_every_record_without_writes_and_reject_invalid_cursors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut runtime = load(needware_ir::examples::habit_tracker())?;
+    for index in 0..251 {
+        let mut add = event("add");
+        add.values.insert(
+            "record_id".into(),
+            Value::String(format!("00000000-0000-4000-8000-{index:012}")),
+        );
+        add.values
+            .insert("name".into(), Value::String(format!("Record {index:03}")));
+        runtime.dispatch(&add)?;
+    }
+    fn list(view: &needware_runtime::ViewNode) -> Option<&needware_runtime::ViewNode> {
+        if view.kind == Component::List {
+            return Some(view);
+        }
+        view.children.iter().find_map(list)
+    }
+    let state = runtime.state().clone();
+    let first = runtime.view()?;
+    let first = list(&first).ok_or("missing list")?;
+    let id = first.id.clone();
+    assert_eq!(first.children.len(), 100);
+    assert_eq!(first.pagination.as_ref().ok_or("missing page")?.total, 251);
+    let middle = runtime.select_page(&id, 100)?;
+    assert_eq!(list(&middle).ok_or("missing list")?.children.len(), 100);
+    let cut = runtime.savepoint();
+    let last = runtime.select_page(&id, 200)?;
+    assert_eq!(list(&last).ok_or("missing list")?.children.len(), 51);
+    let stable = serde_json::to_string(&last)?;
+    for (node, offset) in [
+        (id.as_str(), 1),
+        (id.as_str(), 300),
+        (id.as_str(), usize::MAX),
+        ("missing", 0),
+        ("add", 0),
+    ] {
+        assert!(runtime.select_page(node, offset).is_err());
+        assert_eq!(serde_json::to_string(&runtime.view()?)?, stable);
+    }
+    runtime.restore_savepoint(&cut)?;
+    assert_eq!(
+        list(&runtime.view()?)
+            .ok_or("missing list")?
+            .pagination
+            .as_ref()
+            .ok_or("missing page")?
+            .offset,
+        100
+    );
+    runtime.select_page(&id, 0)?;
+    assert_eq!(runtime.state(), &state);
+    runtime.select_page(&id, 200)?;
+    let mut smaller = state.clone();
+    smaller
+        .collections
+        .get_mut("habits")
+        .ok_or("missing habits")?
+        .retain(|id, _| id.ends_with("000000000000"));
+    runtime.restore(smaller.clone())?;
+    let clamped = runtime.view()?;
+    let page = list(&clamped)
+        .ok_or("missing list")?
+        .pagination
+        .as_ref()
+        .ok_or("missing page")?;
+    assert_eq!((page.offset, page.total), (0, 1));
+    assert_eq!(runtime.state(), &smaller);
+    Ok(())
+}

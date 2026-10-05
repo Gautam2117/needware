@@ -10,6 +10,7 @@ export type EncryptedCommand = { account: string } & (
   | { kind: 'create'; bytes: Uint8Array; consent: true }
   | { kind: 'open'; document: string; consent: true }
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
+  | { kind: 'select-page'; instance: string; node: string; offset: number }
   | { kind: 'export-package'; instance: string }
   | { kind: 'export-state'; instance: string }
   | { kind: 'delete'; document: string }

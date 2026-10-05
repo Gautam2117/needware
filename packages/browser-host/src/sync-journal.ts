@@ -335,6 +335,12 @@ export class DurableSyncSession {
       } catch (error) { candidate.free(); throw error; }
     });
   }
+  async selectPage(node: string, offset: number): Promise<string> {
+    return this.serial(async () => {
+      this.requireActiveEpoch();
+      return this.session.select_page(node, offset);
+    });
+  }
   async receive(frames: readonly string[], cursor: string | null): Promise<number> {
     return this.serial(async () => {
       this.requireActiveEpoch();

@@ -12,7 +12,8 @@ let channel: MessagePort | undefined;
 let report=(message:string)=>{void message;};
 let currentView:ViewNode|undefined;
 const pending=new Map<string,ReturnType<typeof captureDrafts>>();
-const draftStatus=()=>channel?.postMessage({kind:'needware-draft-status',count:dirtyCount(),pending:pending.size,ready:Boolean(currentView)});
+const pendingListeners=new Set<()=>void>();
+const draftStatus=()=>{for(const listener of pendingListeners)listener();channel?.postMessage({kind:'needware-draft-status',count:dirtyCount(),pending:pending.size,ready:Boolean(currentView)});};
 subscribe(draftStatus);
 function fire(node: ViewNode) {
   if (!node.action||node.disabled) return;
@@ -23,7 +24,18 @@ function fire(node: ViewNode) {
 }
 function Node({ node }: { node: ViewNode }) {
   if(!node.open)return null;
-  return <div className={`runtime-node tone-${node.style.tone} size-${node.style.size}`}><Body node={node}/></div>;
+  return <div className={`runtime-node tone-${node.style.tone} size-${node.style.size}`}><Body node={node}/>{node.pagination&&<Pager node={node}/>}</div>;
+}
+function Pager({node}:{node:ViewNode}){
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{const done=()=>setBusy(pending.size>0);pendingListeners.add(done);done();return()=>{pendingListeners.delete(done);};},[]);
+  const page=node.pagination;if(!page||page.total<=page.limit)return null;
+  function select(offset:number){
+    if(!channel||pending.size){report('Wait for pending application changes before changing pages.');return;}
+    const request=crypto.randomUUID();pending.set(request,[]);setBusy(true);draftStatus();
+    channel.postMessage({kind:'needware-page',node:node.id,offset,request});
+  }
+  return <nav aria-label={`${node.text||'Collection'} pages`}><p role="status">Showing {page.offset+1}–{Math.min(page.total,page.offset+page.limit)} of {page.total} records</p><button type="button" disabled={node.disabled||busy||page.offset===0} onClick={()=>select(page.offset-page.limit)}>Previous page</button><button type="button" disabled={node.disabled||busy||page.offset+page.limit>=page.total} onClick={()=>select(page.offset+page.limit)}>Next page</button></nav>;
 }
 function Body({node}:{node:ViewNode}){
   const children = node.children.map(child => <Node key={child.id} node={child} />);
@@ -55,6 +67,7 @@ function Body({node}:{node:ViewNode}){
 function RuntimeView({node}:{node:ViewNode}){const [error,setError]=useState('');useEffect(()=>{report=setError;return()=>{report=()=>{};};},[]);return <div className="runtime-app" data-accent={node.theme?.accent??'teal'} data-density={node.theme?.density??'comfortable'} data-radius={node.theme?.radius??'rounded'}>{error&&<p role="alert">{error}</p>}<Node node={node}/></div>;}
 function validView(node: ViewNode, count: { value: number }, depth = 0): boolean {
   if (!node || typeof node.id !== 'string' || typeof node.text !== 'string' || typeof node.open!=='boolean'||typeof node.disabled!=='boolean'||typeof node.active_overlay!=='boolean'|| !Array.isArray(node.children) || !supported.has(node.kind) || depth > 32 || ++count.value > 4096) return false;
+  if(node.pagination){const p=node.pagination;if(!['list','table'].includes(node.kind)||p.limit!==100||!Number.isSafeInteger(p.offset)||!Number.isSafeInteger(p.total)||p.total<0||p.offset<0||p.offset%100!==0||(p.total===0?p.offset!==0:p.offset>=p.total))return false;}
   return node.children.every(child => validView(child, count, depth + 1));
 }
 const element = document.getElementById('root');

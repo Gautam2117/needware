@@ -61,7 +61,15 @@ pub struct ViewNode {
     pub style: Style,
     pub open: bool,
     pub active_overlay: bool,
+    pub pagination: Option<Pagination>,
     pub children: Vec<ViewNode>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ts_rs::TS)]
+pub struct Pagination {
+    pub offset: usize,
+    pub total: usize,
+    pub limit: usize,
 }
 #[derive(Clone)]
 pub struct Runtime {
@@ -101,6 +109,7 @@ impl Runtime {
                 screen,
                 history: vec![],
                 overlays: vec![],
+                pages: BTreeMap::new(),
             },
         })
     }
@@ -508,6 +517,7 @@ fn render(
         None => String::new(),
     };
     let mut children = vec![];
+    let mut pagination = None;
     let is_overlay = matches!(node.kind, Component::Modal | Component::Drawer);
     let open = !is_overlay || scope.controls.overlays.contains(&node.id);
     let form = if node.kind == Component::Form {
@@ -538,7 +548,24 @@ fn render(
             .collections
             .get(collection)
             .ok_or_else(|| RuntimeError::Invalid("unknown collection".into()))?;
-        for (id, row) in rows.iter().take(100) {
+        let page_id = match record {
+            Some(id) => format!("{}-{id}", node.id),
+            None => node.id.clone(),
+        };
+        let last = rows.len().saturating_sub(1) / 100 * 100;
+        let offset = scope
+            .controls
+            .pages
+            .get(&page_id)
+            .copied()
+            .unwrap_or(0)
+            .min(last);
+        pagination = Some(Pagination {
+            offset,
+            total: rows.len(),
+            limit: 100,
+        });
+        for (id, row) in rows.iter().skip(offset).take(100) {
             let nested = Context {
                 item: Some(row),
                 ..*ctx
@@ -607,6 +634,7 @@ fn render(
         style: node.style.clone(),
         open,
         active_overlay: is_overlay && scope.controls.overlays.last() == Some(&node.id),
+        pagination,
         children,
     })
 }

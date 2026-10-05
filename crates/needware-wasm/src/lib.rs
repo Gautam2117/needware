@@ -144,4 +144,7 @@ impl BrowserRuntime {
         let effects = self.inner.dispatch(&event).map_err(error)?;
         serde_json::to_string(&effects).map_err(error)
     }
+    pub fn select_page(&mut self, node: &str, offset: usize) -> Result<String, JsValue> {
+        serde_json::to_string(&self.inner.select_page(node, offset).map_err(error)?).map_err(error)
+    }
 }
