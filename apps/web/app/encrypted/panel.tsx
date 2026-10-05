@@ -5,7 +5,7 @@ import type { EncryptedCommand, EncryptedEntry, EncryptedLoaded, CloudEntry, Epo
 import type { PackageInfo } from '../../../../packages/browser-host/src/protocol';
 import { WorkerHost } from '../../../../packages/browser-host/src/worker-host';
 import Sandbox from '../sandbox';
-import EffectReview,{type EffectBroker,type EffectReviewHandle} from './effect-review';
+import EffectReview,{type EffectBroker,type EffectReviewHandle} from '../effect-review';
 import OfflineLink from '../offline-link';
 import type {SandboxHandle} from '../draft-recovery';
 import RevisionReview from '../revision-review';

@@ -1,10 +1,11 @@
 import type { Application } from '@needware/ir-types/Application';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { Value } from '@needware/ir-types/Value';
+import type {EffectIntent} from './effect-journal';
 import type { RevisionReport } from '@needware/ir-types/RevisionReport';
 export type { RevisionReport };
 export interface PackageInfo { application: Application; digest: string; signers: string[] }
-export interface LibraryEntry { id: string; title: string; digest: string; bytes: Uint8Array; state: string; generation: number; consent: boolean }
+export interface LibraryEntry { id: string; title: string; digest: string; bytes: Uint8Array; state: string; generation: number; consent: boolean; effect?:EffectIntent }
 export type Command =
   | { kind: 'example' }
   | { kind: 'inspect'; bytes: Uint8Array }
@@ -15,6 +16,9 @@ export type Command =
   | { kind: 'activate-revision'; review: string; destructive: boolean; permissions: boolean }
   | { kind: 'history'; id: string }
   | { kind: 'rollback'; id: string; snapshot: number; expected: number; consent: true }
+  | { kind:'effect-review'; instance:string }
+  | { kind:'begin-effect'|'finish-effect'|'discard-effect'; instance:string; id:string }
+  | { kind:'record-effect'; instance:string; id:string; outcome:unknown }
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
   | { kind: 'select-page'; instance: string; node: string; offset: number }
   | { kind: 'delete'; id: string }

@@ -245,6 +245,33 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
         "artifacts/controls/effects-checkpoint.json",
         runtime.effect_checkpoint()?,
     )?;
+    let mut local = effects.clone();
+    local.title = "Local effects fixture".into();
+    local.id = "11111111-1111-4111-8111-222222222201".into();
+    local.revision = "11111111-1111-4111-8111-222222222202".into();
+    local.capabilities.retain(|cap| {
+        !matches!(
+            cap,
+            needware_capabilities::Capability::Storage {
+                synchronized: true,
+                ..
+            } | needware_capabilities::Capability::Collaboration { .. }
+        )
+    });
+    let bytes = needware_package::build(local.clone(), vec![], &key)?;
+    std::fs::write("artifacts/controls/local-effects.need", &bytes)?;
+    let mut revised = local.clone();
+    revised.title = "Local effects revised fixture".into();
+    revised.revision = "11111111-1111-4111-8111-222222222203".into();
+    revised.parent = Some(needware_package::verify(&bytes)?.digest());
+    revised.migrations = vec![needware_ir::Migration {
+        from_revision: local.revision,
+        operations: vec![],
+    }];
+    std::fs::write(
+        "artifacts/controls/local-effects-revised.need",
+        needware_package::build(revised, vec![], &key)?,
+    )?;
     let raster = include_bytes!("../../tests/fixtures/raster.png");
     let asset = needware_package::Asset {
         media_type: "image/png".into(),

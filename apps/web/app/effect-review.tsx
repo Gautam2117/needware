@@ -1,6 +1,6 @@
 'use client';
 import {useCallback,useEffect,useImperativeHandle,useRef,useState,type Ref} from 'react';
-import type {EffectIntent} from '../../../../packages/browser-host/src/effect-journal';
+import type {EffectIntent} from '../../../packages/browser-host/src/effect-journal';
 import type {EffectOutcome} from '@needware/ir-types/EffectOutcome';
 import type {ViewNode} from '@needware/ir-types/ViewNode';
 type Review=EffectIntent & {stale:boolean};
@@ -10,7 +10,7 @@ export default function EffectReview({broker,view,completed,ref}:{ref?:Ref<Effec
   const [effect,setEffect]=useState<Review|null>(null),[authorized,setAuthorized]=useState<string>(),[known,setKnown]=useState<EffectOutcome>(),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const occupied=useRef(false);
   useImperativeHandle(ref,()=>({confirmLeave(){if(occupied.current){setError('Finish external result recovery before changing applications.');return false;}return !known||Boolean(effect?.outcome)||window.confirm('The returned external result is only retained on this page. Save or export it before leaving. Leave and lose this unrecorded result?');}}),[known,effect?.outcome]);
-  useEffect(()=>{if(!known||effect?.outcome)return;const leave=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',leave);return()=>window.removeEventListener('beforeunload',leave);},[known,effect?.outcome]);
+  useEffect(()=>{if(!busy&&(!known||effect?.outcome))return;const leave=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};window.addEventListener('beforeunload',leave);return()=>window.removeEventListener('beforeunload',leave);},[busy,known,effect?.outcome]);
 
   const refresh=useCallback(async()=>{const value=await broker('effect-review') as Review|null;setEffect(value);return value;},[broker]);
   useEffect(()=>{let active=true;void broker('effect-review').then(value=>{if(active)setEffect(value as Review|null);}).catch(failure=>{if(active)setError((failure as Error).message);});return()=>{active=false;};},[broker,view]);
@@ -23,7 +23,7 @@ export default function EffectReview({broker,view,completed,ref}:{ref?:Ref<Effec
   if(!effect)return error?<p role="alert">{error}</p>:null;
   const retainedOutcome=effect.outcome??known;
   const input=effect.request.input,clipboard=effect.request.capability.kind==='clipboard'&&!effect.request.capability.read&&input.type==='string'&&input.value.length<=65536&&effect.request.flow?.output.data_type.type==='string';
-  return <section aria-label="External action review"><h3>Review external action</h3><p>This action can expose application text outside its encrypted storage. Your signed application requested {effect.request.capability.kind} access.</p>
+  return <section aria-label="External action review"><h3>Review external action</h3><p>This action can expose application text outside Needware. Your signed application requested {effect.request.capability.kind} access.</p>
     {input.type==='string'&&<label>{clipboard?'Clipboard content':'Retained action content'}<textarea readOnly value={input.value} /></label>}
     {retainedOutcome&&<label>Retained external result<textarea readOnly value={JSON.stringify(retainedOutcome)} /></label>}
     {effect.stale?<p role="status">The document changed. This retained request or result needs review and cannot change the newer state.</p>:effect.status==='prepared'?<p role="status">The request is saved. Review its content before authorizing an external action.</p>:effect.status==='result'?<p role="status">The external result is saved. Apply it once to the unchanged document.</p>:known?<p role="status">The external result is retained on this page. Save or export it before leaving. Do not repeat the external action.</p>:authorized===effect.id?<p role="status">Authorized for this open page. Use Copy reviewed text to write to your clipboard.</p>:<p role="status">The external outcome is unknown. This action cannot be replayed.</p>}

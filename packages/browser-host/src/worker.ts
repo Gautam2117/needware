@@ -2,6 +2,7 @@ import initSqlite from '@sqlite.org/sqlite-wasm';
 import initWasm, { BrowserRuntime, authored_example, inspect_package, remix_package } from 'needware-wasm-runtime';
 import type { Command, LibraryEntry, Loaded, PackageInfo, WorkerReply } from './protocol';
 import { coordinatedSqlite, type Persistence } from './coordinator';
+import {effectIntent,effectOutcome,type EffectIntent} from './effect-journal';
 import { requireSupported } from '../../renderer/src/registry';
 
 let runtime: BrowserRuntime | undefined;
@@ -10,7 +11,7 @@ let instance = '';
 let storage = 'Unavailable';
 let pending: { source: BrowserRuntime; before: LibraryEntry; bytes: Uint8Array; info: PackageInfo } | undefined;
 const same = (a: LibraryEntry | undefined, b: LibraryEntry) => a?.generation === b.generation && a.digest === b.digest && a.state === b.state;
-const historySize = (entry: LibraryEntry) => entry.bytes.byteLength + new TextEncoder().encode(entry.state).byteLength;
+const historySize = (entry: LibraryEntry) => entry.bytes.byteLength + new TextEncoder().encode(entry.state+JSON.stringify(entry.effect??null)).byteLength;
 const historyRange = (id: string) => IDBKeyRange.bound([id, 0], [id, Number.MAX_SAFE_INTEGER]);
 function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed')); });
@@ -59,7 +60,9 @@ async function sqlite(): Promise<Persistence> {
   const db = new pool.OpfsSAHPoolDb('/library.sqlite');
   db.exec('PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS apps(id TEXT PRIMARY KEY,title TEXT NOT NULL,digest TEXT NOT NULL,bytes BLOB NOT NULL,state TEXT NOT NULL,generation INTEGER NOT NULL,consent INTEGER NOT NULL);');
   db.exec('CREATE TABLE IF NOT EXISTS history(id TEXT NOT NULL,title TEXT NOT NULL,digest TEXT NOT NULL,bytes BLOB NOT NULL,state TEXT NOT NULL,generation INTEGER NOT NULL,consent INTEGER NOT NULL,PRIMARY KEY(id,generation));');
-  const row = (r: Record<string, unknown>): LibraryEntry => ({ id: String(r.id), title: String(r.title), digest: String(r.digest), bytes: r.bytes as Uint8Array, state: String(r.state), generation: Number(r.generation), consent: r.consent === 1 });
+  db.exec('BEGIN IMMEDIATE');
+  try {for(const table of ['apps','history'])if(!db.selectObjects(`PRAGMA table_info(${table})`).some(column=>column.name==='effect'))db.exec(`ALTER TABLE ${table} ADD COLUMN effect TEXT`);db.exec('COMMIT');}catch(error){db.exec('ROLLBACK');throw error;}
+  const row = (r: Record<string, unknown>): LibraryEntry => ({ id: String(r.id), title: String(r.title), digest: String(r.digest), bytes: r.bytes as Uint8Array, state: String(r.state), generation: Number(r.generation), consent: r.consent === 1,...(r.effect?{effect:effectIntent(JSON.parse(String(r.effect)))}:{}) });
   return {
     async list() { return db.selectObjects('SELECT * FROM apps').map(row); },
     async get(id) { const r = db.selectObject('SELECT * FROM apps WHERE id=?', [id]); return r ? row(r) : undefined; },
@@ -69,10 +72,10 @@ async function sqlite(): Promise<Persistence> {
       try {
         const old = db.selectObject('SELECT * FROM apps WHERE id=?', [value.id]);
         if (!same(old ? row(old) : undefined, before) || value.id !== before.id || value.generation !== before.generation + 1) throw new Error('Revision review is stale. Review again; data preserved.');
-        const size = db.selectValue('SELECT COALESCE(SUM(length(bytes)+length(CAST(state AS BLOB))),0) FROM history WHERE id=?', [value.id]);
+        const size = db.selectValue('SELECT COALESCE(SUM(length(bytes)+length(CAST(state AS BLOB))+COALESCE(length(CAST(effect AS BLOB)),0)),0) FROM history WHERE id=?', [value.id]);
         if (Number(size) + historySize(before) > 128 * 1024 * 1024) throw new Error('Recovery history exceeds 128 MiB; export before removing this application.');
         db.exec({ sql: 'INSERT INTO history SELECT * FROM apps WHERE id=?', bind: [value.id] });
-        db.exec({ sql: 'UPDATE apps SET title=?,digest=?,bytes=?,state=?,generation=?,consent=? WHERE id=?', bind: [value.title, value.digest, value.bytes, value.state, value.generation, Number(value.consent), value.id] });
+        db.exec({ sql: 'UPDATE apps SET title=?,digest=?,bytes=?,state=?,generation=?,consent=?,effect=? WHERE id=?', bind: [value.title, value.digest, value.bytes, value.state, value.generation, Number(value.consent), value.effect?JSON.stringify(effectIntent(value.effect)):null, value.id] });
         db.exec('COMMIT');
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     },
@@ -81,7 +84,7 @@ async function sqlite(): Promise<Persistence> {
       try {
         const old = db.selectObject('SELECT generation FROM apps WHERE id=?', [value.id]);
         if (Number(old?.generation ?? 0) !== expected) throw new Error('Application changed in another writer. Reopen it.');
-        db.exec({ sql: 'INSERT INTO apps VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,digest=excluded.digest,bytes=excluded.bytes,state=excluded.state,generation=excluded.generation,consent=excluded.consent', bind: [value.id, value.title, value.digest, value.bytes, value.state, value.generation, Number(value.consent)] });
+        db.exec({ sql: 'INSERT INTO apps(id,title,digest,bytes,state,generation,consent,effect) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,digest=excluded.digest,bytes=excluded.bytes,state=excluded.state,generation=excluded.generation,consent=excluded.consent,effect=excluded.effect', bind: [value.id, value.title, value.digest, value.bytes, value.state, value.generation, Number(value.consent), value.effect?JSON.stringify(effectIntent(value.effect)):null] });
         db.exec('COMMIT');
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     },
@@ -112,12 +115,23 @@ async function initialize() {
 const ready = initialize();
 function supported(info: PackageInfo) {
   for (const screen of info.application.screens) requireSupported(screen.root);
-  if (info.application.capabilities.some(c => c.kind !== 'storage' || c.synchronized)) throw new Error('This browser host currently supports local-storage applications only.');
+  if (info.application.capabilities.some(c => !(c.kind==='storage'&&!c.synchronized)&&!(c.kind==='clipboard'&&!c.read&&info.application.runtime_features.includes('typed_effects_v1')))) throw new Error('This browser host supports local storage and reviewed typed clipboard writes.');
+}
+function restoreEntryEffect(next:BrowserRuntime,entry:LibraryEntry):void{
+  if(!entry.effect)return;const effect=effectIntent(entry.effect),checkpoint=JSON.parse(effect.checkpoint);
+  if(effect.state===next.snapshot()&&checkpoint.package===entry.digest&&checkpoint.scope===`local:${entry.id}`)next.restore_effect_checkpoint(effect.checkpoint);
 }
 function activated(next: BrowserRuntime, entry: LibraryEntry, info: PackageInfo): Loaded {
   const view = JSON.parse(next.view());
   runtime?.free(); runtime = next; current = entry; instance = crypto.randomUUID();
   return { instance, info, view, storage };
+}
+function effectReview(): (EffectIntent & {stale:boolean})|undefined {
+  if(!runtime||!current?.effect)return;const effect=effectIntent(current.effect),checkpoint=JSON.parse(effect.checkpoint);
+  return {...effect,stale:effect.state!==runtime.snapshot()||checkpoint.package!==current.digest||checkpoint.scope!==`local:${current.id}`};
+}
+async function publishEntry(entry:LibraryEntry):Promise<void>{
+  if(!runtime||!current)throw Error('Application is closed');runtime.view();await persistence.put(entry,current.generation);current=entry;
 }
 async function execute(command: Command): Promise<unknown> {
   await ready;
@@ -146,7 +160,7 @@ async function execute(command: Command): Promise<unknown> {
         if (!same(await persistence.get(review.before.id), review.before)) throw new Error('Revision review is stale. Review again; data preserved.');
         next = review.source.approve_revision(command.review, command.destructive, command.permissions);
         const entry = { ...review.before, title: review.info.application.title, digest: review.info.digest, bytes: review.bytes, state: next.snapshot(), generation: review.before.generation + 1, consent: true };
-        next.view(); // Rendering must succeed before the atomic durable commit.
+        restoreEntryEffect(next,entry);next.view(); // All restoration/projection must precede the durable commit.
         await persistence.revise(entry, review.before);
         const result = activated(next, entry, review.info); next = undefined; return result;
       } finally { next?.free(); review.source.free(); }
@@ -160,7 +174,9 @@ async function execute(command: Command): Promise<unknown> {
       if (info.application.id !== before.id || info.digest !== snapshot.digest) throw new Error('Recovery package identity mismatch.');
       const next = new BrowserRuntime(snapshot.bytes, snapshot.state, command.consent);
       try {
-        const entry = { ...snapshot, generation: before.generation + 1 }; next.view();
+        // Historical prepared intents are never executable after rollback. The current ledger is monotonic.
+        const {effect:historical,...source}=snapshot;void historical;
+        const entry:LibraryEntry = { ...source, generation: before.generation + 1,...(before.effect?{effect:before.effect}:{}) }; restoreEntryEffect(next,entry);next.view();
         await persistence.revise(entry, before); return activated(next, entry, info);
       } catch (error) { next.free(); throw error; }
     }
@@ -171,7 +187,8 @@ async function execute(command: Command): Promise<unknown> {
       if (old && old.digest !== info.digest) throw new Error('A different revision exists. Migration review is required; your data has been preserved.');
       const next = new BrowserRuntime(command.bytes, old?.state, command.consent);
       try {
-        const entry: LibraryEntry = { id: info.application.id, title: info.application.title, digest: info.digest, bytes: command.bytes, state: next.snapshot(), generation: (old?.generation ?? 0) + 1, consent: true };
+        const entry: LibraryEntry = { id: info.application.id, title: info.application.title, digest: info.digest, bytes: command.bytes, state: next.snapshot(), generation: (old?.generation ?? 0) + 1, consent: true,...(old?.effect?{effect:effectIntent(old.effect)}:{}) };
+        restoreEntryEffect(next,entry);
         const view = JSON.parse(next.view());
         await persistence.put(entry, old?.generation ?? 0);
         runtime?.free(); runtime = next; current = entry;
@@ -183,13 +200,41 @@ async function execute(command: Command): Promise<unknown> {
       if (!runtime || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
       return JSON.parse(runtime.select_page(command.node, command.offset));
     }
+    case 'effect-review':case 'begin-effect':case 'record-effect':case 'finish-effect':case 'discard-effect': {
+      if(!runtime||!current||command.instance!==instance)throw Error('Application instance is closed or stale');
+      const effect=effectReview();if(command.kind==='effect-review')return effect??null;
+      if(!effect||effect.id!==command.id)throw Error('Effect review changed');
+      const before=runtime.savepoint();try{
+        if(command.kind==='begin-effect'){
+          if(effect.stale||effect.status!=='prepared')throw Error('An unknown external outcome cannot be replayed');
+          if(effect.request.capability.kind!=='clipboard'||effect.request.capability.read||effect.request.input.type!=='string'||effect.request.input.value.length>65536||effect.request.flow?.output.data_type.type!=='string')throw Error('This capability needs a supported broker');
+          const {stale,...intent}=effect;void stale;const next=effectIntent({...intent,status:'dispatching'});
+          await publishEntry({...current,generation:current.generation+1,effect:next});return next;
+        }
+        if(command.kind==='record-effect'){
+          if(effect.status!=='dispatching')throw Error('Unknown or already recorded effect outcome');
+          const {stale,...intent}=effect;void stale;
+          await publishEntry({...current,generation:current.generation+1,effect:effectIntent({...intent,status:'result',outcome:effectOutcome(command.outcome)})});return null;
+        }
+        if(command.kind==='finish-effect'){
+          if(effect.stale||effect.status!=='result')throw Error('Retained result requires explicit review against current state');
+          const view=JSON.parse(runtime.complete_effect(effect.id,JSON.stringify(effect.outcome)));
+          const {effect:completed,...entry}=current;void completed;
+          await publishEntry({...entry,state:runtime.snapshot(),generation:current.generation+1});return {view,pendingUploads:0};
+        }
+        const checkpoint=JSON.parse(runtime.effect_checkpoint()) as {records:{effect:{id:string}}[]};
+        if(checkpoint.records.some(record=>record.effect.id===effect.id))runtime.discard_effect(effect.id);
+        const {effect:discarded,...entry}=current;void discarded;await publishEntry({...entry,generation:current.generation+1});return null;
+      }catch(error){runtime.restore_savepoint(before);throw error;}finally{before.free();}
+    }
     case 'dispatch': {
       if (!runtime || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
       const previous = runtime.savepoint();
       try {
-        const effects: unknown[] = JSON.parse(runtime.dispatch(JSON.stringify({ action: command.action, values: command.values, now: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })));
-        if (effects.length) throw new Error('Remote capability execution is not available in this host yet.');
-        const next = { ...current, state: runtime.snapshot(), generation: current.generation + 1 };
+        const effects = JSON.parse(runtime.dispatch(JSON.stringify({ action: command.action, values: command.values, now: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }))) as import('@needware/ir-types/Effect').Effect[];
+        if(effects.length&&(effects.length!==1||!effects[0].flow||current.effect))throw Error('Review the existing effect before preparing one typed request; original preserved');
+        const effect=effects.length?effectIntent({id:effects[0].id,status:'prepared',checkpoint:runtime.effect_checkpoint(),state:runtime.snapshot(),request:effects[0]}):current.effect;
+        const next:LibraryEntry = { ...current, state: runtime.snapshot(), generation: current.generation + 1,...(effect?{effect}:{}) };
         const view = JSON.parse(runtime.view());
         await persistence.put(next, current.generation); current = next; return view;
       } catch (error) { runtime.restore_savepoint(previous); throw error; } finally { previous.free(); }
