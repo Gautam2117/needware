@@ -101,6 +101,7 @@ try {
   await page.getByText('Check your email to verify your account, then sign in.', { exact: true }).waitFor();
   const users = await pool.query('SELECT id, "emailVerified" FROM auth_user WHERE email=$1', [email]);
   assert.equal(users.rowCount, 1); const userId = users.rows[0].id; assert.equal(users.rows[0].emailVerified, false);
+  if(process.env.NEEDWARE_TEST_OPERATIONS_FOCUS==='1'||process.env.NEEDWARE_TEST_BILLING_FOCUS==='1')environment.NEEDWARE_OPERATOR_ACCOUNTS=userId;
   const accounts = await pool.query('SELECT password FROM auth_account WHERE "userId"=$1', [userId]);
   assert(accounts.rows[0].password.length > 64 && !accounts.rows[0].password.includes(password));
   const post = (path, body, headers = {}) => context.request.post(`${origin}/api/auth/${path}`, { data: body, headers: { Origin: origin, ...headers } });

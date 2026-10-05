@@ -47,6 +47,10 @@ jobs:
         timeout-minutes: 20
       - run: pnpm test:billing
         timeout-minutes: 20
+      - run: pnpm test:operations
+        timeout-minutes: 20
+      - run: pnpm test:backup
+        timeout-minutes: 20
       - if: failure()
         run: python3 scripts/browser_diagnostics.py
       - if: failure()

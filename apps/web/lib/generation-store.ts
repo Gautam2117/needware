@@ -4,6 +4,7 @@ import type {Pool,PoolClient} from 'pg';
 import type {Certificate} from './vault-proof';
 import type {ProviderInfo} from '@needware/ir-types/ProviderInfo';
 import type {Usage} from '@needware/ir-types/Usage';
+import {creationHeld} from './creation-hold.ts';
 export class GenerationFailure extends Error {readonly status:number;constructor(status:number,message:string){super(message);this.status=status;}}
 export type GenerationJob={id:string;owner_id:string;prompt:string|null;recipient:Certificate;provider:ProviderInfo;period:string;reservation:string;state:'queued'|'running'|'cancel_requested'|'succeeded'|'failed'|'cancelled';attempts:number;lease_id:string|null;lease_until:Date|null;dispatched_at:Date|null;stage:unknown;usage:Usage|null;failure:string|null;result_metadata:unknown;result_ciphertext:Buffer|null;package_digest:string|null;created_at:Date;finished_at:Date|null};
 const limits={free:{daily:3,monthly:20,budget:10000000},pro:{daily:50,monthly:200,budget:100000000}};
@@ -12,7 +13,7 @@ export async function generationUsage(pool:Pool,owner:string){
   const entitlement=(await pool.query(`SELECT plan,paid_until FROM needware_entitlement WHERE account_id=$1 AND plan='pro' AND paid_until>now() AND updated_at>now()-interval '30 minutes' AND (NOT $2::boolean OR EXISTS(SELECT 1 FROM needware_billing_account b WHERE b.account_id=$1 AND b.merchant_id=$4 AND b.livemode=$3 AND b.status='active' AND b.paid_until>now()))`,[owner,...billingAuthority()])).rows[0],plan=entitlement?'pro':'free',quota=limits[plan];
   const result=(await pool.query(`SELECT u.*, (SELECT count(*)::integer FROM needware_generation_job WHERE owner_id=$1 AND created_at>=date_trunc('day',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS daily_attempts,date_trunc('month',now() AT TIME ZONE 'UTC')+interval '1 month' AS resets_at
     FROM (SELECT $1::uuid AS account_id,date_trunc('month',now() AT TIME ZONE 'UTC')::date AS period) p LEFT JOIN needware_generation_usage u USING(account_id,period)`,[owner])).rows[0];
-  return {plan,quota,paid_until:entitlement?.paid_until??null,attempts:result.attempts??0,daily_attempts:result.daily_attempts,reserved_microusd:result.reserved_microusd??'0',spent_microusd:result.spent_microusd??'0',input_tokens:result.input_tokens??'0',output_tokens:result.output_tokens??'0',unknown_requests:result.unknown_requests??0,resets_at:result.resets_at};
+  return {plan,quota,creation_hold:await creationHeld(pool,owner),paid_until:entitlement?.paid_until??null,attempts:result.attempts??0,daily_attempts:result.daily_attempts,reserved_microusd:result.reserved_microusd??'0',spent_microusd:result.spent_microusd??'0',input_tokens:result.input_tokens??'0',output_tokens:result.output_tokens??'0',unknown_requests:result.unknown_requests??0,resets_at:result.resets_at};
 }
 export const generationSummary=(job:GenerationJob)=>({id:job.id,state:job.state,provider:job.provider,stage:job.stage,usage:job.usage,failure:job.failure,created_at:job.created_at,finished_at:job.finished_at,result_expires_at:job.state==='succeeded'&&job.finished_at?new Date(new Date(job.finished_at).getTime()+30*86400000):null,recipient:job.recipient.device.id});
 export async function ownerLock(client:PoolClient,owner:string){
@@ -27,7 +28,7 @@ export async function generationRecipient(client:PoolClient,owner:string,recipie
 export async function createGenerationJob(pool:Pool,owner:string,id:string,prompt:string,recipient:Certificate,provider:ProviderInfo,reservation:number):Promise<GenerationJob>{
   if(!prompt.trim()||Buffer.byteLength(prompt)>32768||!Number.isSafeInteger(reservation)||reservation<0||reservation>1000000000)throw new GenerationFailure(400,'Invalid generation request');
   const requestDigest=createHash('sha256').update(canonicalize({prompt,recipient,provider})!).digest('hex'),client=await pool.connect();
-  try{await client.query('BEGIN');await ownerLock(client,owner);await generationRecipient(client,owner,recipient);
+  try{await client.query('BEGIN');await ownerLock(client,owner);if(await creationHeld(client,owner))throw new GenerationFailure(403,'Creation is paused after operator review; existing applications and cancellation remain available');await generationRecipient(client,owner,recipient);
     const previous=await client.query<GenerationJob&{request_digest:string}>('SELECT * FROM needware_generation_job WHERE id=$1 FOR UPDATE',[id]);
     if(previous.rowCount){if(previous.rows[0].owner_id!==owner||previous.rows[0].request_digest!==requestDigest)throw new GenerationFailure(409,'Creation request identity is already used');await client.query('COMMIT');return previous.rows[0];}
     const entitlement=await client.query(`SELECT plan FROM needware_entitlement WHERE account_id=$1 AND plan='pro' AND paid_until>now() AND updated_at>now()-interval '30 minutes' AND (NOT $2::boolean OR EXISTS(SELECT 1 FROM needware_billing_account b WHERE b.account_id=$1 AND b.merchant_id=$4 AND b.livemode=$3 AND b.status='active' AND b.paid_until>now()))`,[owner,...billingAuthority()]),quota=entitlement.rowCount?limits.pro:limits.free;
@@ -72,12 +73,13 @@ export async function claimGenerationJob(pool:Pool):Promise<GenerationJob|undefi
       job.state='queued';
     }
     if(job.state!=='queued'){await client.query('COMMIT');return;}
+    if(await creationHeld(client,job.owner_id)){await settle(client,job,'failed',0,null,'ACCOUNT_HELD',null);await client.query('COMMIT');return;}
     if(new Date(job.created_at).getTime()<Date.now()-86400000){await settle(client,job,'failed',0,null,'REQUEST_EXPIRED',null);await client.query('COMMIT');return;}
     try{await generationRecipient(client,job.owner_id,job.recipient);}catch{await settle(client,job,'failed',0,null,'DEVICE_CHANGED',null);await client.query('COMMIT');return;}
     const claimed=(await client.query<GenerationJob>(`UPDATE needware_generation_job SET state='running',attempts=attempts+1,lease_id=$2,lease_until=now()+interval '90 seconds' WHERE id=$1 RETURNING *`,[job.id,randomUUID()])).rows[0];await client.query('COMMIT');return claimed;
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
-export async function dispatchGenerationJob(pool:Pool,job:GenerationJob){const client=await pool.connect();try{await client.query('BEGIN');await ownerLock(client,job.owner_id);await generationRecipient(client,job.owner_id,job.recipient);
+export async function dispatchGenerationJob(pool:Pool,job:GenerationJob){const client=await pool.connect();try{await client.query('BEGIN');await ownerLock(client,job.owner_id);if(await creationHeld(client,job.owner_id))throw new GenerationFailure(403,'Creation is paused after operator review');await generationRecipient(client,job.owner_id,job.recipient);
   const result=await client.query(`UPDATE needware_generation_job SET dispatched_at=now() WHERE id=$1 AND lease_id=$2 AND state='running' AND dispatched_at IS NULL RETURNING id`,[job.id,job.lease_id]);if(!result.rowCount)throw new GenerationFailure(409,'Creation lease or consent changed');await client.query('COMMIT');job.dispatched_at=new Date();
 }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
 export async function finishGenerationJob(pool:Pool,job:GenerationJob,result:EncryptedResult|null,usage:Usage|null,failure:string|null){const client=await pool.connect();try{await client.query('BEGIN');await ownerLock(client,job.owner_id);

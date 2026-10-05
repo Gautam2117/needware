@@ -6,20 +6,22 @@ import {CloudError} from './cloud-request';
 import {object,uuid} from './vault-proof';
 import {verifyRegistryPackage} from './package-verify';
 import type {PackageInfo} from '../../../packages/browser-host/src/protocol';
-export type RegistryEntry={id:string;owner_id:string;application_id:string;visibility:'private'|'unlisted'|'public';title:string;summary:string;current_digest:string;version:string;source_entry?:string|null;source_digest?:string|null;document_id?:string|null;package_info?:PackageInfo|null};
+import {ownerLock} from './generation-store';
+import {creationHeld} from './creation-hold';
+export type RegistryEntry={id:string;owner_id:string;application_id:string;visibility:'private'|'unlisted'|'public';title:string;summary:string;current_digest:string;version:string;moderated:boolean;moderation_reason?:string|null;source_entry?:string|null;source_digest?:string|null;document_id?:string|null;package_info?:PackageInfo|null};
 const digest=(value:unknown):string=>{if(typeof value!=='string'||!/^[0-9a-f]{64}$/.test(value))throw new CloudError(400,'Invalid revision digest');return value;};
 export async function registryEntry(pool:Pool,id:string,viewer?:string,revision?:string):Promise<RegistryEntry>{
   uuid(id);if(revision)digest(revision);
   const result=await pool.query<RegistryEntry>(`SELECT e.*,r.source_entry,r.source_digest,r.document_id,r.package_info FROM needware_registry_entry e
     JOIN needware_registry_revision r ON r.entry_id=e.id AND r.digest=COALESCE($3,e.current_digest)
-    WHERE e.id=$1 AND (e.visibility<>'private' OR e.owner_id=$2)`,[id,viewer??null,revision??null]);
+    WHERE e.id=$1 AND ((e.visibility<>'private' AND NOT e.moderated AND NOT EXISTS(SELECT 1 FROM needware_account_hold h WHERE h.account_id=e.owner_id AND h.active)) OR e.owner_id=$2)`,[id,viewer??null,revision??null]);
   if(!result.rowCount)throw new CloudError(404,'Application unavailable');return result.rows[0];
 }
 export async function registryList(pool:Pool,viewer?:string):Promise<RegistryEntry[]>{
   const result=await pool.query<RegistryEntry>(`SELECT e.*,r.document_id,r.source_entry,r.source_digest FROM needware_registry_entry e JOIN needware_registry_revision r ON r.entry_id=e.id AND r.digest=e.current_digest
-    WHERE visibility='public' OR owner_id=$1 ORDER BY updated_at DESC,id LIMIT 256`,[viewer??null]);return result.rows;
+    WHERE (visibility='public' AND NOT moderated AND NOT EXISTS(SELECT 1 FROM needware_account_hold h WHERE h.account_id=e.owner_id AND h.active)) OR owner_id=$1 ORDER BY updated_at DESC,id LIMIT 256`,[viewer??null]);return result.rows;
 }
-async function lockOwner(client:PoolClient,owner:string){await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,1742))',[owner]);}
+async function lockOwner(client:PoolClient,owner:string){await ownerLock(client,owner);await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,1742))',[owner]);}
 export async function publishRegistry(pool:Pool,owner:string,payload:unknown):Promise<RegistryEntry>{
   const value=object(payload,['action','id','expected_version','visibility','title','summary','package','document','source']);
   if(value.action!=='publish'||!['private','unlisted','public'].includes(String(value.visibility))||typeof value.title!=='string'||!value.title.trim()||value.title.length>120||typeof value.summary!=='string'||value.summary.length>1000||!Number.isSafeInteger(value.expected_version)||Number(value.expected_version)<0)throw new CloudError(400,'Invalid application publication');
@@ -33,7 +35,7 @@ export async function publishRegistry(pool:Pool,owner:string,payload:unknown):Pr
   }
   const source=value.source===null?null:object(value.source,['entry','digest']);if(source){uuid(source.entry);digest(source.digest);if(source.entry===id)throw new CloudError(400,'An application cannot remix itself');}
   const client=await pool.connect();
-  try{await client.query('BEGIN');await lockOwner(client,owner);
+  try{await client.query('BEGIN');await lockOwner(client,owner);if(await creationHeld(client,owner))throw new CloudError(403,'Publication is paused after operator review; your data and deletion remain available');
     const prior=await client.query<RegistryEntry&{cleartext:boolean;revision:string;metadata_bytes:number}>(`SELECT e.*,r.revision,(r.package IS NOT NULL) AS cleartext,r.source_entry,r.source_digest FROM needware_registry_entry e
       JOIN needware_registry_revision r ON r.entry_id=e.id AND r.digest=e.current_digest WHERE e.id=$1 FOR UPDATE OF e`,[id]);
     if(prior.rowCount&&prior.rows[0].owner_id!==owner)throw new CloudError(404,'Application unavailable');
@@ -48,7 +50,7 @@ export async function publishRegistry(pool:Pool,owner:string,payload:unknown):Pr
       if(prior.rows[0].cleartext&&(info.application.parent!==prior.rows[0].current_digest||info.application.revision===prior.rows[0].revision))throw new CloudError(409,'Successor must name the exact signed parent and a new revision');
       if(!prior.rows[0].cleartext&&info.application.revision!==prior.rows[0].revision)throw new CloudError(409,'Review the encrypted revision before publishing its definition');
     }
-    if(source){const parent=await client.query(`SELECT e.application_id,r.package_info FROM needware_registry_entry e JOIN needware_registry_revision r ON r.entry_id=e.id WHERE e.id=$1 AND r.digest=$2 AND e.visibility<>'private' FOR SHARE OF e,r`,[source.entry,source.digest]);
+    if(source){const parent=await client.query(`SELECT e.application_id,r.package_info FROM needware_registry_entry e JOIN needware_registry_revision r ON r.entry_id=e.id WHERE e.id=$1 AND r.digest=$2 AND e.visibility<>'private' AND NOT e.moderated AND NOT EXISTS(SELECT 1 FROM needware_account_hold h WHERE h.account_id=e.owner_id AND h.active) FOR SHARE OF e,r`,[source.entry,source.digest]);
       const inherited=prior.rowCount&&prior.rows[0].source_entry===source.entry&&prior.rows[0].source_digest===source.digest&&info?.application.parent===prior.rows[0].current_digest;
       if(!parent.rowCount)throw new CloudError(404,'Remix source unavailable');if(parent.rows[0].application_id===application||!inherited&&info?.application.parent!==source.digest)throw new CloudError(400,'Remix must have its own identity and signed source digest');
     }

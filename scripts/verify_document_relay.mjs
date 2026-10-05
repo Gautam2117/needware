@@ -9,6 +9,8 @@ import {verifyCloudRevisions} from './verify_cloud_revisions.mjs';
 import {verifyRegistry} from './verify_registry.mjs';
 import {verifyGeneration} from './verify_generation.mjs';
 import {verifyBilling} from './verify_billing.mjs';
+import {verifyOperations} from './verify_operations.mjs';
+import {verifyBackup} from './verify_backup.mjs';
 import {advanceAcceptanceWindow} from './acceptance-clock.mjs';
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url));
 const {default:canonicalize}=await import(require.resolve('canonicalize'));
@@ -19,7 +21,7 @@ async function rateWindow(pool,account){
     if(remaining){console.log('Relay acceptance waiting for the existing account quota window');await new Promise(resolve=>setTimeout(resolve,Math.min(remaining,60_000)));}}
 }
 export async function verifyDocumentRelay({page,context,otherPage,otherContext,otherAccount,recoveredPage,enrolledPage,pool,account,origin,email,password}){
-  if(process.env.NEEDWARE_TEST_EPOCH_FOCUS==='1'||process.env.NEEDWARE_TEST_ROOT_FOCUS==='1'||process.env.NEEDWARE_TEST_REVISION_FOCUS==='1'||process.env.NEEDWARE_TEST_REGISTRY_FOCUS==='1'||process.env.NEEDWARE_TEST_GENERATION_FOCUS==='1'||process.env.NEEDWARE_TEST_BILLING_FOCUS==='1'){
+  if(process.env.NEEDWARE_TEST_EPOCH_FOCUS==='1'||process.env.NEEDWARE_TEST_ROOT_FOCUS==='1'||process.env.NEEDWARE_TEST_REVISION_FOCUS==='1'||process.env.NEEDWARE_TEST_REGISTRY_FOCUS==='1'||process.env.NEEDWARE_TEST_GENERATION_FOCUS==='1'||process.env.NEEDWARE_TEST_BILLING_FOCUS==='1'||process.env.NEEDWARE_TEST_OPERATIONS_FOCUS==='1'||process.env.NEEDWARE_TEST_BACKUP_FOCUS==='1'){
     // Diagnostic subset; CI and the full release check always retain the relay corpus below.
     for(const [client,name] of [[page,'__needwareRelay'],[otherPage,'__editableRelay']])await client.evaluate(async name=>{
       const wasm=await import('/wasm/needware_wasm.js');await wasm.default({module_or_path:'/wasm/needware_wasm_bg.wasm'});
@@ -27,7 +29,9 @@ export async function verifyDocumentRelay({page,context,otherPage,otherContext,o
       const account=(await(await fetch('/api/auth/get-session')).json()).user.id,store=await openVaultStore(),root=await store.load(account),vault=wasm.BrowserVault.from_local_backup(root.bytes);root.bytes.fill(0);
       globalThis[name]={wasm,store,vault,relay:new DocumentRelay(vault)};
     },name);
-    if(process.env.NEEDWARE_TEST_BILLING_FOCUS==='1')await verifyBilling({page,otherPage,context,pool,account,otherAccount,origin,email});
+    if(process.env.NEEDWARE_TEST_BACKUP_FOCUS==='1')await verifyBackup({page,pool,account});
+    else if(process.env.NEEDWARE_TEST_OPERATIONS_FOCUS==='1')await verifyOperations({page,otherPage,context,pool,account,otherAccount,origin});
+    else if(process.env.NEEDWARE_TEST_BILLING_FOCUS==='1')await verifyBilling({page,otherPage,context,pool,account,otherAccount,origin,email});
     else if(process.env.NEEDWARE_TEST_GENERATION_FOCUS==='1')await verifyGeneration({page,otherPage,enrolledPage,context,pool,account,otherAccount,origin});
     else if(process.env.NEEDWARE_TEST_REGISTRY_FOCUS==='1')await verifyRegistry({page,otherPage,context,pool,account,otherAccount,origin});
     else if(process.env.NEEDWARE_TEST_REVISION_FOCUS==='1')await verifyCloudRevisions({page,otherPage,pool,account,otherAccount,origin});

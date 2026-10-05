@@ -2,6 +2,7 @@ import { loadEnvironment } from './load-environment.mjs';
 loadEnvironment();
 const { authResources } = await import('../apps/web/lib/auth-options.ts');
 const { pool, mail, from } = authResources();
+const {startWorkerHealth}=await import('../apps/web/lib/worker-health.ts'),health=await startWorkerHealth(pool,'email');
 const labels = { verify: 'Verify your Needware email', reset: 'Reset your Needware password', delete: 'Confirm Needware account deletion' };
 let stopped = false;
 process.on('SIGINT', () => { stopped = true; }); process.on('SIGTERM', () => { stopped = true; });
@@ -19,7 +20,9 @@ async function deliver() {
     await mail.sendMail({ from, to: job.recipient, subject: labels[job.kind],
       text: `${labels[job.kind]}\n\n${job.link}\n\nIf you did not request this, ignore this email. Password reset does not recover encrypted data.` });
     await pool.query('DELETE FROM needware_email_outbox WHERE id=$1 AND lease_id=$2', [job.id, lease]);
+    health.healthy();
   } catch (error) {
+    health.degraded();
     const delay = Math.min(3600, 2 ** Math.min(job.attempts, 12));
     await pool.query(`UPDATE needware_email_outbox SET lease_id=NULL, lease_until=NULL,
       next_attempt_at=now()+($3 * interval '1 second'), last_error='DELIVERY_FAILED' WHERE id=$1 AND lease_id=$2`, [job.id, lease, delay]);
@@ -36,4 +39,4 @@ try {
     if (process.argv.includes('--once')) break;
     if (!worked) await new Promise(resolve => setTimeout(resolve, 1000));
   } while (!stopped);
-} finally { mail.close(); await pool.end(); }
+  } finally { await health.stop(); mail.close(); await pool.end(); }

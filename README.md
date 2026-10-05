@@ -49,7 +49,7 @@ published unlisted/public signed definitions. Stable links and immutable revisio
 links lead to signer/permission review. Independent remix copies the definition
 and assets, gives it a new identity/signer and records the signed source digest;
 existing application data and document access stay separate. These flows pass
-local acceptance; moderation and public deployment remain unfinished.
+local acceptance; public deployment remains unfinished.
 See the [registry and sharing boundary](docs/decisions/0014-registry-sharing-and-remix.md).
 
 Billing requires `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
@@ -60,6 +60,13 @@ state activates Pro quotas. Account deletion queues Stripe customer cleanup.
 `pnpm test:billing` verifies the actual SDK against an authored HTTP fixture;
 real charges and production configuration remain unverified. See the
 [billing and deletion boundary](docs/decisions/0016-billing-entitlements-and-deletion.md).
+
+Verified allowlisted operators use `/operations` to review reports, moderate
+published definitions, pause creation and retry retained email/billing cleanup.
+Worker health and dead-letter counts require actual operator follow-through.
+`pnpm test:operations` and `pnpm test:backup` verify these local boundaries;
+encrypted backup/empty-target restore commands and remaining production limits
+are documented in [operations and backups](docs/decisions/0017-operations-and-encrypted-backups.md).
 
 Native and browser revisions support explicit [preview, activation and recoverable rollback](docs/development/revisions.md). The browser retains the previous package and data atomically and rejects stale reviews. Durable synchronized schema publication and explicit stale-client review are implemented. Compiler-driven refinement and automatic compatible rebase remain under implementation.
 

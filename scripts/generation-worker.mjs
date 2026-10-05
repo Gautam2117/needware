@@ -8,6 +8,7 @@ if(process.env.NEEDWARE_HOSTED_GENERATION!=='1')throw Error('Enable hosted gener
 const {authResources}=await import('../apps/web/lib/auth-options.ts'),{pool,origin}=authResources();
 const {claimGenerationJob,dispatchGenerationJob,finishGenerationJob,generationRecipient,pruneGenerationJobs}=await import('../apps/web/lib/generation-store.ts');
 const {generationProvider}=await import('../apps/web/lib/generation-provider.ts'),{privateControlConfig}=await import('../apps/web/lib/control-config.ts');
+const {startWorkerHealth}=await import('../apps/web/lib/worker-health.ts'),health=await startWorkerHealth(pool,'generation');
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url)),{default:canonicalize}=await import(require.resolve('canonicalize'));
 const wasmDirectory=process.env.NEEDWARE_WASM_DIR??join(process.cwd(),'apps/web/public/wasm'),wasm=await import(pathToFileURL(join(wasmDirectory,'needware_wasm.js')).href);
 await wasm.default({module_or_path:await readFile(join(wasmDirectory,'needware_wasm_bg.wasm'))});
@@ -57,6 +58,6 @@ async function work(){const job=await claimGenerationJob(pool);if(!job)return fa
   return true;
 }
 let lastPrune=0;
-try{do{try{if(Date.now()-lastPrune>60000){await pruneGenerationJobs(pool);lastPrune=Date.now();}if(!await work())await new Promise(resolve=>setTimeout(resolve,500));}catch{console.error('Generation worker could not settle a lease; durable retry/recovery remains available');await new Promise(resolve=>setTimeout(resolve,1000));}
+try{do{try{if(Date.now()-lastPrune>60000){await pruneGenerationJobs(pool);lastPrune=Date.now();}if(!await work())await new Promise(resolve=>setTimeout(resolve,500));health.healthy();}catch{health.degraded();console.error('Generation worker could not settle a lease; durable retry/recovery remains available');await new Promise(resolve=>setTimeout(resolve,1000));}
   if(process.argv.includes('--once'))break;
-}while(!stopped);}finally{await pool.end();}
+}while(!stopped);}finally{await health.stop();await pool.end();}

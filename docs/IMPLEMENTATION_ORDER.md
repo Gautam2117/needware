@@ -42,7 +42,9 @@ actual local browser acceptance; public integration remains unverified.
 5. Registry and sharing: immutable revisions, private/unlisted/public URLs,
    encrypted private definitions/assets, lineage/remix, access revocation,
    reports and audited operator controls. Registry, stable URLs and signed remix
-   pass actual local acceptance and CI; reports/operator controls remain open.
+   pass actual local acceptance and CI. Reports, audited moderation, creation
+   holds, worker health and retained-job recovery now pass actual local acceptance;
+   production staffing/alerts and operational acceptance remain open.
 6. Hosted generation and subscriptions: durable compiler jobs, installation
    signing identity, quotas, semantic corpus, real provider checks, configured
    entitlements and verified/idempotent billing webhooks. Existing four adapter
@@ -54,6 +56,9 @@ actual local browser acceptance; public integration remains unverified.
    environment preflight, migration/backup/restore, observability/rate controls,
    dependency audit/fuzzing, measured benchmarks, public deployment and full
    deployed acceptance. UI flows land alongside each executable backend boundary.
+   An actual encrypted PostgreSQL dump/isolated atomic restore drill now passes
+   locally; production retention/deletion reconciliation and recovery targets
+   remain to verify.
 
 All seven groups remain open. Independent infrastructure, documentation and
 verification work can proceed while an external integration lacks credentials;

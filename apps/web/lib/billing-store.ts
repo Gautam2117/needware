@@ -3,6 +3,7 @@ import canonicalize from 'canonicalize';
 import type {Pool,PoolClient} from 'pg';
 import type Stripe from 'stripe';
 import {ownerLock} from './generation-store.ts';
+import {creationHeld} from './creation-hold.ts';
 import {billingConfig,billingPrice,BillingFailure,stripeId,stripeRedirect,verifyBillingAccount} from './billing-config.ts';
 type Config=ReturnType<typeof billingConfig>;
 type Account={account_id:string;customer_id:string;merchant_id:string;livemode:boolean;subscription_id:string|null;status:string;paid_until:Date|null};
@@ -10,7 +11,7 @@ export async function billingSummary(pool:Pool,account:string){return (await poo
 export async function billingCheckout(pool:Pool,account:string,email:string,id:string,review:unknown,config:Config,origin:string){
   const price=await billingPrice(config);if(canonicalize(price)!==canonicalize(review))throw new BillingFailure(409,'The subscription price changed; review it again');
   const digest=createHash('sha256').update(canonicalize(price)!).digest('hex'),client=await pool.connect();let customer:string|undefined,expires:Date|undefined;
-  try{await client.query('BEGIN');await ownerLock(client,account);
+  try{await client.query('BEGIN');await ownerLock(client,account);if(await creationHeld(client,account))throw new BillingFailure(403,'Creation is paused after operator review; manage any existing subscription in the billing portal');
     const previous=(await client.query('SELECT * FROM needware_billing_checkout WHERE account_id=$1 AND id=$2 FOR UPDATE',[account,id])).rows[0];
     if(previous){if(previous.request_digest!==digest)throw new BillingFailure(409,'Checkout request identity changed');if(new Date(previous.expires_at)<new Date())throw new BillingFailure(409,'Checkout expired; review and start another request');expires=new Date(previous.expires_at);}
     let billing=(await client.query<Account>('SELECT * FROM needware_billing_account WHERE account_id=$1 FOR UPDATE',[account])).rows[0];
@@ -25,7 +26,7 @@ export async function billingCheckout(pool:Pool,account:string,email:string,id:s
     if(subscriptions.has_more||subscriptions.data.some(sub=>!['canceled','incomplete_expired'].includes(sub.status)))throw new BillingFailure(409,'A subscription already exists; manage it in the billing portal');
     const checkout=await config.stripe.checkout.sessions.create({customer,client_reference_id:account,mode:'subscription',line_items:[{price:config.price,quantity:1}],subscription_data:{metadata:{needware_account:account}},success_url:`${origin}/billing?checkout=returned`,cancel_url:`${origin}/billing?checkout=cancelled`,expires_at:Math.floor(expires.getTime()/1000),allow_promotion_codes:false},{idempotencyKey:`needware-checkout-${account}-${id}`});
     const url=stripeRedirect(checkout.url);if(checkout.livemode!==config.live||stripeId(checkout.customer)!==customer||checkout.mode!=='subscription'||checkout.expires_at!==Math.floor(expires.getTime()/1000))throw new BillingFailure(503,'Checkout identity rejected');
-    await client.query('BEGIN');await ownerLock(client,account);const current=(await client.query('SELECT * FROM needware_billing_checkout WHERE account_id=$1 AND id=$2 FOR UPDATE',[account,id])).rows[0];
+    await client.query('BEGIN');await ownerLock(client,account);if(await creationHeld(client,account))throw new BillingFailure(403,'Creation is paused after operator review');const current=(await client.query('SELECT * FROM needware_billing_checkout WHERE account_id=$1 AND id=$2 FOR UPDATE',[account,id])).rows[0];
     if(!current||current.request_digest!==digest||current.session_id&&current.session_id!==checkout.id)throw new BillingFailure(409,'Checkout intent changed');
     await client.query('UPDATE needware_billing_checkout SET session_id=$3,url=$4 WHERE account_id=$1 AND id=$2',[account,id,checkout.id,url]);await client.query('COMMIT');return url;
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
