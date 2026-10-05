@@ -69,3 +69,20 @@ export function valuesFor(node:ViewNode):Record<string,Value>{
     if(draft.value)values[field]=draft.value;
   }return values;
 }
+export function dirtyCount(){let count=0;for(const scope of scopes.values())for(const draft of scope.values())if(draft.dirty)count++;return count;}
+export function captureDrafts(node:ViewNode){const captured:{draft:Draft;raw:string}[]=[];for(const [field,draft] of scopes.get(scopeOf(node))??[])if(draft.dirty&&(!node.event_fields||node.event_fields.includes(field)))captured.push({draft,raw:JSON.stringify(draft.raw)});return captured;}
+export function acknowledgeDrafts(captured:ReturnType<typeof captureDrafts>){for(const item of captured)if(JSON.stringify(item.draft.raw)===item.raw){item.draft.dirty=false;item.draft.conflict=false;item.draft.invalid=undefined;}notify();}
+export function exportDrafts(){const entries=[];for(const [scope,fields] of scopes)for(const [field,draft] of fields)if(draft.dirty)entries.push({scope,field,id:draft.id,raw:draft.raw,baseline:draft.baseline});if(JSON.stringify(entries).length*2>8*1024*1024)throw Error('Draft recovery exceeds 8 MiB. Save or review some inputs first.');return entries;}
+export function importDrafts(value:unknown,view:ViewNode){
+  if(dirtyCount())throw Error('Save or export your current drafts before importing another recovery file.');
+  if(!Array.isArray(value)||value.length>4096||JSON.stringify(value).length*2>8*1024*1024)throw Error('Invalid or oversized draft recovery.');
+  const nodes=new Map<string,ViewNode>();const visit=(node:ViewNode)=>{if(node.field)nodes.set(`${scopeOf(node)}\0${node.field}\0${node.id}`,node);for(const child of node.children)visit(child);};visit(view);
+  const staged:{node:ViewNode;draft:Draft}[]=[];const seen=new Set<string>();let bytes=0;
+  for(const entry of value){
+    if(!entry||typeof entry!=='object'||typeof entry.scope!=='string'||typeof entry.field!=='string'||typeof entry.id!=='string'||!(typeof entry.raw==='string'||typeof entry.raw==='boolean'||Array.isArray(entry.raw)&&entry.raw.length<=4096&&entry.raw.every((item:unknown)=>typeof item==='string')))throw Error('Invalid recovered field.');
+    const key=`${entry.scope}\0${entry.field}\0${entry.id}`,node=nodes.get(key);if(!node||seen.has(key))throw Error('Recovery field is unavailable. Open its original application screen before importing.');seen.add(key);
+    bytes+=JSON.stringify(entry.raw).length*2;if(bytes>4*1024*1024)throw Error('Recovered drafts exceed the 4 MiB editing limit.');
+    const draft:Draft={id:node.id,raw:entry.raw,baseline:initial(node),dirty:true,conflict:true};try{draft.value=parse(node,entry.raw);}catch(error){draft.invalid=String(error);}staged.push({node,draft});
+  }
+  for(const {node,draft} of staged){const key=scopeOf(node);let scope=scopes.get(key);if(!scope){scope=new Map();scopes.set(key,scope);}scope.set(node.field!,draft);}notify();
+}

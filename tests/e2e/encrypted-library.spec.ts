@@ -25,7 +25,7 @@ test('encrypted worker and opaque application frame retain durable edits through
   await expect(second.getByRole('button',{name:'Complete',exact:true})).toBeVisible();
   await frame.getByRole('button',{name:'Undo',exact:true}).click();await expect(page.getByRole('alert').filter({hasText:'Document changed in another tab'})).toBeVisible();
   await expect(frame.getByRole('button',{name:'Undo',exact:true})).toBeVisible();
-  await other.close();await page.waitForFunction(()=>navigator.serviceWorker.controller!==null);
+  await other.close();await waitForOfflineReady(page);
   await offlineServer.stop();await page.reload();await page.getByRole('button',{name:'Open Habit tracker',exact:true}).click();
   await expect(frame.getByText('Private encrypted UI',{exact:true})).toBeVisible();await expect(frame.getByRole('button',{name:'Complete',exact:true})).toBeVisible();
   await frame.getByRole('button',{name:'Complete',exact:true}).click();await expect(frame.getByRole('button',{name:'Undo',exact:true})).toBeVisible();
