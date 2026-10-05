@@ -6,4 +6,4 @@ import type { Style } from "./Style";
 import type { Theme } from "./Theme";
 import type { Value } from "./Value";
 
-export type ViewNode = { id: string, kind: Component, text: string, value: Value | null, input_contract: Field | null, form_scope: string | null, disabled: boolean, raster: Raster | null, theme: Theme | null, field: string | null, action: string | null, event_fields: Array<string> | null, record: string | null, options: Array<string>, style: Style, open: boolean, active_overlay: boolean, children: Array<ViewNode>, };
+export type ViewNode = { id: string, kind: Component, text: string, value: Value | null, input_contract: Field | null, form_scope: string | null, disabled: boolean, raster: Raster | null, theme: Theme | null, field: string | null, action: string | null, event_fields: Array<string> | null, acknowledged_fields: Array<string> | null, record: string | null, options: Array<string>, style: Style, open: boolean, active_overlay: boolean, children: Array<ViewNode>, };

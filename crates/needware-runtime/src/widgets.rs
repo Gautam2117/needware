@@ -5,6 +5,7 @@ pub(crate) struct RenderScope<'a> {
     pub form: Option<&'a str>,
     pub scope_id: Option<&'a str>,
     pub package: &'a VerifiedPackage,
+    pub input_fields: &'a BTreeMap<String, inputs::Fields>,
 }
 
 pub(crate) fn binding(

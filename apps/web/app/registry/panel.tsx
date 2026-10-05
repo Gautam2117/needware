@@ -1,5 +1,5 @@
 'use client';
-import Link from 'next/link';
+import Link from '../offline-link';
 import {useEffect,useRef,useState} from 'react';
 import canonicalize from 'canonicalize';
 import type {RegistryEntry} from '../../lib/registry-store';

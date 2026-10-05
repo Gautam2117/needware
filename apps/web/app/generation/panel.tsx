@@ -1,6 +1,6 @@
 'use client';
 import {useCallback,useEffect,useState} from 'react';
-import Link from 'next/link';
+import Link from '../offline-link';
 import {authClient} from '../../lib/auth-client';
 import {cancelHostedApplication,type HostedJob} from '../../../../packages/browser-host/src/hosted-compiler-client';
 type Usage={plan:string;creation_hold:boolean;quota:{daily:number;monthly:number;budget:number};attempts:number;daily_attempts:number;reserved_microusd:string;spent_microusd:string;input_tokens:string;output_tokens:string;unknown_requests:number;resets_at:string};

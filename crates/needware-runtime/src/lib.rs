@@ -1,5 +1,6 @@
 //! Verified packages execute transactionally; platform effects remain typed data.
 mod controls;
+mod inputs;
 mod revisions;
 mod visuals;
 mod widgets;
@@ -54,6 +55,7 @@ pub struct ViewNode {
     pub field: Option<String>,
     pub action: Option<String>,
     pub event_fields: Option<Vec<String>>,
+    pub acknowledged_fields: Option<Vec<String>>,
     pub record: Option<String>,
     pub options: Vec<String>,
     pub style: Style,
@@ -68,6 +70,7 @@ pub struct Runtime {
     grants: Grants,
     instance: String,
     controls: Controls,
+    input_fields: BTreeMap<String, inputs::Fields>,
 }
 impl Runtime {
     pub fn load(
@@ -87,10 +90,12 @@ impl Runtime {
         needware_validation::validate_state(&state, app)
             .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
         let screen = app.initial_screen.clone();
+        let input_fields = inputs::contracts(app)?;
         Ok(Self {
             package,
             state,
             grants,
+            input_fields,
             instance: uuid::Uuid::new_v4().to_string(),
             controls: Controls {
                 screen,
@@ -217,6 +222,7 @@ impl Runtime {
                 form: None,
                 scope_id: None,
                 package: &self.package,
+                input_fields: &self.input_fields,
             },
             &mut Budget::new(1_000_000),
             &mut visuals::RenderMeter::default(),
@@ -473,6 +479,29 @@ fn render(
     if meter.nodes > 4096 {
         return Err(RuntimeError::Limit);
     }
+    let input_fields = node
+        .action
+        .as_ref()
+        .and_then(|action| scope.input_fields.get(action));
+    if let Some(fields) = input_fields {
+        let bytes =
+            fields
+                .request
+                .iter()
+                .chain(&fields.acknowledged)
+                .try_fold(0usize, |sum, field| {
+                    sum.checked_add(field.len())
+                        .and_then(|sum| sum.checked_add(3))
+                        .ok_or(RuntimeError::Limit)
+                })?;
+        meter.input_bytes = meter
+            .input_bytes
+            .checked_add(bytes)
+            .ok_or(RuntimeError::Limit)?;
+        if meter.input_bytes > 4 * 1024 * 1024 {
+            return Err(RuntimeError::Limit);
+        }
+    }
     let text = match &node.text {
         Some(e) => needware_expr::display(&evaluate(e, ctx, budget).map_err(expression_error)?)
             .map_err(expression_error)?,
@@ -490,6 +519,7 @@ fn render(
         controls: scope.controls,
         form,
         package: scope.package,
+        input_fields: scope.input_fields,
         scope_id: if node.kind == Component::Form {
             Some(&node.id)
         } else {
@@ -547,9 +577,15 @@ fn render(
         text,
         value,
         input_contract,
-        form_scope: nested_scope.scope_id.map(|name| match record {
-            Some(id) => format!("{name}:{id}"),
-            None => name.into(),
+        form_scope: Some(match nested_scope.scope_id {
+            Some(name) => match record {
+                Some(id) => format!("{name}:{id}"),
+                None => name.into(),
+            },
+            None => match record {
+                Some(id) => format!("@screen:{}:{id}", scope.controls.screen),
+                None => format!("@screen:{}", scope.controls.screen),
+            },
         }),
         disabled,
         raster,
@@ -559,8 +595,13 @@ fn render(
         event_fields: node
             .action
             .as_ref()
-            .and_then(|a| app.event_schema.get(a))
-            .map(|fields| fields.keys().cloned().collect()),
+            .and_then(|a| scope.input_fields.get(a))
+            .map(|fields| fields.request.clone()),
+        acknowledged_fields: node
+            .action
+            .as_ref()
+            .and_then(|a| scope.input_fields.get(a))
+            .map(|fields| fields.acknowledged.clone()),
         record: record.map(str::to_owned),
         options: node.options.clone(),
         style: node.style.clone(),

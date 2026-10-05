@@ -36,3 +36,11 @@ capacity, an SLA or a production throughput estimate. CI archives its own baseli
 no machine-specific latency threshold pretends to establish production readiness.
 
 Local recorded campaign, 2026-10-05: signed_package: 2,452,554 executions, PASS, strict_json: 420,934 executions, PASS, runtime_transaction: 21,045 executions, PASS. No crash, sanitizer failure, per-input timeout or runtime invariant failure was detected in this bounded run. Reported peak RSS stayed below the 1 GiB cap.
+
+After the cross-screen input metadata changes, the 13:36 UTC campaign recorded
+signed_package 2,712,539 executions / 512 MiB peak RSS; strict_json 509,385 / 544 MiB;
+runtime_transaction 21,154 / 503 MiB. All three passed: 3,243,078 executions with
+the same bounds and no detected crash, sanitizer, unit-timeout or rollback failure.
+Logs are `.logs/fuzz-20261005T133607Z-*.log`. The subsequent local release medians
+were 417.542 microseconds for verification, 5.250 for projection, 6.750 for dispatch
+and 388.209 for strict 4 MiB decoding. These receipts retain the limitations above.

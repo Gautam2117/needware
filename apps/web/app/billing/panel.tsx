@@ -1,6 +1,6 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
-import Link from 'next/link';
+import Link from '../offline-link';
 import canonicalize from 'canonicalize';
 import {authClient} from '../../lib/auth-client';
 type Price={id:string;amount:number;currency:string;interval:'month';livemode:boolean};

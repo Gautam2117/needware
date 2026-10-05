@@ -1,4 +1,15 @@
 import { test, expect } from './fixtures';
+import {readFileSync} from 'node:fs';
+
+test('encrypted journal failures preserve exact native screen history and open overlays',async({page})=>{
+  await page.goto('/');const bytes=[...readFileSync('artifacts/controls/encrypted-controls.need')];const result=await page.evaluate(async bytes=>{
+    const wasm=await import('/wasm/needware_wasm.js');await wasm.default({module_or_path:'/wasm/needware_wasm_bg.wasm'});const {openVaultStore}=await import('/vault-store.js'),{DurableSyncSession}=await import('/sync-journal.js');
+    const account=crypto.randomUUID(),vault=new wasm.BrowserVault(account),store=await openVaultStore(),backup=vault.local_backup();await store.save(account,backup,null);backup.fill(0);const scope=JSON.stringify({values:[],collections:['habits']}),original=vault.start_document(new Uint8Array(bytes),crypto.randomUUID(),scope,1,true),document=JSON.parse(original.binding()).document.document,roster=JSON.stringify([JSON.parse(original.membership())]);
+    const journal=await DurableSyncSession.create(store.documents,vault,new Uint8Array(bytes),original,{account,rootGeneration:1,scope,ownerEpoch:1,authority:vault.account_authority(),roster});const event=(action:string)=>JSON.stringify({action,values:{},now:'2026-10-05T00:00:00Z',timezone:'UTC'});
+    async function rejected(action:string){const view=journal.view(),state=journal.snapshot(),pending=JSON.stringify(journal.pending()),save=store.documents.save;store.documents.save=async()=>{throw Error('Injected durable journal failure');};let failed=false;try{await journal.dispatch(event(action));}catch{failed=true;}finally{store.documents.save=save;}return failed&&journal.view()===view&&journal.snapshot()===state&&JSON.stringify(journal.pending())===pending;}
+    await journal.dispatch(event('details'));const details=JSON.parse(journal.view()).id==='controls_details_root',detailsPreserved=await rejected('review');await journal.dispatch(event('review'));await journal.dispatch(event('back'));const history=JSON.parse(journal.view()).id==='controls_details_root';await journal.dispatch(event('home'));await journal.dispatch(event('show_dialog'));const overlay=JSON.parse(journal.view()).children.some((node:{id:string;open:boolean;active_overlay:boolean})=>node.id==='control_dialog'&&node.open&&node.active_overlay),overlayPreserved=await rejected('close_dialog');await journal.dispatch(event('close_dialog'));const closed=JSON.parse(journal.view()).children.some((node:{id:string;open:boolean})=>node.id==='control_dialog'&&!node.open);await journal.close();vault.free();store.close();return {details,detailsPreserved,history,overlay,overlayPreserved,closed};
+  },bytes);expect(result).toEqual({details:true,detailsPreserved:true,history:true,overlay:true,overlayPreserved:true,closed:true});
+});
 
 test('v1 vault upgrade and atomic runtime journals retain offline state, uploads and cursor across failed commits', async ({ page, offlineServer }) => {
   await page.goto(offlineServer.url);

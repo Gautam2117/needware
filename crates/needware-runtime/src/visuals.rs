@@ -13,6 +13,7 @@ pub(crate) struct RenderMeter {
     pub nodes: u32,
     pub raster_bytes: usize,
     pub raster_pixels: u64,
+    pub input_bytes: usize,
 }
 fn invalid(message: &str) -> RuntimeError {
     RuntimeError::Invalid(message.into())

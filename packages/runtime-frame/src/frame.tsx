@@ -5,7 +5,7 @@ import type { Value } from '@needware/ir-types/Value';
 import { supported } from '../../renderer/src/registry';
 import {RuntimeDialog} from './dialog';
 import {RuntimeInput} from './input';
-import {valuesFor,subscribe,dirtyCount,captureDrafts,acknowledgeDrafts,exportDrafts,importDrafts} from './bindings';
+import {valuesFor,subscribe,dirtyCount,captureDrafts,acknowledgeDrafts,exportDrafts,importDrafts,previewDrafts,indexDraftFields} from './bindings';
 import {RuntimeImage,RuntimeIcon,RuntimeTable,RuntimeTabs,RuntimeChart,RuntimeCalendar} from './visuals';
 
 let channel: MessagePort | undefined;
@@ -68,10 +68,10 @@ window.addEventListener('message', event => {
     if(message?.kind==='needware-action-result'){const captured=pending.get(message.request);if(!captured)return;pending.delete(message.request);if(message.ok===true)acknowledgeDrafts(captured);draftStatus();return;}
     if(message?.kind==='needware-draft-request'){
       if(typeof message.request!=='string'||message.request.length>64)return;
-      try{let value:unknown;if(message.operation==='status')value={count:dirtyCount(),pending:pending.size};else if(message.operation==='export')value=exportDrafts();else if(message.operation==='import'&&currentView){if(pending.size)throw Error('Wait for pending changes before recovering drafts.');importDrafts(message.value,currentView);value=true;}else throw Error('Unsupported draft operation.');channel?.postMessage({kind:'needware-draft-reply',request:message.request,ok:true,value});}catch(error){channel?.postMessage({kind:'needware-draft-reply',request:message.request,ok:false,error:String(error)});}return;
+      try{let value:unknown;if(message.operation==='status')value={count:dirtyCount(),pending:pending.size};else if(message.operation==='export')value=exportDrafts();else if(message.operation==='preview'&&currentView)value=previewDrafts(message.value,currentView);else if(message.operation==='import'&&currentView){if(pending.size)throw Error('Wait for pending changes before recovering drafts.');importDrafts(message.value,currentView);value=true;}else throw Error('Unsupported draft operation.');channel?.postMessage({kind:'needware-draft-reply',request:message.request,ok:true,value});}catch(error){channel?.postMessage({kind:'needware-draft-reply',request:message.request,ok:false,error:String(error)});}return;
     }
     const view = event.data as ViewNode;
-    const valid=validView(view,{value:0});currentView=valid?view:undefined;
+    const valid=validView(view,{value:0});if(valid)indexDraftFields(view);currentView=valid?view:undefined;
     draftStatus();root.render(valid ? <RuntimeView node={view} /> : <p role="alert">This application uses unsupported or invalid components. Execution stopped.</p>);
   };
   channel.start();

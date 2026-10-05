@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import {useRouter} from 'next/navigation';
 import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { Command, LibraryEntry, Loaded, PackageInfo, RevisionReport, WorkerReply } from '../../../packages/browser-host/src/protocol';
 import RevisionReview from './revision-review';
@@ -41,7 +40,6 @@ function download(filename: string, data: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([data], { type })); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export default function Workbench() {
-  const router=useRouter();
   const {data:session}=authClient.useSession();const [hosted,setHosted]=useState(false);
   const hostedJob=useRef<string|null>(null);const pendingCreation=useRef<{key:string;id:string}|null>(null);
   const host = useRef<Host | null>(null);
@@ -97,7 +95,9 @@ export default function Workbench() {
         const submitted=await createHostedApplication(hostedJob.current,session.user.id,prompt,provider);
         const job=await pollHostedApplication(submitted.id,controller.signal,value=>{setGenerationStage(value.stage?stageLabels[value.stage.stage]??'Creating your application':value.state==='queued'?'Creation queued':'Creating your application');if(value.stage)setGenerationEvents(previous=>[...previous.slice(-11),value.stage!]);});
         pendingCreation.current=null;if(job.state!=='succeeded')throw Error(job.state==='cancelled'?'Creation cancelled.':`Creation did not finish (${job.failure??'unavailable'}). Review Your creations for usage.`);
-        router.push(`/encrypted#account=${session.user.id}&job=${job.id}`);return;
+        const destination=`/encrypted#account=${session.user.id}&job=${job.id}`;
+        if(sandbox.current){if(!await sandbox.current.navigate(destination))setStatus('Creation is ready in Your creations. Your unsaved inputs remain here.');}
+        else location.assign(destination);return;
       }
       const bytes = await createApplication(prompt, controller.signal, event => { setGenerationStage(stageLabels[event.stage] ?? 'Creating your application'); setGenerationEvents(previous => [...previous.slice(-11), event]); }); await inspect(bytes, true);
     }

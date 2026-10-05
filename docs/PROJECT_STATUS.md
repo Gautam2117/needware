@@ -2,9 +2,10 @@
 
 Statuses describe actual code and checks, not planned completeness.
 
-Latest local verification, 2026-10-05: runtime controls, typed forms, complete visual families and reviewed draft recovery (decisions
-0018 through 0021), production/WASM build, 103 native tests, 13 server tests, 123 three-engine
-browser cases, nine compiler fixtures, accounts/roots/schema/registry/generation/
+Latest local verification, 2026-10-05: runtime controls, typed forms, complete visual families and reviewed draft and browser history safety (decisions
+0018 through 0022), production/WASM build, 106 native tests, 13 server tests, 138 three-engine
+browser cases (135 in the full corpus plus three targeted encrypted-control cases),
+nine compiler fixtures, accounts/roots/schema/registry/generation/
 billing/operations/backup acceptance, format/Clippy/types/lint, credential scan
 and dependency audits passed. Bounded native sanitizer campaigns and a local release
 benchmark baseline are documented in [fuzz and benchmarks](security/FUZZ_BENCHMARKS.md). Production and exact-device acceptance remain open.

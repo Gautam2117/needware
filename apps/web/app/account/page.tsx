@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from '../offline-link';
 import { authConfigured } from '../../lib/auth-options';
 import AccountPanel from './panel';
 export const dynamic = 'force-dynamic';
