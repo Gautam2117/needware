@@ -15,6 +15,7 @@ test('root and every journal publish atomically after offline restart, preservin
       const native=vault.start_document(bytes,crypto.randomUUID(),scope,1,true),document=JSON.parse(native.binding()).document.document;
       const journal=await DurableSyncSession.create(store.documents,vault,bytes,native,{account,rootGeneration:1,scope,ownerEpoch:1,authority:vault.account_authority(),roster:JSON.stringify([JSON.parse(native.membership())])});
       await journal.dispatch(JSON.stringify({action:'add',values:{record_id:{type:'string',value:crypto.randomUUID()},name:{type:'string',value:`Root rotation document ${i}`}},now:'2026-10-04T00:00:00Z',timezone:'UTC'}));
+      await journal.saveDrafts(crypto.randomUUID(),JSON.parse(wasm.inspect_package(bytes)).digest,[{scope:'global',field:'name',id:'name',raw:`Root-private unsaved ${i}`}]);
       sessions.push({native,journal});documents.push(document);states.push(journal.snapshot());
     }
     // A cold journal is authoritative even when the live vault has not cached its key.
@@ -73,6 +74,8 @@ test('root and every journal publish atomically after offline restart, preservin
     for(const document of saved.documents){
       const journal=await DurableSyncSession.open(store.documents,vault,saved.account,document,true);after.push(journal.snapshot());await journal.close();
       const current=await store.documents.load(saved.account,document),parsed=JSON.parse(new TextDecoder().decode(current.bytes));current.bytes.fill(0);
+      if(parsed.drafts?.[0]?.fields?.[0]?.raw!==`Root-private unsaved ${saved.documents.indexOf(document)}`)throw Error('Root rotation dropped private raw drafts');
+      if(JSON.parse(parsed.archive[0]).drafts?.[0]?.fields?.[0]?.raw!==parsed.drafts[0].fields[0].raw)throw Error('Root history dropped private draft snapshot');
       const archived=JSON.parse(parsed.archive[0]),binding=JSON.parse(archived.binding),historicalBackup=vault.local_backup(),historicalVault=wasm.BrowserVault.from_local_backup(historicalBackup);historicalBackup.fill(0);
       historicalVault.forget_document(document);historicalVault.restore_held_document_key(archived.held,JSON.stringify(binding.document));
       const historical=historicalVault.open_shared_document(decode(archived.package),document,archived.membership,archived.ownerEpoch,archived.authority,binding.generation,archived.scope,binding.schema_epoch,true);

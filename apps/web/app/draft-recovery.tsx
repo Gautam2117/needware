@@ -1,10 +1,11 @@
 'use client';
 import {useState} from 'react';
-export type DraftStatus={count:number;pending:number;ready?:boolean};
+import {EncryptedDraftRecovery,type DurableDrafts} from './encrypted-draft-recovery';
+export type DraftStatus={count:number;pending:number;ready?:boolean;version?:number};
 export type DraftRequest=(operation:'status'|'export'|'import'|'preview',value?:unknown)=>Promise<unknown>;
 export type SandboxHandle={confirmLeave():Promise<boolean>;navigate(href:string):Promise<boolean>};
-export function validDraftStatus(value:unknown):value is DraftStatus{if(!value||typeof value!=='object')return false;const status=value as DraftStatus;return Number.isInteger(status.count)&&status.count>=0&&status.count<=4096&&Number.isInteger(status.pending)&&status.pending>=0&&status.pending<=32;}
-export function DraftRecovery({status,request,binding,digest,error,ready}:{ready:boolean;status:DraftStatus;request:DraftRequest;binding:string;digest:string;error(message:string):void}){
+export function validDraftStatus(value:unknown):value is DraftStatus{if(!value||typeof value!=='object')return false;const status=value as DraftStatus;return Number.isInteger(status.count)&&status.count>=0&&status.count<=4096&&Number.isInteger(status.pending)&&status.pending>=0&&status.pending<=32&&(status.version===undefined||Number.isSafeInteger(status.version)&&status.version>=0);}
+export function DraftRecovery({status,request,binding,digest,error,ready,durable,connection}:{ready:boolean;status:DraftStatus;request:DraftRequest;binding:string;digest:string;error(message:string):void;durable?:DurableDrafts;connection:number}){
   const [busy,setBusy]=useState(false);
   const [recovery,setRecovery]=useState<{binding:string;digest:string;drafts:unknown[]}>();
   const remaining=recovery?.binding===binding&&recovery.digest===digest?recovery:undefined;
@@ -18,15 +19,18 @@ export function DraftRecovery({status,request,binding,digest,error,ready}:{ready
   async function importFile(file:File){
     if(file.size>8*1024*1024)throw Error('Draft recovery file exceeds 8 MiB.');const value=JSON.parse(await file.text());
     if(value?.format!=='needware-drafts-v1'||value.binding!==binding||value.digest!==digest)throw Error('Draft recovery belongs to a different application, document, or signed revision.');
+    await recoverEntries(value.drafts);
+  }
+  async function recoverEntries(drafts:unknown){
     if(!window.confirm('Recover these unsaved inputs for explicit review? Saved application data will stay unchanged until you review and submit each form.'))return;
-    if(!Array.isArray(value.drafts))throw Error('Invalid draft recovery.');const indices=await available(value.drafts);
-    if(indices.length===value.drafts.length){await request('import',value.drafts);setRecovery(undefined);}
-    else {setRecovery({binding,digest,drafts:value.drafts});throw Error('Recovery field is unavailable. Open its original application screen, then explicitly recover the available inputs. No inputs were imported. Keep the original recovery file for other screens.');}
+    if(!Array.isArray(drafts))throw Error('Invalid draft recovery.');const indices=await available(drafts);
+    if(indices.length===drafts.length){await request('import',drafts);setRecovery(undefined);}
+    else {setRecovery({binding,digest,drafts});throw Error('Recovery field is unavailable. Open its original application screen, then explicitly recover the available inputs. No inputs were imported. Keep the original recovery source for other screens.');}
   }
   async function recoverScreen(){
     if(!remaining)throw Error('Recovery belongs to another application or signed revision.');const indices=await available(remaining.drafts);if(!indices.length)throw Error('No recovery inputs are available on this screen. Open their original screen first.');
-    if(!window.confirm(`Recover ${indices.length} inputs on this screen for explicit review? ${remaining.drafts.length-indices.length} other inputs remain in your original recovery file. Saved data stays unchanged until you submit.`))return;
+    if(!window.confirm(`Recover ${indices.length} inputs on this screen for explicit review? ${remaining.drafts.length-indices.length} other inputs remain in your original recovery source. Saved data stays unchanged until you submit.`))return;
     await request('import',indices.map(index=>remaining.drafts[index]));const selected=new Set(indices),drafts=remaining.drafts.filter((_,index)=>!selected.has(index));setRecovery(drafts.length?{binding,digest,drafts}:undefined);
   }
-  return <section aria-label="Unsaved input recovery"><p role="status">{status.count} unsaved {status.count===1?'input':'inputs'}{status.pending?` · ${status.pending} pending changes`:''}. Unsaved inputs stay in this page until saved. Export them before closing if you need recovery.</p><div className="toolbar"><button disabled={!ready||busy||!status.count||Boolean(status.pending)} onClick={()=>void run(exportFile)}>Export plaintext unsaved inputs</button><label className="file-label">Recover unsaved inputs<input type="file" accept=".json,application/json" disabled={!ready||busy||Boolean(status.pending)} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void run(()=>importFile(file));}} /></label></div>{remaining&&<div className="notice"><p>{remaining.drafts.length} inputs remain to recover. Keep the original recovery file. Open each original screen, recover its available inputs, review and save them before recovering another screen.</p><button disabled={!ready||busy||Boolean(status.count)||Boolean(status.pending)} onClick={()=>void run(recoverScreen)}>Recover inputs on this screen</button><button disabled={busy} onClick={()=>setRecovery(undefined)}>Close recovery preview</button></div>}</section>;
+  return <section aria-label="Unsaved input recovery">{durable&&<EncryptedDraftRecovery key={connection} durable={durable} ready={ready} status={status} request={request} binding={binding} digest={digest} recover={recoverEntries} error={error}/>}<p role="status">{status.count} unsaved {status.count===1?'input':'inputs'}{status.pending?` · ${status.pending} pending changes`:''}. {durable?'Inputs are not committed application data. Wait for encrypted recovery confirmation before closing, then review recovered inputs before submitting.':'Unsaved inputs stay in this page until saved. Export them before closing if you need recovery.'}</p><div className="toolbar"><button disabled={!ready||busy||!status.count||Boolean(status.pending)} onClick={()=>void run(exportFile)}>Export plaintext unsaved inputs</button><label className="file-label">Recover unsaved inputs<input type="file" accept=".json,application/json" disabled={!ready||busy||Boolean(status.pending)} onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void run(()=>importFile(file));}} /></label></div>{remaining&&<div className="notice"><p>{remaining.drafts.length} inputs remain to recover. Keep the original recovery source. Open each original screen, recover its available inputs, review and save them before recovering another screen.</p><button disabled={!ready||busy||Boolean(status.count)||Boolean(status.pending)} onClick={()=>void run(recoverScreen)}>Recover inputs on this screen</button><button disabled={busy} onClick={()=>setRecovery(undefined)}>Close recovery preview</button></div>}</section>;
 }

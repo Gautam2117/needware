@@ -5,7 +5,7 @@ import type { Value } from '@needware/ir-types/Value';
 import { supported } from '../../renderer/src/registry';
 import {RuntimeDialog} from './dialog';
 import {RuntimeInput} from './input';
-import {valuesFor,subscribe,dirtyCount,captureDrafts,acknowledgeDrafts,exportDrafts,importDrafts,previewDrafts,indexDraftFields} from './bindings';
+import {valuesFor,subscribe,snapshot as draftVersion,dirtyCount,captureDrafts,acknowledgeDrafts,exportDrafts,importDrafts,previewDrafts,indexDraftFields} from './bindings';
 import {RuntimeImage,RuntimeIcon,RuntimeTable,RuntimeTabs,RuntimeChart,RuntimeCalendar} from './visuals';
 
 let channel: MessagePort | undefined;
@@ -13,7 +13,7 @@ let report=(message:string)=>{void message;};
 let currentView:ViewNode|undefined;
 const pending=new Map<string,ReturnType<typeof captureDrafts>>();
 const pendingListeners=new Set<()=>void>();
-const draftStatus=()=>{for(const listener of pendingListeners)listener();channel?.postMessage({kind:'needware-draft-status',count:dirtyCount(),pending:pending.size,ready:Boolean(currentView)});};
+const draftStatus=()=>{for(const listener of pendingListeners)listener();channel?.postMessage({kind:'needware-draft-status',count:dirtyCount(),pending:pending.size,version:draftVersion(),ready:Boolean(currentView)});};
 subscribe(draftStatus);
 function fire(node: ViewNode) {
   if (!node.action||node.disabled) return;

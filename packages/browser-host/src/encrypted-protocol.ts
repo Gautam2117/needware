@@ -11,6 +11,10 @@ export type EncryptedCommand = { account: string } & (
   | { kind: 'open'; document: string; consent: true }
   | { kind: 'dispatch'; instance: string; action: string; values: Record<string, Value> }
   | { kind: 'select-page'; instance: string; node: string; offset: number }
+  | { kind: 'save-drafts'; instance:string; id:string; digest:string; drafts:unknown }
+  | { kind: 'draft-summaries'; instance:string }
+  | { kind: 'load-draft'; instance:string; source:number; id:string; generation:number }
+  | { kind: 'forget-draft'; instance:string; id:string; generation:number }
   | { kind: 'export-package'; instance: string }
   | { kind: 'export-state'; instance: string }
   | { kind: 'delete'; document: string }

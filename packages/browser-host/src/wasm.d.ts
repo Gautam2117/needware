@@ -57,6 +57,7 @@ declare module 'needware-wasm-runtime' {
     free(): void;
   }
   export class BrowserSync {
+    package_digest(): string;
     review_revision(packageBytes: Uint8Array, scope: string): BrowserRevisionReview;
     install_revision_epoch(checkpoint: Uint8Array, previousBinding: string): string;
     fork_session(): BrowserSync;

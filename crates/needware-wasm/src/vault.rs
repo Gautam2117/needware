@@ -1264,6 +1264,9 @@ impl BrowserSync {
     pub fn select_page(&mut self, node: &str, offset: usize) -> Result<String, JsValue> {
         json(&self.runtime.select_page(node, offset).map_err(error)?)
     }
+    pub fn package_digest(&self) -> String {
+        self.runtime.package().digest().to_owned()
+    }
 }
 #[wasm_bindgen]
 pub fn authored_sync_example() -> Result<Vec<u8>, JsValue> {

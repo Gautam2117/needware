@@ -144,6 +144,13 @@ async function execute(command: EncryptedCommand): Promise<unknown> {
       try { return await activate(next, { document: command.document, info: info(bytes) }); }
       catch (error) { await next.close(); throw error; } finally { bytes.fill(0); }
     }
+    case 'save-drafts': case 'draft-summaries': case 'load-draft': case 'forget-draft': {
+      if (!session || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
+      if(command.kind==='save-drafts'){await session.saveDrafts(command.id,command.digest,command.drafts);return null;}
+      if(command.kind==='draft-summaries')return session.draftSummaries();
+      if(command.kind==='load-draft')return session.loadDraft(command.source,command.id,command.generation);
+      await session.forgetDraft(command.id,command.generation);return null;
+    }
     case 'select-page': {
       if (!session || !current || command.instance !== instance) throw new Error('Application instance is closed or stale. Reopen it.');
       return { view: JSON.parse(await session.selectPage(command.node, command.offset)), pendingUploads: session.pending().length };

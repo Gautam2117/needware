@@ -3,6 +3,7 @@ import canonicalize from 'canonicalize';
 import type { BrowserRevisionReview, BrowserRootRotation, BrowserSync, BrowserVault } from 'needware-wasm-runtime';
 import type { RootJournalCut } from './root-rotation-store';
 import type { EncryptedDocumentStore } from './journal-store';
+import {draftEntries,draftIdentity,draftSnapshots,type DraftSnapshot,type DraftSummary} from './draft-journal';
 interface Binding { document: { document: string }; generation: number; schema_epoch: number }
 export interface JournalEpoch { checkpoint: string; previous: string; acceptedRoot?: true; revision?: true }
 export interface SchemaCut { bytes: Uint8Array; scope: string; review: BrowserRevisionReview; digest: string; destructive: boolean }
@@ -15,6 +16,7 @@ interface Journal {
   epoch?: JournalEpoch;
   archive?: string[];
   pendingEpoch?: CloudEpochIntent;
+  drafts?: DraftSnapshot[];
 }
 export interface EpochRecipient { certificate: string; context: string; authority: string; write: boolean }
 export interface CloudEpochIntent { next: string; transition: unknown; checkpoint: { digest: string; bytes: number }; sourceCursor: string; recipients?: {recipient:unknown;membership:unknown;key_envelope:unknown}[] }
@@ -36,12 +38,14 @@ function parse(bytes: Uint8Array, account: string, document: string): Journal {
   if (value?.epoch !== undefined) fields.push('epoch');
   if (value?.archive !== undefined) fields.push('archive'); fields.sort();
   if (value?.pendingEpoch !== undefined) fields.push('pendingEpoch'); fields.sort();
+  if (value?.drafts !== undefined) fields.push('drafts'); fields.sort();
   if (!value || Object.keys(value).sort().join(',') !== fields.join(',') || value.version !== 1 || value.account !== account || value.document !== document
       || !Number.isSafeInteger(value.ownerEpoch) || value.ownerEpoch < 1
       || !['authority','binding','held','membership','package','roster','scope','state'].every(key => typeof value[key as keyof Journal] === 'string')
       || ![value.frames,value.queued].every(items => Array.isArray(items) && items.length <= 100_000 && items.every(item => typeof item === 'string' && encoder.encode(item).length <= 2 * 1024 * 1024))
       || (value.cursor !== null && (typeof value.cursor !== 'string' || value.cursor.length > 256))) throw new Error('Invalid document journal; original preserved');
   const binding = JSON.parse(value.binding) as Binding;
+  if(value.drafts!==undefined)value.drafts=draftSnapshots(value.drafts);
   if (binding.document.document !== document) throw new Error('Journal document mismatch');
   if (value.epoch !== undefined && (!value.epoch || Object.keys(value.epoch).sort().join(',') !== (value.epoch.acceptedRoot===true?'acceptedRoot,checkpoint,previous':value.epoch.revision===true?'checkpoint,previous,revision':'checkpoint,previous') || typeof value.epoch.checkpoint !== 'string' || typeof value.epoch.previous !== 'string')) throw new Error('Invalid epoch checkpoint');
   if (value.archive !== undefined && (!Array.isArray(value.archive) || value.archive.length > 4 || value.archive.some(item => typeof item !== 'string'))) throw new Error('Invalid retained epoch archive');
@@ -341,6 +345,30 @@ export class DurableSyncSession {
       return this.session.select_page(node, offset);
     });
   }
+  async saveDrafts(id:string,digest:string,value:unknown):Promise<void>{
+    return this.serial(async()=>{
+      this.requireActiveEpoch();draftIdentity(id,digest);
+      if(digest!==this.session.package_digest())throw Error('Draft revision changed. Original edits remain preserved.');
+      const fields=draftEntries(value),before=this.journal.drafts?.find(record=>record.id===id);
+      if(before&&before.digest!==digest)throw Error('Draft identity belongs to another signed revision.');
+      if(!fields.length&&!before)return;
+      const generation=(before?.generation??0)+1;if(!Number.isSafeInteger(generation))throw Error('Draft generation limit.');
+      const drafts=draftSnapshots([...(this.journal.drafts??[]).filter(record=>record.id!==id),...(fields.length?[{id,digest,generation,fields}]:[])]);
+      const candidate=this.session.fork_session();try{await this.publish(candidate,{...this.journal,drafts});}catch(error){candidate.free();throw error;}
+    });
+  }
+  private draftSources():Journal[]{this.assertOpen();return [this.journal,...(this.journal.archive??[]).map(source=>parse(encoder.encode(source),this.journal.account,this.journal.document))];}
+  draftSummaries():DraftSummary[]{return this.draftSources().flatMap((journal,source)=>(journal.drafts??[]).filter(record=>record.fields.length).map(record=>({source,id:record.id,digest:record.digest,generation:record.generation,count:record.fields.length})));}
+  loadDraft(source:number,id:string,generation:number):DraftSnapshot{
+    if(!Number.isInteger(source)||source<0||source>4)throw Error('Invalid draft recovery source.');
+    const record=this.draftSources()[source]?.drafts?.find(record=>record.id===id&&record.generation===generation);
+    if(!record)throw Error('Draft recovery changed. Refresh the available recoveries.');return structuredClone(record);
+  }
+  async forgetDraft(id:string,generation:number):Promise<void>{return this.serial(async()=>{
+    this.requireActiveEpoch();const record=this.journal.drafts?.find(record=>record.id===id);
+    if(!record||record.generation!==generation)throw Error('Draft recovery changed. Newer edits remain preserved.');
+    const candidate=this.session.fork_session();try{await this.publish(candidate,{...this.journal,drafts:(this.journal.drafts??[]).filter(record=>record.id!==id)});}catch(error){candidate.free();throw error;}
+  });}
   async receive(frames: readonly string[], cursor: string | null): Promise<number> {
     return this.serial(async () => {
       this.requireActiveEpoch();

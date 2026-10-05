@@ -141,6 +141,22 @@ pub fn generate() -> Result<(), Box<dyn std::error::Error>> {
         "artifacts/controls/widgets.need",
         needware_package::build(needware_ir::widgets_example::application(), vec![], &key)?,
     )?;
+    let mut encrypted_widgets = needware_ir::widgets_example::application();
+    encrypted_widgets.title = "Encrypted widgets fixture".into();
+    encrypted_widgets
+        .capabilities
+        .push(needware_capabilities::Capability::Storage {
+            synchronized: true,
+            write: true,
+            collections: vec!["habits".into()],
+        });
+    encrypted_widgets
+        .capabilities
+        .push(needware_capabilities::Capability::Collaboration { write: true });
+    std::fs::write(
+        "artifacts/controls/encrypted-widgets.need",
+        needware_package::build(encrypted_widgets, vec![], &key)?,
+    )?;
     let raster = include_bytes!("../../tests/fixtures/raster.png");
     let asset = needware_package::Asset {
         media_type: "image/png".into(),

@@ -4,10 +4,12 @@ import type { ViewNode } from '@needware/ir-types/ViewNode';
 import type { Value } from '@needware/ir-types/Value';
 import { frameEvent, framePage } from '../../../packages/browser-host/src/protocol';
 import {DraftRecovery,validDraftStatus,type DraftStatus,type SandboxHandle,type DraftRequest} from './draft-recovery';
-export default function Sandbox({ title, document, view, dispatch, selectPage, error,binding,digest,ref }: {
+import type {DurableDrafts} from './encrypted-draft-recovery';
+export default function Sandbox({ title, document, view, dispatch, selectPage, error,binding,digest,durable,ref }: {
   title: string; document: string; view: ViewNode;
   dispatch(action: string, values: Record<string, Value>): Promise<void>; error(message: string): void;
   selectPage(node:string,offset:number):Promise<void>;
+  durable?:DurableDrafts;
   binding:string;digest:string;ref?:Ref<SandboxHandle>;
 }) {
   const port = useRef<MessagePort | null>(null);
@@ -15,19 +17,21 @@ export default function Sandbox({ title, document, view, dispatch, selectPage, e
   const iframe = useRef<HTMLIFrameElement>(null);
   const callbacks=useRef({dispatch,selectPage,error});const current=useRef<DraftStatus>({count:0,pending:0});const [status,setStatus]=useState<DraftStatus>({count:0,pending:0});
   const [ready,setReady]=useState(false);const leaveApproved=useRef(false);
+  const [connection,setConnection]=useState(0);
   const requests=useRef(new Map<string,{resolve(value:unknown):void;reject(error:Error):void;timer:ReturnType<typeof setTimeout>}>());
   useEffect(()=>{callbacks.current={dispatch,selectPage,error};},[dispatch,selectPage,error]);
   const request=useCallback<DraftRequest>((operation,value):Promise<unknown>=>new Promise((resolve,reject)=>{if(!port.current){reject(Error('Application is not ready.'));return;}if(requests.current.size>=8){reject(Error('Wait for pending draft recovery requests.'));return;}const id=crypto.randomUUID();const timer=setTimeout(()=>{requests.current.delete(id);reject(Error('Draft recovery timed out. Keep this page open and try again.'));},5000);requests.current.set(id,{resolve,reject,timer});port.current.postMessage({kind:'needware-draft-request',request:id,operation,value});}),[]);
-  const confirmLeave=useCallback(async()=>{const value=await request('status');if(!validDraftStatus(value))throw Error('Invalid draft status.');if(value.pending)throw Error('Wait for pending changes before leaving this application.');return !value.count||window.confirm('Discard unsaved inputs and leave this application? Cancel to save them or export a recovery file first.');},[request]);
+  const confirmLeave=useCallback(async()=>{const value=await request('status');if(!validDraftStatus(value))throw Error('Invalid draft status.');if(value.pending)throw Error('Wait for pending changes before leaving this application.');return !value.count||window.confirm(durable?'Leave this application with unsubmitted inputs? Wait for encrypted recovery confirmation first. Cancel to submit or export them.':'Discard unsaved inputs and leave this application? Cancel to save them or export a recovery file first.');},[request,durable]);
   const navigate=useCallback(async(href:string)=>{const target=new URL(href,location.href);if(target.origin!==location.origin)throw Error('Application navigation must stay on this installation.');if(!await confirmLeave())return false;leaveApproved.current=true;try{location.assign(target.href);return true;}catch(failure){leaveApproved.current=false;throw failure;}},[confirmLeave]);
   useImperativeHandle(ref,()=>({confirmLeave,navigate}),[confirmLeave,navigate]);
   useEffect(()=>{const before=(event:BeforeUnloadEvent)=>{if(leaveApproved.current){leaveApproved.current=false;return;}if(current.current.count||current.current.pending){event.preventDefault();event.returnValue='';}};const navigate=(event:MouseEvent)=>{const link=event.target instanceof Element?event.target.closest('a'):null;if(!link||link.download||link.target==='_blank'||event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey||(!current.current.count&&!current.current.pending))return;const target=new URL(link.href);if(target.origin===location.origin&&target.pathname===location.pathname&&target.search===location.search&&target.hash)return;event.preventDefault();event.stopPropagation();void confirmLeave().then(accepted=>{if(accepted){leaveApproved.current=true;try{location.assign(link.href);}catch(failure){leaveApproved.current=false;throw failure;}}}).catch(failure=>callbacks.current.error(String(failure)));};window.addEventListener('beforeunload',before);window.document.addEventListener('click',navigate,true);return()=>{window.removeEventListener('beforeunload',before);window.document.removeEventListener('click',navigate,true);};},[confirmLeave]);
   useEffect(() => { latestView.current = view; port.current?.postMessage(view); }, [view]);
   useEffect(() => () => { port.current?.close(); port.current = null;for(const item of requests.current.values()){clearTimeout(item.timer);item.reject(Error('Application closed.'));}requests.current.clear(); }, []);
   function connect() {
+    setReady(false);setConnection(value=>value+1);
     port.current?.close(); const channel = new MessageChannel(); port.current = channel.port1;
     channel.port1.onmessage = event => {
-      if(event.data?.kind==='needware-draft-status'){if(validDraftStatus(event.data)){current.current={count:event.data.count,pending:event.data.pending};setStatus(current.current);setReady(event.data.ready===true);}return;}
+      if(event.data?.kind==='needware-draft-status'){if(validDraftStatus(event.data)){current.current={count:event.data.count,pending:event.data.pending,version:event.data.version};setStatus(current.current);setReady(event.data.ready===true);}return;}
       if(event.data?.kind==='needware-draft-reply'){const item=requests.current.get(event.data.request);if(!item)return;requests.current.delete(event.data.request);clearTimeout(item.timer);if(event.data.ok===true)item.resolve(event.data.value);else item.reject(Error(typeof event.data.error==='string'?event.data.error:'Draft recovery failed.'));return;}
       if(event.data?.kind==='needware-page'){
         const message=event.data;const request=message.request;
@@ -45,5 +49,5 @@ export default function Sandbox({ title, document, view, dispatch, selectPage, e
     channel.port1.postMessage(latestView.current);
   }
   // Load fires after the trusted inline renderer has installed its channel listener.
-  return <><DraftRecovery ready={ready} status={status} request={request} binding={binding} digest={digest} error={error}/><iframe ref={iframe} title={`${title} application`} sandbox="allow-scripts" srcDoc={document} onLoad={connect} /></>;
+  return <><DraftRecovery durable={durable} connection={connection} ready={ready} status={status} request={request} binding={binding} digest={digest} error={error}/><iframe ref={iframe} title={`${title} application`} sandbox="allow-scripts" srcDoc={document} onLoad={connect} /></>;
 }
