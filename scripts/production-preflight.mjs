@@ -1,12 +1,13 @@
 import {productionConfiguration} from './production-config.mjs';
+import {billingEnabled} from '../apps/web/lib/billing-policy.ts';
 import {buildReady} from './build-readiness.mjs';
 import {schemaReady} from './schema-readiness.mjs';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createPrivateKey,createPublicKey} from 'node:crypto';
-export async function workersReady(client){
+export async function workersReady(client,env=process.env){
   const {rows}=await client.query("SELECT worker FROM needware_worker_health WHERE state='running' AND updated_at<=now()+interval '5 seconds' AND updated_at>now()-interval '30 seconds' GROUP BY worker");
-  return ['email','generation','billing'].filter(name=>!rows.some(row=>row.worker===name));
+  return ['email','generation',...(billingEnabled(env)?['billing']:[])].filter(name=>!rows.some(row=>row.worker===name));
 }
 export function providerMatches(provider,env){
   const key=createPrivateKey({key:Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'),Buffer.from(env.NEEDWARE_SIGNING_SEED_HEX,'hex')]),format:'der',type:'pkcs8'});
@@ -38,7 +39,7 @@ export async function onlineDependencies(){
     database:async()=>{
       const client=await pool.connect();
       try{await client.query('BEGIN READ ONLY');await client.query("SET LOCAL statement_timeout='10s'");
-        const schema=await schemaReady(client),workers=await workersReady(client);
+        const schema=await schemaReady(client),workers=await workersReady(client,process.env);
         const operators=await client.query('SELECT count(*)::int AS count FROM auth_user WHERE id=ANY($1::uuid[]) AND "emailVerified"=true',[process.env.NEEDWARE_OPERATOR_ACCOUNTS.split(',')]);
         return {schema,workers,operators:operators.rows[0].count===process.env.NEEDWARE_OPERATOR_ACCOUNTS.split(',').length};
       }finally{try{await client.query('ROLLBACK');}finally{client.release();}}
@@ -68,7 +69,7 @@ export async function preflight(env,{online=false,artifacts=buildReady,dependenc
     try{
       probes=await dependencies();
       try{const database=await probes.database();checks.push({name:'database',status:database.schema&&database.operators?'PASS':'FAIL',issues:[...(!database.schema?['DATABASE_SCHEMA']:[]),...(!database.operators?['OPERATOR_ACCOUNTS']:[])]});checks.push({name:'workers',status:database.workers.length?'FAIL':'PASS',issues:database.workers.map(name=>`WORKER_${name.toUpperCase()}`)});}catch{checks.push({name:'database',status:'FAIL',issues:['DATABASE_READINESS']});checks.push({name:'workers',status:'UNVERIFIED',issues:['DATABASE_REQUIRED']});}
-      for(const [name,code] of [['mail','SMTP_TRANSPORT'],['provider','PROVIDER_POLICY'],['stripe','STRIPE_ACCOUNT_PRICE_WEBHOOK'],['origin','PUBLIC_HTTPS_ORIGIN']]){
+      for(const [name,code] of [['mail','SMTP_TRANSPORT'],['provider','PROVIDER_POLICY'],...(billingEnabled(env)?[['stripe','STRIPE_ACCOUNT_PRICE_WEBHOOK']]:[]),['origin','PUBLIC_HTTPS_ORIGIN']]){
         try{checks.push({name,status:await probes[name]()?'PASS':'FAIL',issues:[]});}catch{checks.push({name,status:'FAIL',issues:[code]});}
         const check=checks.at(-1);if(check.status==='FAIL')check.issues=[code];
       }

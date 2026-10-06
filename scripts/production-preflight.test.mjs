@@ -30,6 +30,21 @@ test('all online gates and build integrity are required',async()=>{
 test('worker readiness requires each durable worker',async()=>{
   assert.deepEqual(await workersReady({query:async()=>({rows:[{worker:'email'},{worker:'billing'}]})}),['generation']);
 });
+test('disabled billing rejects retained credentials and still requires generation, mail and online gates',async()=>{
+  const env={...configured(),NEEDWARE_BILLING_MODE:'disabled'};
+  assert.equal(productionConfiguration(env).ok,false);
+  for(const key of ['STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_PRO_PRICE_ID','STRIPE_ACCOUNT_ID'])delete env[key];
+  assert.equal(productionConfiguration(env).ok,true);
+  assert.equal(productionConfiguration({...env,NEEDWARE_BILLING_MODE:'disable'}).ok,false);
+  assert.equal(productionConfiguration({...env,NEEDWARE_HOSTED_GENERATION:'0'}).ok,false);
+  assert.deepEqual(await workersReady({query:async()=>({rows:[{worker:'email'}]})},env),['generation']);
+  assert.deepEqual(await workersReady({query:async()=>({rows:[{worker:'email'},{worker:'generation'}]})},env),[]);
+  let stripeCalls=0,closed=false;
+  const options={online:true,artifacts:async()=>true,dependencies:async()=>({database:async()=>({schema:true,operators:true,workers:[]}),mail:async()=>true,provider:async()=>true,stripe:async()=>{stripeCalls++;throw Error('must not initialize billing');},origin:async()=>true,close:async()=>{closed=true;}})};
+  const result=await preflight(env,options);assert.equal(result.status,'PASS');assert.equal(stripeCalls,0);assert.equal(closed,true);
+  assert.equal(result.checks.some(check=>check.name==='stripe'),false);
+  assert.equal((await preflight(env,{...options,dependencies:async()=>({...await options.dependencies(),provider:async()=>false})})).status,'FAIL');
+});
 test('gateway must match the installation signer and approved cost policy',()=>{
   const env=configured(),key=createPrivateKey({key:Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'),Buffer.from(env.NEEDWARE_SIGNING_SEED_HEX,'hex')]),format:'der',type:'pkcs8'});
   const provider={kind:env.NEEDWARE_PROVIDER,model:env.NEEDWARE_MODEL,signing_authority:createPublicKey(key).export({format:'der',type:'spki'}).subarray(-32).toString('hex'),max_cost_microusd:500000,input_microusd_per_million:100,output_microusd_per_million:200};

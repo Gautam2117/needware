@@ -70,6 +70,15 @@ export async function verifyGeneration({page,otherPage,enrolledPage,context,pool
   await page.goto(`${origin}/encrypted#account=${account}`);await page.locator(`[data-document="${createdDocument}"]`).getByRole('button',{name:'Open Habit tracker',exact:true}).click();await expect(app.getByText('Hosted generation survived restart',{exact:true})).toBeVisible();
   await pool.query(`UPDATE needware_entitlement SET paid_until=now()-interval '1 second' WHERE account_id=$1`,[account]);assert.equal((await post(page,payload())).status(),429,'Expired entitlement must restore free quota');
   await pool.query(`UPDATE needware_entitlement SET paid_until=now()+interval '1 day' WHERE account_id=$1`,[account]);await pool.query('UPDATE needware_generation_usage SET spent_microusd=100000000 WHERE account_id=$1',[account]);assert.equal((await post(page,payload())).status(),429,'Cost budget cannot be bypassed');
+  // Retained Pro rows cannot raise the quota when this installation disables billing.
+  const {generationUsage,createGenerationJob}=await import('../apps/web/lib/generation-store.ts'),priorMode=process.env.NEEDWARE_BILLING_MODE;
+  await pool.query('UPDATE needware_generation_usage SET spent_microusd=0 WHERE account_id=$1',[account]);
+  const beforeDisabled=(await pool.query('SELECT count(*)::int AS count FROM needware_generation_job WHERE owner_id=$1',[account])).rows[0].count;
+  try{process.env.NEEDWARE_BILLING_MODE='disabled';assert.equal((await generationUsage(pool,account)).plan,'free');
+    await assert.rejects(createGenerationJob(pool,account,randomUUID(),'Track habits',recipient,provider,500000),error=>error.status===429);
+    assert.equal((await pool.query('SELECT count(*)::int AS count FROM needware_generation_job WHERE owner_id=$1',[account])).rows[0].count,beforeDisabled);
+  }finally{if(priorMode===undefined)delete process.env.NEEDWARE_BILLING_MODE;else process.env.NEEDWARE_BILLING_MODE=priorMode;}
+  assert.equal((await generationUsage(pool,account)).plan,'pro');
   // Deletion cascades queued requests and cost reservations with the account.
   await window();const deleted=payload(randomUUID(),otherRecipient);assert.equal((await post(otherPage,deleted)).status(),202);await pool.query('DELETE FROM auth_user WHERE id=$1',[otherAccount]);once();assert.equal(await record(deleted.id),undefined);assert.equal((await pool.query('SELECT account_id FROM needware_generation_usage WHERE account_id=$1',[otherAccount])).rowCount,0);
   await window();await page.goto(`${origin}/account`);await expect(page.getByRole('button',{name:'Sign out everywhere',exact:true})).toBeVisible();

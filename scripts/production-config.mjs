@@ -1,5 +1,6 @@
 // Pure, redacted deployment checks. No environment loading, network calls or writes.
 import {isIP} from 'node:net';
+import {billingEnabled} from '../apps/web/lib/billing-policy.ts';
 const loopback=host=>['localhost','127.0.0.1','[::1]'].includes(host);
 const publicHost=host=>!isIP(host)&&!loopback(host)&&host.includes('.')&&!/(?:^|\.)(?:localhost|invalid|example|test|local)$/.test(host);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -35,10 +36,15 @@ export function productionConfiguration(env){
   check(typeof env.NEEDWARE_MODEL==='string'&&env.NEEDWARE_MODEL.length>0&&env.NEEDWARE_MODEL.length<=200&&!/[\r\n]/.test(env.NEEDWARE_MODEL),'NEEDWARE_MODEL');
   if(env.NEEDWARE_PROVIDER==='local'){const endpoint=url('NEEDWARE_LOCAL_ENDPOINT');check(endpoint?.protocol==='https:'&&publicHost(endpoint.hostname)&&!endpoint.username&&!endpoint.password&&!endpoint.search&&!endpoint.hash,'NEEDWARE_LOCAL_ENDPOINT');}
   for(const key of ['NEEDWARE_INPUT_MICROUSD_PER_MILLION','NEEDWARE_OUTPUT_MICROUSD_PER_MILLION','NEEDWARE_COST_CEILING_MICROUSD'])check(/^(0|[1-9][0-9]*)$/.test(env[key]??'')&&Number.isSafeInteger(Number(env[key]))&&Number(env[key])<=(key==='NEEDWARE_COST_CEILING_MICROUSD'?1000000000:1000000000000),key);
-  check(/^sk_live_[A-Za-z0-9]{24,}$/.test(env.STRIPE_SECRET_KEY??''),'STRIPE_SECRET_KEY');
-  check(/^whsec_[A-Za-z0-9]{24,}$/.test(env.STRIPE_WEBHOOK_SECRET??''),'STRIPE_WEBHOOK_SECRET');
-  check(/^price_[A-Za-z0-9]+$/.test(env.STRIPE_PRO_PRICE_ID??''),'STRIPE_PRO_PRICE_ID');
-  check(/^acct_[A-Za-z0-9]+$/.test(env.STRIPE_ACCOUNT_ID??''),'STRIPE_ACCOUNT_ID');
+  check(['disabled','stripe'].includes(env.NEEDWARE_BILLING_MODE??'stripe'),'NEEDWARE_BILLING_MODE');
+  if(billingEnabled(env)){
+    check(/^sk_live_[A-Za-z0-9]{24,}$/.test(env.STRIPE_SECRET_KEY??''),'STRIPE_SECRET_KEY');
+    check(/^whsec_[A-Za-z0-9]{24,}$/.test(env.STRIPE_WEBHOOK_SECRET??''),'STRIPE_WEBHOOK_SECRET');
+    check(/^price_[A-Za-z0-9]+$/.test(env.STRIPE_PRO_PRICE_ID??''),'STRIPE_PRO_PRICE_ID');
+    check(/^acct_[A-Za-z0-9]+$/.test(env.STRIPE_ACCOUNT_ID??''),'STRIPE_ACCOUNT_ID');
+  }else{
+    for(const key of ['STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_PRO_PRICE_ID','STRIPE_ACCOUNT_ID'])check(!env[key],'DISABLED_BILLING_'+key);
+  }
   const operators=env.NEEDWARE_OPERATOR_ACCOUNTS?.split(',')??[];
   check(operators.length>0&&operators.length<=16&&operators.every(value=>uuid.test(value))&&new Set(operators).size===operators.length,'NEEDWARE_OPERATOR_ACCOUNTS');
   return {ok:issues.length===0,issues};

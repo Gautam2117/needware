@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
+import {billingEnabled} from './billing-policy.ts';
 export class BillingFailure extends Error{readonly status:number;constructor(status:number,message:string){super(message);this.status=status;}}
-export function billingConfigured(){return Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_PRO_PRICE_ID&&process.env.STRIPE_ACCOUNT_ID);}
+export function billingConfigured(){return billingEnabled()&&Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_PRO_PRICE_ID&&process.env.STRIPE_ACCOUNT_ID);}
 export function billingConfig(){
   if(!billingConfigured())throw new BillingFailure(503,'Billing is not configured on this installation');
   const key=process.env.STRIPE_SECRET_KEY!,secret=process.env.STRIPE_WEBHOOK_SECRET!,price=process.env.STRIPE_PRO_PRICE_ID!,account=process.env.STRIPE_ACCOUNT_ID!;
