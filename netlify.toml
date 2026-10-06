@@ -1,0 +1,14 @@
+# Frontend compatibility candidate; production services require separate acceptance.
+[build]
+  command = "sh scripts/build-netlify.sh"
+  publish = "apps/web/.next"
+  package = "apps/web"
+
+[build.environment]
+  NODE_VERSION = "24.21.0"
+  PNPM_VERSION = "11.5.3"
+  NEXT_TELEMETRY_DISABLED = "1"
+  CARGO_BUILD_JOBS = "2"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

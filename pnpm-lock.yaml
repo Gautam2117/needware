@@ -19,6 +19,9 @@ importers:
       '@axe-core/playwright':
         specifier: 4.13.0
         version: 4.13.0(playwright-core@1.63.0)
+      '@netlify/plugin-nextjs':
+        specifier: 5.16.1
+        version: 5.16.1
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
@@ -705,6 +708,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
+
+  '@netlify/plugin-nextjs@5.16.1':
+    resolution: {integrity: sha512-dSj8BDCwEAF5FRniQdim0SSLuTHxivRmmCNAl0kHsSTJ0196ExFKgiWrouC09RsXVghdaNXmZyQZ3pXn/NpCKw==}
+    engines: {node: '>=18.0.0'}
 
   '@next/env@16.3.8':
     resolution: {integrity: sha512-Al9zqHVV7TJv0eFuOU4U7Lvv74PTih4Ch63sk2xCIpSTkE3udFnaOcnzP2lQVymiL7yS9Cj2iClUXlR3EQ5sEw==}
@@ -3091,6 +3098,8 @@ snapshots:
       '@emnapi/runtime': 1.10.0
       '@tybys/wasm-util': 0.10.4
     optional: true
+
+  '@netlify/plugin-nextjs@5.16.1': {}
 
   '@next/env@16.3.8': {}
 

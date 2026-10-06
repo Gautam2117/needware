@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
+    "@netlify/plugin-nextjs": "5.16.1",
     "@playwright/test": "1.63.0",
     "esbuild": "0.28.2"
   }

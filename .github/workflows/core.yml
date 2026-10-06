@@ -49,6 +49,9 @@ jobs:
       - run: pnpm test:accounts
         timeout-minutes: 20
       - run: python3 scripts/token_guard.py run 'node scripts/verify_schema_readiness.mjs && node scripts/build-readiness.mjs'
+      - name: Netlify frontend packaging (no deployment)
+        run: python3 scripts/token_guard.py run 'npx --yes netlify-cli@27.11.1 build --offline --filter @needware/web && python3 scripts/verify-netlify-artifacts.py'
+        timeout-minutes: 10
       - run: pnpm test:roots
         timeout-minutes: 20
       - run: pnpm test:revisions

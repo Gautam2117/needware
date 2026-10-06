@@ -13,6 +13,7 @@ __pycache__/
 /.env.*
 !/.env.example
 SESSION_ANCHOR.md
+.netlify/
 .DS_Store
 playwright-report/
 test-results/
