@@ -30,6 +30,12 @@ test('all online gates and build integrity are required',async()=>{
 test('worker readiness requires each durable worker',async()=>{
   assert.deepEqual(await workersReady({query:async()=>({rows:[{worker:'email'},{worker:'billing'}]})}),['generation']);
 });
+test('canonical definitions require an explicit compatible provider; unknown formats fail',()=>{
+  const env=configured();
+  assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canon'}).ok,false);
+  assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canonical'}).ok,false);
+  assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canonical',NEEDWARE_PROVIDER:'local',NEEDWARE_LOCAL_API_KEY:'a'.repeat(32),NEEDWARE_LOCAL_ENDPOINT:'https://api.provider.com/v1/chat/completions'}).ok,true);
+});
 test('disabled billing rejects retained credentials and still requires generation, mail and online gates',async()=>{
   const env={...configured(),NEEDWARE_BILLING_MODE:'disabled'};
   assert.equal(productionConfiguration(env).ok,false);

@@ -85,6 +85,7 @@ impl Config {
 pub struct Adapter {
     pub(crate) config: Config,
     client: Client,
+    pub(crate) json_mode: bool,
 }
 pub struct Generated {
     pub output: Result<String, CompileError>,
@@ -139,7 +140,11 @@ impl Adapter {
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|_| CompileError::Configuration)?;
-        Ok(Self { config, client })
+        Ok(Self {
+            config,
+            client,
+            json_mode: false,
+        })
     }
     fn request(&self, prompt: &str, schema: &Value, output_tokens: u32) -> Value {
         match self.config.kind {
@@ -153,6 +158,13 @@ impl Adapter {
                 json!({"model":self.config.model,"input":prompt,"store":false,"generation_config":{"max_output_tokens":output_tokens},"response_format":{"type":"text","mime_type":"application/json","schema":schema}})
             }
             Kind::Local => {
+                if self.json_mode {
+                    let mut body = json!({"model":self.config.model,"messages":[{"role":"user","content":format!("{prompt}\nJSON Schema: {schema}")}],"max_tokens":output_tokens,"stream":false,"temperature":0,"response_format":{"type":"json_object"}});
+                    if self.config.model == "@cf/openai/gpt-oss-120b" {
+                        body["reasoning_effort"] = json!("low");
+                    }
+                    return body;
+                }
                 json!({"model":self.config.model,"messages":[{"role":"user","content":prompt}],"max_tokens":output_tokens,"stream":false,"response_format":{"type":"json_schema","json_schema":{"name":"needware_definition","strict":true,"schema":schema}}})
             }
         }

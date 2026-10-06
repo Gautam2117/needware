@@ -123,6 +123,7 @@ pub struct Compiler {
     key: SecretKey,
     policy: Policy,
     schema: schema::WireSchema,
+    canonical: bool,
 }
 impl Compiler {
     pub fn new(
@@ -148,7 +149,22 @@ impl Compiler {
             key,
             policy,
             schema: schema::WireSchema::new(),
+            canonical: false,
         })
+    }
+    /// Explicit OpenAI-compatible JSON mode; the default remains acyclic structured output.
+    pub fn new_canonical(
+        config: provider::Config,
+        policy: Policy,
+        key: SecretKey,
+    ) -> Result<Self, CompileError> {
+        if config.kind != provider::Kind::Local {
+            return Err(CompileError::Configuration);
+        }
+        let mut compiler = Self::new(config, policy, key)?;
+        compiler.canonical = true;
+        compiler.adapter.json_mode = true;
+        Ok(compiler)
     }
     pub fn provider_name(&self) -> (&provider::Kind, &str) {
         (&self.adapter.config.kind, &self.adapter.config.model)
@@ -240,16 +256,30 @@ impl Compiler {
                 attempt,
                 usage,
             );
+            let representation = if self.canonical {
+                "Use the supplied canonical JSON schema with nested typed expressions/actions/types/values/nodes and ordinary JSON maps. Component identifiers must be globally unique ASCII alphanumeric or underscore characters, 1-64 characters; hyphens are invalid."
+            } else {
+                "Use the supplied acyclic schema: expressions/actions/types/values/nodes contain nodes; integer references index the corresponding table. Maps are arrays of unique key/value entries."
+            };
             let guidance = format!(
-                "Produce a complete Needware application matching this intent: {normalized}. Original request: {prompt}. Independent canonical acceptance cases: {acceptance_json}. Use the supplied acyclic schema: expressions/actions/types/values/nodes contain nodes; integer references index the corresponding table. Maps are arrays of unique key/value entries. Supply fresh UUID application/revision identities, schema_version=1, runtime_features including typed_contracts_v1 and declarative_widgets_v1 for node value/disabled bindings, an initial screen and explicit scoped capabilities. Declare state_schema for exactly every state default and event_schema for exactly every action, including empty contracts for actions without inputs. Contracts use Field types with no default or derived expression; optional inputs are nullable, unknown inputs reject. No scripts, raw HTML, SQL, remote assets, executable output, recursive table cycles, or hidden effects. Use only supported components: text,heading,button,stack,row,grid,card,divider,spacer,list,text_input,numeric_input,date_input,datetime_input,textarea,badge,alert,empty_state,stat. Include deterministic behavioral tests. {feedback}"
+                "Produce a complete Needware application matching this intent: {normalized}. Original request: {prompt}. Independent canonical acceptance cases: {acceptance_json}. {representation} Supply fresh UUID application/revision identities, schema_version=1, runtime_features including typed_contracts_v1 and declarative_widgets_v1 for node value/disabled bindings, an initial screen and explicit scoped capabilities. Declare state_schema for exactly every state default and event_schema for exactly every action, including empty contracts for actions without inputs. Contracts use Field types with no default or derived expression; optional inputs are nullable, unknown inputs reject. No scripts, raw HTML, SQL, remote assets, executable output, recursive table cycles, or hidden effects. Use only supported components: text,heading,button,stack,row,grid,card,divider,spacer,list,text_input,numeric_input,date_input,datetime_input,textarea,badge,alert,empty_state,stat. Include deterministic behavioral tests; each case starts from default state and dispatches exactly one action. Do not add capabilities that the application does not need. {feedback}"
             );
-            let response = self
-                .generate(&guidance, self.schema.schema(), usage)
-                .await?;
+            let canonical_schema;
+            let definition_schema = if self.canonical {
+                canonical_schema = self.schema.canonical_schema();
+                &canonical_schema
+            } else {
+                self.schema.schema()
+            };
+            let response = self.generate(&guidance, definition_schema, usage).await?;
             emit(stage, started, "validate_definition", attempt, usage);
-            let candidate = needware_package::parse_json(response.as_bytes())
-                .map_err(|_| CompileError::InvalidOutput)
-                .and_then(|wire| self.schema.decode(&wire));
+            let candidate = if self.canonical {
+                self.schema.decode_canonical(response.as_bytes())
+            } else {
+                needware_package::parse_json(response.as_bytes())
+                    .map_err(|_| CompileError::InvalidOutput)
+                    .and_then(|wire| self.schema.decode(&wire))
+            };
             match candidate.and_then(|app| self.verify_candidate(app, acceptance)) {
                 Ok(package) => {
                     emit(stage, started, "package_verified", attempt, usage);

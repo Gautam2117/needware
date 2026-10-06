@@ -14,7 +14,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::env::var("NEEDWARE_FIXTURE_MODE").is_ok_and(|value| value == "1"),
             std::env::var("NEEDWARE_SIGNING_SEED_HEX").ok(),
         )?;
-        Some(Compiler::new(Config::from_environment()?, policy, signing)?)
+        let config = Config::from_environment()?;
+        Some(
+            match std::env::var("NEEDWARE_APPLICATION_FORMAT").as_deref() {
+                Err(std::env::VarError::NotPresent) | Ok("wire") => {
+                    Compiler::new(config, policy, signing)?
+                }
+                Ok("canonical") => Compiler::new_canonical(config, policy, signing)?,
+                _ => return Err("Invalid NEEDWARE_APPLICATION_FORMAT".into()),
+            },
+        )
     } else {
         None
     };

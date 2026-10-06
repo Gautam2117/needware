@@ -25,6 +25,8 @@ export function productionConfiguration(env){
   for(const key of ['NEEDWARE_BILLING_API_URL','NEEDWARE_ACCEPTANCE_DATABASE'])check(!env[key],key);
   check(!env.NEEDWARE_TRUST_PROXY||['vercel','caddy-loopback'].includes(env.NEEDWARE_TRUST_PROXY),'NEEDWARE_TRUST_PROXY');
   check(env.NEEDWARE_HOSTED_GENERATION==='1','NEEDWARE_HOSTED_GENERATION');
+  check(['wire','canonical'].includes(env.NEEDWARE_APPLICATION_FORMAT??'wire'),'NEEDWARE_APPLICATION_FORMAT');
+  if(env.NEEDWARE_APPLICATION_FORMAT==='canonical')check(env.NEEDWARE_PROVIDER==='local','CANONICAL_PROVIDER');
   check(/^[A-Za-z0-9]{32,128}$/.test(env.NEEDWARE_CONTROL_TOKEN??''),'NEEDWARE_CONTROL_TOKEN');
   check(control&&((control.protocol==='http:'&&control.hostname==='127.0.0.1')||(control.protocol==='https:'&&publicHost(control.hostname)))&&control.pathname==='/'&&!control.search&&!control.hash&&!control.username&&!control.password,'NEEDWARE_CONTROL_URL');
   for(const key of ['NEEDWARE_SIGNING_SEED_HEX','NEEDWARE_BACKUP_KEY'])check(/^[0-9a-fA-F]{64}$/.test(env[key]??'')&&!/^([0-9a-fA-F])\1+$/.test(env[key]),key);

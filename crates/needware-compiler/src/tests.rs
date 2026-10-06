@@ -22,6 +22,74 @@ fn typed_contracts_roundtrip_through_the_acyclic_provider_schema()
     Ok(())
 }
 
+#[test]
+fn canonical_input_retains_strict_parsing_and_wire_resource_bounds()
+-> Result<(), Box<dyn std::error::Error>> {
+    let schema = WireSchema::new();
+    let app = needware_ir::examples::typed_habit_tracker();
+    let bytes = serde_json::to_vec(&app)?;
+    let canonical = schema.canonical_schema();
+    assert_eq!(
+        canonical["properties"]["state_schema"]["additionalProperties"]["properties"]["default"],
+        json!({"type":"null"})
+    );
+    assert_eq!(
+        canonical["properties"]["event_schema"]["additionalProperties"]["additionalProperties"]["properties"]
+            ["derived"],
+        json!({"type":"null"})
+    );
+    assert_ne!(
+        canonical["$defs"]["Field"]["properties"]["default"],
+        json!({"type":"null"})
+    );
+    assert_eq!(schema.decode_canonical(&bytes)?, app);
+    let duplicate = format!(
+        "{{\"title\":\"spoof\",{}",
+        &String::from_utf8(bytes.clone())?[1..]
+    );
+    assert!(schema.decode_canonical(duplicate.as_bytes()).is_err());
+    let mut unknown = serde_json::to_value(&app)?;
+    unknown["screens"][0]["root"]["script"] = json!("hidden executable output");
+    assert!(
+        schema
+            .decode_canonical(&serde_json::to_vec(&unknown)?)
+            .is_err()
+    );
+    assert!(
+        schema
+            .decode_canonical(&serde_json::to_vec(&schema.encode(&app)?)?)
+            .is_err()
+    );
+    let mut oversized = vec![b' '; needware_ir::MAX_IR_BYTES];
+    oversized.extend_from_slice(&bytes);
+    assert!(schema.decode_canonical(&oversized).is_err());
+    let mut excessive = app.clone();
+    excessive.state = (0..8193)
+        .map(|n| {
+            (
+                format!("count_{n}"),
+                needware_ir::Value::Integer("0".into()),
+            )
+        })
+        .collect();
+    assert!(
+        schema
+            .decode_canonical(&serde_json::to_vec(&excessive)?)
+            .is_err()
+    );
+    let mut nested = app.clone();
+    for _ in 0..80 {
+        let child = nested.screens[0].root.clone();
+        nested.screens[0].root.children = vec![child];
+    }
+    assert!(
+        schema
+            .decode_canonical(&serde_json::to_vec(&nested)?)
+            .is_err()
+    );
+    Ok(())
+}
+
 fn config(kind: Kind, endpoint: &str) -> Result<Config, Box<dyn std::error::Error>> {
     Ok(Config {
         kind,
@@ -311,6 +379,64 @@ async fn all_four_http_adapters_compile_verified_behavior() -> Result<(), Box<dy
     }
     Ok(())
 }
+#[tokio::test]
+async fn canonical_json_mode_compiles_signed_independent_behavior_and_repairs_duplicates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let definition = serde_json::to_string(&needware_ir::examples::habit_tracker())?;
+    let duplicate = format!("{{\"title\":\"spoof\",{}", &definition[1..]);
+    let (url, task) = fixture(
+        Kind::Local,
+        vec![
+            json!({"goal":"Track habits","requirements":["add a habit"],"unsupported":[]})
+                .to_string(),
+            duplicate,
+            definition,
+        ],
+    )
+    .await?;
+    let compiler = Compiler::new_canonical(
+        config(Kind::Local, &url)?,
+        Policy {
+            max_repairs: 1,
+            ..Policy::default()
+        },
+        SecretKey::random()?,
+    )?;
+    let mut stages = vec![];
+    let compiled = compiler
+        .compile(
+            "Track habits",
+            &[acceptance()],
+            &Cancellation::new(),
+            |event| stages.push(event.stage),
+        )
+        .await?;
+    let verified = needware_package::verify(&compiled.package)?;
+    assert_eq!(verified.application().application().title, "Habit tracker");
+    assert!(stages.contains(&"repair_definition"));
+    assert_eq!(compiled.usage.input_tokens, 300);
+    let requests = task.await?.map_err(std::io::Error::other)?;
+    assert_eq!(requests.len(), 3);
+    for request in &requests {
+        assert_eq!(request["response_format"]["type"], "json_object");
+    }
+    let guidance = requests[1]["messages"][0]["content"]
+        .as_str()
+        .ok_or("missing guidance")?;
+    assert!(guidance.contains("canonical JSON schema"));
+    assert!(guidance.contains("each case starts from default state"));
+    assert!(guidance.contains("^[A-Za-z0-9_]{1,64}$"));
+    assert!(
+        Compiler::new_canonical(
+            config(Kind::OpenAi, &url)?,
+            Policy::default(),
+            SecretKey::random()?
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn repair_is_bounded_and_acceptance_is_independent() -> Result<(), Box<dyn std::error::Error>>
 {

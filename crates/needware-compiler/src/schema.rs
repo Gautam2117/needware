@@ -53,6 +53,25 @@ impl WireSchema {
     pub fn schema(&self) -> &Value {
         &self.provider
     }
+    pub fn canonical_schema(&self) -> Value {
+        let mut schema = self.canonical.clone();
+        schema["$defs"]["Node"]["properties"]["id"] =
+            json!({"type":"string","pattern":"^[A-Za-z0-9_]{1,64}$"});
+        // Contract fields describe inputs/state types, unlike collection fields with defaults.
+        let mut contract = schema["$defs"]["Field"].clone();
+        contract["properties"]["default"] = json!({"type":"null"});
+        contract["properties"]["derived"] = json!({"type":"null"});
+        schema["properties"]["state_schema"]["additionalProperties"] = contract.clone();
+        schema["properties"]["event_schema"]["additionalProperties"]["additionalProperties"] =
+            contract;
+        schema
+    }
+    pub fn decode_canonical(&self, bytes: &[u8]) -> Result<needware_ir::Application, CompileError> {
+        let app = needware_package::parse_json::<needware_ir::Application>(bytes)
+            .map_err(|_| CompileError::InvalidOutput)?;
+        // Retain wire table, nesting and decoder fuel bounds for this representation too.
+        self.decode(&self.encode(&app)?)
+    }
     pub fn encode(&self, application: &needware_ir::Application) -> Result<Value, CompileError> {
         let mut value =
             serde_json::to_value(application).map_err(|_| CompileError::InvalidOutput)?;
