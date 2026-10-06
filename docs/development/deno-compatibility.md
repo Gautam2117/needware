@@ -1,7 +1,8 @@
 # Deno compatibility and deployment gates
 
-Needware has not been deployed to Deno Deploy. This is a compatibility probe,
-not production acceptance or an approved replacement for the Linux supervisor.
+A secret-free compatibility probe is deployed to Deno Deploy. The application
+service is not deployed there; this is not production acceptance or an approved
+replacement for the Linux supervisor.
 
 Run after building the native release gateway, browser WASM, Next.js production
 bundle, and authored compiler fixture:
@@ -28,11 +29,24 @@ payment method. Its dashboard reports Free Plan, $0/month, unverified, with:
 - Five apps, two apps with cron jobs, five-minute builds and 3,072 MB build memory.
 
 These account values take precedence over the larger advertised verified Free
-allowances. No app, paid subscription or payment method was created. Do not
+allowances. One secret-free probe app was subsequently created; no paid
+subscription or payment method was added. Do not
 upgrade or add a card automatically. Official billing documentation says free
 organizations pause at exhausted quotas rather than incur overage charges.
 
 ## Gates before adoption
+
+The hosted probe at `https://needware-host-probe.needware-gautam.deno.net/health`
+returned PASS on 2026-10-06 for clean Linux/x64 release
+`3e891c0aea7a226deb4b90b835672d7043155021`, revision `g8y8n3qmznp0`,
+runtime `2.9.5+e312172`. Every six-file CI artifact hash was verified before
+upload. Its startup checks completed in 290 ms: native subprocess, private
+gateway 401, authored fixture SSE compilation, signed package WASM validation,
+and tamper rejection. Both child processes stop before the health server starts.
+Public `POST /api/compile-jobs` and `GET /` returned 404. No production secret,
+database, model, user data, mail or payment service was configured in this app.
+CI Core, audit and sanitizer passed for that exact commit; Core required one
+rerun following a WebKit internal navigation failure before the probe step.
 
 1. Verify the account's billing and privacy terms, including data-processing
    arrangements; the current pricing page does not list a DPA for Free.
