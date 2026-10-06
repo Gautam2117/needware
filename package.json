@@ -29,6 +29,8 @@
     "test:generation": "python3 scripts/token_guard.py run 'node scripts/run-generation-acceptance.mjs'",
     "test:billing": "python3 scripts/token_guard.py run 'node scripts/run-billing-acceptance.mjs'",
     "test:operations": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --operations'",
+    "test:scheduled-workers": "python3 scripts/token_guard.py run 'node scripts/verify-scheduled-workers.mjs'",
+    "test:scheduled-workers:deno": "python3 scripts/token_guard.py run 'node scripts/verify-scheduled-workers.mjs --deno'",
     "test:backup": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --backup'",
     "mail:worker": "node scripts/mail-worker.mjs",
     "generation:worker": "node scripts/generation-worker.mjs",

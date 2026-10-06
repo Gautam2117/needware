@@ -30,6 +30,14 @@ test('all online gates and build integrity are required',async()=>{
 test('worker readiness requires each durable worker',async()=>{
   assert.deepEqual(await workersReady({query:async()=>({rows:[{worker:'email'},{worker:'billing'}]})}),['generation']);
 });
+test('scheduled workers require explicit bounded cadence and disabled billing',()=>{
+  const env=configured();
+  assert.equal(productionConfiguration({...env,NEEDWARE_WORKER_MODE:'scheduled'}).ok,false);
+  const beta={...env,NEEDWARE_BILLING_MODE:'disabled',STRIPE_SECRET_KEY:'',STRIPE_WEBHOOK_SECRET:'',STRIPE_PRO_PRICE_ID:'',STRIPE_ACCOUNT_ID:'',NEEDWARE_WORKER_MODE:'scheduled'};
+  assert.equal(productionConfiguration(beta).ok,true);
+  for(const value of ['0','59','3601','300x'])assert.equal(productionConfiguration({...beta,NEEDWARE_WORKER_INTERVAL_SECONDS:value}).ok,false);
+  assert.equal(productionConfiguration({...beta,NEEDWARE_WORKER_MODE:'always-ready'}).ok,false);
+});
 test('canonical definitions require an explicit compatible provider; unknown formats fail',()=>{
   const env=configured();
   assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canon'}).ok,false);

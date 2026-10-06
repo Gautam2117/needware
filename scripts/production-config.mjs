@@ -25,6 +25,10 @@ export function productionConfiguration(env){
   for(const key of ['NEEDWARE_BILLING_API_URL','NEEDWARE_ACCEPTANCE_DATABASE'])check(!env[key],key);
   check(!env.NEEDWARE_TRUST_PROXY||['vercel','caddy-loopback'].includes(env.NEEDWARE_TRUST_PROXY),'NEEDWARE_TRUST_PROXY');
   check(env.NEEDWARE_HOSTED_GENERATION==='1','NEEDWARE_HOSTED_GENERATION');
+  check(['continuous','scheduled'].includes(env.NEEDWARE_WORKER_MODE??'continuous'),'NEEDWARE_WORKER_MODE');
+  const period=Number(env.NEEDWARE_WORKER_INTERVAL_SECONDS??'300');
+  check(Number.isInteger(period)&&period>=60&&period<=3600,'NEEDWARE_WORKER_INTERVAL_SECONDS');
+  if(env.NEEDWARE_WORKER_MODE==='scheduled')check(!billingEnabled(env),'SCHEDULED_BILLING');
   check(['wire','canonical'].includes(env.NEEDWARE_APPLICATION_FORMAT??'wire'),'NEEDWARE_APPLICATION_FORMAT');
   if(env.NEEDWARE_APPLICATION_FORMAT==='canonical')check(env.NEEDWARE_PROVIDER==='local','CANONICAL_PROVIDER');
   check(/^[A-Za-z0-9]{32,128}$/.test(env.NEEDWARE_CONTROL_TOKEN??''),'NEEDWARE_CONTROL_TOKEN');

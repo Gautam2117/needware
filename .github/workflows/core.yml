@@ -72,6 +72,9 @@ jobs:
         timeout-minutes: 20
       - run: pnpm test:operations
         timeout-minutes: 20
+      - name: Bounded scheduled workers in Node and Deno (local services only)
+        run: pnpm test:scheduled-workers && pnpm test:scheduled-workers:deno
+        timeout-minutes: 10
       - run: pnpm test:backup
         timeout-minutes: 20
       - run: python3 scripts/token_guard.py run 'cargo run --release -p xtask -- benchmark'

@@ -4,16 +4,19 @@ import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {loadEnvironment} from './load-environment.mjs';
 loadEnvironment();
+export async function runGenerationWorker({once=false,reuseResources=false,scheduleSeconds=0}={}){
+if((reuseResources||scheduleSeconds)&&!once)throw Error('Reusable scheduled workers must be bounded');
 if(process.env.NEEDWARE_HOSTED_GENERATION!=='1')throw Error('Enable hosted generation only after configuring accounts and the private gateway');
 const {authResources}=await import('../apps/web/lib/auth-options.ts'),{pool,origin}=authResources();
 const {claimGenerationJob,dispatchGenerationJob,finishGenerationJob,generationRecipient,pruneGenerationJobs}=await import('../apps/web/lib/generation-store.ts');
 const {generationProvider}=await import('../apps/web/lib/generation-provider.ts'),{privateControlConfig}=await import('../apps/web/lib/control-config.ts');
-const {startWorkerHealth}=await import('../apps/web/lib/worker-health.ts'),health=await startWorkerHealth(pool,'generation');
+const {startWorkerHealth}=await import('../apps/web/lib/worker-health.ts');
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url)),{default:canonicalize}=await import(require.resolve('canonicalize'));
 const wasmDirectory=process.env.NEEDWARE_WASM_DIR??join(process.cwd(),'apps/web/public/wasm'),wasm=await import(pathToFileURL(join(wasmDirectory,'needware_wasm.js')).href);
 await wasm.default({module_or_path:await readFile(join(wasmDirectory,'needware_wasm_bg.wasm'))});
+const health=await startWorkerHealth(pool,'generation',scheduleSeconds);
 let stopped=false,current;
-process.on('SIGINT',()=>{stopped=true;current?.abort();});process.on('SIGTERM',()=>{stopped=true;current?.abort();});
+const stop=()=>{stopped=true;current?.abort();};process.on('SIGINT',stop);process.on('SIGTERM',stop);
 const number=value=>Number.isSafeInteger(value)&&value>=0;
 function usage(value,ceiling){
   const keys=['configured_cost_microusd','conservative_cost_microusd','input_tokens','output_tokens','unknown_usage_requests'];
@@ -58,6 +61,8 @@ async function work(){const job=await claimGenerationJob(pool);if(!job)return fa
   return true;
 }
 let lastPrune=0;
-try{do{try{if(Date.now()-lastPrune>60000){await pruneGenerationJobs(pool);lastPrune=Date.now();}if(!await work())await new Promise(resolve=>setTimeout(resolve,500));health.healthy();}catch{health.degraded();console.error('Generation worker could not settle a lease; durable retry/recovery remains available');await new Promise(resolve=>setTimeout(resolve,1000));}
-  if(process.argv.includes('--once'))break;
-}while(!stopped);}finally{await health.stop();await pool.end();}
+try{do{try{if(Date.now()-lastPrune>60000){await pruneGenerationJobs(pool);lastPrune=Date.now();}if(!await work()&&!once)await new Promise(resolve=>setTimeout(resolve,500));health.healthy();}catch{health.degraded();console.error('Generation worker could not settle a lease; durable retry/recovery remains available');if(!once)await new Promise(resolve=>setTimeout(resolve,1000));}
+  if(once)break;
+}while(!stopped);}finally{process.off('SIGINT',stop);process.off('SIGTERM',stop);await health.stop();if(!reuseResources)await pool.end();}
+}
+if(import.meta.main||import.meta.url===pathToFileURL(process.argv[1]??'').href)await runGenerationWorker({once:process.argv.includes('--once')});

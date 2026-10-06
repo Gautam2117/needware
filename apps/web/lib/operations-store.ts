@@ -6,6 +6,7 @@ import {object,uuid} from './vault-proof';
 import {operatorAllowed} from './operations-authority';
 import {ownerLock} from './generation-store';
 import {billingEnabled} from './billing-policy';
+import {workerHealthQuery} from './worker-health-query';
 export const reportReasons=['harmful','privacy','spam','copyright'] as const;
 const reason=(value:unknown)=>{if(!reportReasons.includes(value as typeof reportReasons[number]))throw new CloudError(400,'Choose a report reason');return value as string;};
 export function requireOperator(account:string){
@@ -38,10 +39,11 @@ export async function operate(pool:Pool,actor:string,payload:unknown){
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 export async function operationsSummary(pool:Pool,actor:string){
+  const healthQuery=workerHealthQuery();
   requireOperator(actor);const [reports,audit,workers,queues,holds,deadLetters]=await Promise.all([
     pool.query(`SELECT r.id,r.entry_id,r.reason,r.created_at,e.title,e.current_digest,e.version,e.moderated FROM needware_abuse_report r JOIN needware_registry_entry e ON e.id=r.entry_id WHERE r.state='open' ORDER BY r.created_at,r.id LIMIT 128`),
     pool.query('SELECT object_id,action,reason,reference_digest,before_version,after_version,created_at FROM needware_operator_audit ORDER BY created_at DESC,id LIMIT 128'),
-    pool.query("SELECT worker,bool_or(state='running' AND updated_at>now()-interval '30 seconds') AS healthy,max(updated_at) AS last_seen FROM needware_worker_health GROUP BY worker"),
+    pool.query(`SELECT w.worker,bool_or(${healthQuery.sql}) AS healthy,max(w.updated_at) AS last_seen FROM needware_worker_health w GROUP BY w.worker`,healthQuery.values),
     pool.query(`SELECT (SELECT count(*)::int FROM needware_email_outbox WHERE attempts>=20) AS email_dead_letters,(SELECT count(*)::int FROM needware_generation_job WHERE state IN ('queued','running','cancel_requested')) AS generation_pending,(SELECT count(*)::int FROM needware_generation_job WHERE failure='INTERRUPTED_USAGE_UNKNOWN') AS generation_unknown,(SELECT count(*)::int FROM needware_billing_event WHERE processed_at IS NULL AND attempts>=20) AS billing_dead_letters,(SELECT count(*)::int FROM needware_billing_cleanup WHERE finished_at IS NULL AND attempts>=20) AS deletion_dead_letters`),
     pool.query('SELECT account_id,active,reason,version FROM needware_account_hold ORDER BY updated_at DESC,account_id LIMIT 128'),
     pool.query(`SELECT * FROM (SELECT 'email' AS worker,id::text AS reference,created_at FROM needware_email_outbox WHERE attempts>=20 AND expires_at>now() UNION ALL SELECT 'billing_event',id,received_at FROM needware_billing_event WHERE attempts>=20 AND processed_at IS NULL AND merchant_id=$1 AND livemode=$2 UNION ALL SELECT 'billing_cleanup',customer_id,created_at FROM needware_billing_cleanup WHERE attempts>=20 AND finished_at IS NULL AND merchant_id=$1 AND livemode=$2) q ORDER BY created_at,reference LIMIT 128`,[process.env.STRIPE_ACCOUNT_ID??'',process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_')??false])

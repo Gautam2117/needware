@@ -1,12 +1,14 @@
 import {productionConfiguration} from './production-config.mjs';
 import {billingEnabled} from '../apps/web/lib/billing-policy.ts';
+import {workerHealthQuery} from '../apps/web/lib/worker-health-query.ts';
 import {buildReady} from './build-readiness.mjs';
 import {schemaReady} from './schema-readiness.mjs';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createPrivateKey,createPublicKey} from 'node:crypto';
 export async function workersReady(client,env=process.env){
-  const {rows}=await client.query("SELECT worker FROM needware_worker_health WHERE state='running' AND updated_at<=now()+interval '5 seconds' AND updated_at>now()-interval '30 seconds' GROUP BY worker");
+  const health=workerHealthQuery(env);
+  const {rows}=await client.query(`SELECT w.worker FROM needware_worker_health w WHERE ${health.sql} GROUP BY w.worker`,health.values);
   return ['email','generation',...(billingEnabled(env)?['billing']:[])].filter(name=>!rows.some(row=>row.worker===name));
 }
 export function providerMatches(provider,env){

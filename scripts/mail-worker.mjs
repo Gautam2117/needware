@@ -1,11 +1,14 @@
 import { loadEnvironment } from './load-environment.mjs';
+import {pathToFileURL} from 'node:url';
 loadEnvironment();
+export async function runMailWorker({once=false,reuseResources=false,scheduleSeconds=0}={}){
+if((reuseResources||scheduleSeconds)&&!once)throw Error('Reusable scheduled workers must be bounded');
 const { authResources } = await import('../apps/web/lib/auth-options.ts');
 const { pool, mail, from } = authResources();
-const {startWorkerHealth}=await import('../apps/web/lib/worker-health.ts'),health=await startWorkerHealth(pool,'email');
+const {startWorkerHealth}=await import('../apps/web/lib/worker-health.ts'),health=await startWorkerHealth(pool,'email',scheduleSeconds);
 const labels = { verify: 'Verify your Needware email', reset: 'Reset your Needware password', delete: 'Confirm Needware account deletion' };
 let stopped = false;
-process.on('SIGINT', () => { stopped = true; }); process.on('SIGTERM', () => { stopped = true; });
+const stop=()=>{stopped=true;};process.on('SIGINT',stop);process.on('SIGTERM',stop);
 async function deliver() {
   await pool.query('DELETE FROM needware_email_outbox WHERE expires_at < now()');
   const lease = crypto.randomUUID();
@@ -36,7 +39,9 @@ async function deliver() {
 try {
   do {
     const worked = await deliver();
-    if (process.argv.includes('--once')) break;
+    if (once) break;
     if (!worked) await new Promise(resolve => setTimeout(resolve, 1000));
   } while (!stopped);
-  } finally { await health.stop(); mail.close(); await pool.end(); }
+  } catch(error){health.degraded();throw error;} finally { process.off('SIGINT',stop);process.off('SIGTERM',stop);await health.stop();if(!reuseResources){mail.close();await pool.end();} }
+}
+if(import.meta.main||import.meta.url===pathToFileURL(process.argv[1]??'').href)await runMailWorker({once:process.argv.includes('--once')});
