@@ -8,5 +8,6 @@ if pathlib.Path("apps/web/package.json").exists():
 commands += [["pnpm", "--filter", "@needware/web", "exec", "tsc", "--project", "../../packages/runtime-frame/tsconfig.json"], ["node", "--test", "scripts/acceptance-clock.test.mjs"]]
 commands += [["node", "--test", "scripts/production-preflight.test.mjs"]]
 commands += [["node", "scripts/verify-free-model-policy.mjs"], ["node", "--check", "scripts/benchmark-free-models.mjs"]]
+commands += [["node", "--check", path] for path in ["scripts/backup-lib.mjs", "scripts/backup.mjs", "scripts/verify_backup_scope.mjs"]]
 for command in commands:
     subprocess.run(command, check=True)

@@ -97,6 +97,33 @@ database connections require certificate-verified TLS and explicit
 the loopback development service on port 55432 with its pinned PostgreSQL 18
 container. It cannot redirect a remote database operation into that container.
 
+### Managed PostgreSQL 17 scope
+
+For the Needware Supabase PostgreSQL 17 project, explicitly pass
+`--public-schema` to both backup and restore. This selects only the application's
+`public` schema with `pg_dump`/`pg_restore`; managed authentication, storage and
+other schemas are excluded. PostgreSQL 17 is refused without this flag.
+Both operations verify that the native client major version matches the server.
+The default PostgreSQL 18 whole-database path and isolated local-container path
+remain available.
+
+Scoped restore requires a **separate target with an empty public schema**.
+Public tables, views, sequences, functions, types and extensions cause refusal.
+Existing non-public managed schemas remain intact; they do not become part of
+the restore. Authentication still completes before target inspection or writes,
+and the restore remains one transaction. This never permits restoring over the
+live Needware public schema. Runtime role grants and deployment configuration
+must be reapplied and verified separately because archives omit ownership/ACLs.
+
+The focused PostgreSQL 17 test checks ciphertext/JSON data, views, functions,
+identity counters, managed-schema preservation, and wrong-tool/key/tampering/
+nonempty-target denial. CI runs it against a digest-pinned PostgreSQL 17 service.
+A 2026-10-06 certificate-verified drill exported the actual Supabase project's
+38 public tables and 12 rows, restored them into a separate local PostgreSQL 17
+target, and matched all data and column definitions. The source remained intact.
+This establishes managed-source backup/local-restore compatibility, not hosted
+disaster recovery or public application acceptance.
+
 Only trusted operator snapshots may be restored. PostgreSQL archives contain
 server schema/function definitions and are not an untrusted import format.
 Source: [PostgreSQL dump](https://www.postgresql.org/docs/18/app-pgdump.html),

@@ -93,3 +93,32 @@ jobs:
             .logs/accounts-mail.log
             .logs/accounts-web.log
           retention-days: 7
+  postgres17-backup:
+    runs-on: ubuntu-latest
+    services:
+      postgres17:
+        image: postgres:17@sha256:ae69c452f483507a6b99fb654cf93aad7fe156ffd2c56247707eef4e36d3c12b
+        env:
+          POSTGRES_USER: needware
+          POSTGRES_PASSWORD: isolated-ci-fixture-only
+          POSTGRES_DB: postgres
+        ports:
+          - 55437:5432
+        options: >-
+          --health-cmd "pg_isready -U needware -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://needware:isolated-ci-fixture-only@127.0.0.1:55437/postgres
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.21.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 11.5.3
+      - run: pnpm install --frozen-lockfile
+      - run: sh scripts/pg17-test-client.sh '${{ job.services.postgres17.id }}'
+      - name: Encrypted scoped backup and managed-schema preservation
+        run: python3 scripts/token_guard.py run 'node scripts/verify_backup_scope.mjs'
+        timeout-minutes: 5
