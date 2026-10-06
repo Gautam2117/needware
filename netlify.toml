@@ -2,7 +2,6 @@
 [build]
   command = "sh scripts/build-netlify.sh"
   publish = "apps/web/.next"
-  package = "apps/web"
 
 [build.environment]
   NODE_VERSION = "24.21.0"

@@ -56,6 +56,10 @@ impl CompileMessage {
                 "generation_timeout",
                 "Creation reached its time limit. You can try again.",
             ),
+            CompileError::ProviderStatus(429) => (
+                "provider_rate_limited",
+                "The provider quota or rate limit was reached. Generation was not completed.",
+            ),
             CompileError::Transport | CompileError::ProviderStatus(_) => (
                 "provider_unavailable",
                 "The configured provider could not complete the request.",

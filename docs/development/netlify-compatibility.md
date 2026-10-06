@@ -1,7 +1,9 @@
 # Netlify compatibility candidate
 
 Use the canonical `codex/recover-root-revisions` branch. `netlify.toml` selects
-the repository-root build and `apps/web` project. The build pins Node 24.21.0,
+the repository-root build. Set the package directory to `apps/web` in Netlify's
+UI; [package directories cannot be configured in TOML](https://docs.netlify.com/build/configure-builds/monorepos/).
+The CLI's `--filter @needware/web` selects this project locally. The build pins Node 24.21.0,
 pnpm 11.5.3, Rust 1.99.0, wasm-bindgen 0.2.129 and Next.js adapter 5.16.1.
 The newer adapter 5.16.2 was published within the dependency quarantine window;
 keep the older pinned version rather than add an age-policy exception.
@@ -12,7 +14,7 @@ then checks tamper rejection before adapting Next.js.
 Local packaging command:
 
 ```sh
-python3 scripts/token_guard.py run 'npx --yes netlify-cli@27.11.1 build --offline --filter @needware/web && python3 scripts/verify-netlify-artifacts.py'
+python3 scripts/token_guard.py run 'npx --yes netlify-cli@27.11.1 build --offline --filter @needware/web && python3 scripts/verify-netlify-artifacts.py && pnpm --filter @needware/web check'
 ```
 
 Packaging passes locally. Static assets retain their exact bytes; the Lambda
@@ -20,7 +22,18 @@ archive contains the handler's `/var/task/apps/web/...` imports and fits its
 250 MiB uncompressed limit. `netlify serve` 27.11.1 with adapter 5.16.2 returned 500 locally because
 those absolute Lambda paths are absent in its monorepo emulator. Four Chromium
 runtime tests consequently fail there. Do not label this hosted acceptance.
-Public HTTPS, runtime, offline reopen and browser tests remain required.
+
+On 2026-10-06, the owner-approved `needware-preview.netlify.app` preview published
+commit `7114466c95fa53aa284b352bbe90fa81c656b843` (deploy
+`6ac45dd70ad147356412032e`). Public HTTPS and Rust/WASM startup passed. Nine
+checks across Chromium, Firefox and WebKit passed for stale writes, malformed
+packages and channel replacement; Chromium and Firefox also passed signed
+installation, persistence and offline reload. WebKit offline emulation remains
+unverified because of [Playwright 1.63's service-worker navigation issue](https://github.com/microsoft/playwright/issues/42775).
+These are automated desktop-browser checks, not device or human acceptance.
+
+ESLint excludes generated `.netlify/` packaging output while retaining source
+checks. CI reruns web type checking and lint after packaging to verify this.
 
 The authenticated Magnet team uses Legacy Free, has eight existing sites and
 no saved payment card. Additional-team creation offers only paid plans; no team

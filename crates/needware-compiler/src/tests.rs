@@ -82,6 +82,14 @@ async fn fixture(
     responses: Vec<String>,
 ) -> Result<(String, tokio::task::JoinHandle<Result<Vec<Value>, String>>), Box<dyn std::error::Error>>
 {
+    fixture_status(kind, responses, 200).await
+}
+async fn fixture_status(
+    kind: Kind,
+    responses: Vec<String>,
+    status: u16,
+) -> Result<(String, tokio::task::JoinHandle<Result<Vec<Value>, String>>), Box<dyn std::error::Error>>
+{
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let endpoint = format!("http://{}/generation", listener.local_addr()?);
     let task = tokio::spawn(async move {
@@ -128,12 +136,47 @@ async fn fixture(
             let mut envelope = reply(kind, &content);
             envelope["temperature"] = json!(0.7);
             let body = serde_json::to_vec(&envelope).map_err(|e| e.to_string())?;
-            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.map_err(|e| e.to_string())?;
+            stream.write_all(format!("HTTP/1.1 {status} Response\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.map_err(|e| e.to_string())?;
             stream.write_all(&body).await.map_err(|e| e.to_string())?;
         }
         Ok(requests)
     });
     Ok((endpoint, task))
+}
+
+#[tokio::test]
+async fn provider_quota_failure_is_reported_without_retry_or_raw_details()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (url, task) = fixture_status(
+        Kind::Local,
+        vec!["private provider account details".into()],
+        429,
+    )
+    .await?;
+    let compiler = Compiler::new(
+        config(Kind::Local, &url)?,
+        Policy::default(),
+        SecretKey::random()?,
+    )?;
+    let mut stages = vec![];
+    let error = compiler
+        .compile("Track habits", &[], &Cancellation::new(), |event| {
+            stages.push(event.stage)
+        })
+        .await
+        .err()
+        .ok_or("quota failure produced a package")?;
+    assert!(matches!(error, CompileError::ProviderStatus(429)));
+    assert_eq!(task.await??.len(), 1);
+    assert_eq!(stages, ["extract_intent", "failed"]);
+    let message = serde_json::to_value(protocol::CompileMessage::failure(&error))?;
+    assert_eq!(message["code"], "provider_rate_limited");
+    assert!(
+        !message
+            .to_string()
+            .contains("private provider account details")
+    );
+    Ok(())
 }
 #[test]
 fn schema_roundtrip_rejects_cycles_duplicate_keys_and_invalid_references()
