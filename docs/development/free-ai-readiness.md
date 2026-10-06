@@ -84,6 +84,34 @@ are unsuccessful generation trials, not production acceptance. Private receipts:
 See [GPT-OSS 120B](https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/)
 and [Qwen 30B](https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/).
 
+### Canonical-format diagnostics
+
+Private canonical JSON Schema trials avoid the acyclic transport's table-index
+mistakes, but are not a production format integration. Captured responses are
+decoded as the existing application type, mechanically encoded/decoded through
+the bounded wire schema, and checked by the unchanged Rust validator.
+The request schema supplies supported renderer kinds, UUID identities, the IR
+version and typed contract requirements; it does not edit returned applications.
+Cloudflare rejects `uniqueItems` in its grammar, so that keyword is omitted from
+the request while native duplicate-feature rejection remains enforced.
+
+A counter response passed static validation after one repair, but independent
+runtime inspection rejected it: the repair replaced state mutations with
+navigation and returned non-boolean assertions. Static validation alone is
+insufficient. The private inspector now runs generated tests plus an independent
+sequence checking initial zero, then increase/increase/decrease/decrease/decrease
+against 1/2/1/0/-1 using an ephemeral signed package. No candidate passed those
+checks. Later trials still failed IR, contract or action validation; the
+conservative 1,000-neuron reservation stopped further calls when exhausted.
+Receipts: `.local/cloudflare-canonical/1791291306890`,
+`.local/cloudflare-canonical/1791291436554` and
+`.local/cloudflare-canonical/1791291499920`.
+
+These trials exposed a real guidance omission: node value/disabled bindings
+require `declarative_widgets_v1`. The production compiler now explains that
+requirement alongside `typed_contracts_v1`; validation remains unchanged.
+No canonical provider format, paid fallback or production provider is enabled.
+
 ## Measured OpenRouter failures
 
 Both fixed `apodex/apodex-1.1-mini:free` via `novita/bf16` and
