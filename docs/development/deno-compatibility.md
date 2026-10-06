@@ -47,6 +47,24 @@ organizations pause at exhausted quotas rather than incur overage charges.
 The local probe does not establish any of these hosted production gates. Keep
 Cloudflare and Netlify as alternatives rather than weakening a gate to fit Deno.
 
+## Secret-free hosted probe preparation
+
+CI packages `deno-host-probe-<commit>` from six explicit allowlisted files after
+the native compiler and WASM fixture checks pass. The package includes a hash
+receipt and refuses unexpected files or symlinks. Its entrypoint `probe.mjs`
+requires a clean Linux build for hosting, verifies every file, and runs one
+bounded authored fixture through a private loopback gateway with ephemeral
+credentials. It checks anonymous rejection, SSE compilation, package signatures
+and tamper rejection, then stops both child processes.
+
+Only `GET /health` exposes the sanitized result; all other routes return 404.
+There is no public compilation endpoint, database, model key or persistent
+worker. Upload only the exact verified CI artifact, never the checkout or
+`.local/`. GitHub app installation alone does not create a Deno deployment;
+local upload needs separate CLI authorization and a reviewed public-probe action.
+This probe cannot establish real model quality, durable worker recovery, mail,
+backup/restore, account acceptance or production readiness.
+
 Sources: [Deno runtime support](https://docs.deno.com/deploy/migration_guide/),
 [billing changelog](https://docs.deno.com/deploy/changelog/),
 [pricing](https://deno.com/deploy/pricing).

@@ -44,6 +44,14 @@ jobs:
           name: deno-local-compatibility
           path: artifacts/deno-compatibility.json
           retention-days: 14
+      - name: Package and verify secret-free Deno host probe
+        run: python3 scripts/token_guard.py run 'node scripts/package-deno-probe.mjs && node scripts/verify-deno-probe.mjs --require-release'
+        timeout-minutes: 2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deno-host-probe-${{ github.sha }}
+          path: artifacts/deno-host-probe/
+          retention-days: 14
       - run: python3 scripts/token_guard.py run 'pnpm bootstrap && python3 scripts/verify_local_services.py'
         timeout-minutes: 5
       - run: pnpm test:accounts
