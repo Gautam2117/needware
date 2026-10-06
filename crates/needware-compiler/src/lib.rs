@@ -108,6 +108,8 @@ pub struct StageEvent {
 struct Intent {
     goal: String,
     requirements: Vec<String>,
+    /// Only genuinely unsupported requirements. Use an empty array when none exist;
+    /// never include supported requirements or explanations such as "none" here.
     unsupported: Vec<String>,
 }
 pub struct Compiled {
@@ -206,7 +208,7 @@ impl Compiler {
     ) -> Result<Compiled, CompileError> {
         emit(stage, started, "extract_intent", 0, usage);
         let intent_schema = schemars::schema_for!(Intent).to_value();
-        let intent_response = self.generate(&format!("Extract the requested application intent. Mark requirements unsupported if they require executable code, arbitrary HTML/SQL/WASM, or hidden permissions. Preserve the user's requirements. Intent:\n{prompt}"), &intent_schema, usage).await?;
+        let intent_response = self.generate(&format!("Extract the requested application intent for Needware, which produces declarative typed application IR executed by an existing runtime. Built-in local state, inputs, buttons and typed actions do not require generated executable code. Mark actual requirements unsupported if they require user-supplied or generated executable code, arbitrary HTML/SQL/WASM, or hidden permissions. When all requirements are supported, return unsupported as an empty array; never place supported requirements or explanatory 'none' entries in unsupported. Preserve every user requirement, including unsupported ones. Intent:\n{prompt}"), &intent_schema, usage).await?;
         let intent: Intent = serde_json::from_value(
             needware_package::parse_json(intent_response.as_bytes())
                 .map_err(|_| CompileError::InvalidOutput)?,

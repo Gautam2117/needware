@@ -9,8 +9,8 @@ committed, passed in CLI arguments, or uploaded with the host probe.
 
 | Provider | Recurring allowance and constraints | Needware decision |
 | --- | --- | --- |
-| Cloudflare Workers AI | 10,000 neurons daily on Workers Free; exhaustion needs an explicit paid upgrade. Model-specific rates apply. Some newer models require paid billing. | Strong next benchmark candidate: fixed Cloudflare-hosted GPT-OSS or Qwen models, separate free account allowance, no AI Gateway paid/unified billing fallback. Credentials and account plan not yet verified. |
-| Mistral | Official free mode is for evaluation/prototyping; RPS, TPM and monthly tokens are account-specific. API training can be opted out independently of Vibe. | Investigate actual account limits, production suitability, retention and opt-out before use. The reported 1 billion tokens/month is a community observation, not a verified allowance for this account. |
+| Cloudflare Workers AI | Actual account shows Workers Free ($0), including 10,000 neurons daily; exhaustion needs an explicit paid upgrade. Model-specific rates apply. Some newer models require paid billing. | Restricted token authenticated; GPT-OSS 120B intent extraction passed. Full generation remains unverified. No AI Gateway paid/unified billing fallback or production enablement. |
+| Mistral | Actual Free account displays $10 included monthly API usage, pay-as-you-go off. Small/Medium show 20K TPM / 1 RPS. API training disabled; Labs off. | Authentication/model listing passed, but both bounded inference attempts returned HTTP 429/code 1300 before generation. Cause unresolved. Production suitability and retention remain unverified; no billion-token allowance established. |
 | OpenRouter | No-purchase free quota is 20 RPM / 50 requests daily; underlying free pools can throttle sooner. | Real calls authenticated and cost zero on fixed Novita zero-retention routes, but generation failed; do not enable production. |
 | Groq | Actual account: 8K TPM / 200K TPD / 1K daily requests; observed separate 1K output TPM restriction. | Real trials produced no accepted package. Retain as a candidate, not a proven generator. |
 | Hugging Face | Free users receive $0.10 monthly experiment credit, subject to change. | Too small to underpin public generation. No credit purchases. |
@@ -36,6 +36,53 @@ and the [Mistral billion-token report](https://zenn.dev/sioois/articles/dea77301
 Directories and forum claims are leads, not authority for pricing, privacy,
 commercial suitability or this account's quota. No leaked credentials,
 multi-account quota evasion, referral abuse or unauthorized proxies are used.
+
+## Account checks and measured provider trials
+
+The authenticated Mistral model list returned HTTP 200. Small 2603 and Medium
+2604 were available; Large 2512 was absent despite appearing on the limits page.
+An isolated synthetic counter trial used Small for intent and Medium for
+generation/repair, with four calls maximum and the unchanged Rust validator.
+The first intent call returned HTTP 429/code 1300. A second bounded trial with
+a 512-token intent cap and request spacing also returned that error. Neither
+produced a package; both exited nonzero. Account usage still showed zero
+requests and $0. No billing or training setting was enabled to bypass this.
+Private receipts: `.local/mistral-results/1791286677515/benchmark.json` and
+`.local/mistral-results/1791286853721/benchmark.json`.
+
+Cloudflare's authenticated Workers plan page confirms Free is the current plan
+at $0, with 10,000 AI neurons/day. Workers listed zero requests and no projects.
+The owner created the prepared token granting only Workers AI Read to the
+selected account, expiring October 13. Authentication passed. A real GPT-OSS
+120B intent request returned HTTP 200, reporting 347 tokens and 19.186 neurons;
+the account dashboard showed 19.19/10K daily neurons used before later trials.
+The following app-generation request exceeded the diagnostic's 55-second
+transport timeout; no package was produced. This does not establish poor model
+quality or a validator rejection. Longer and JSON-object trials also stopped
+at the native request deadline, without a complete definition response.
+Existing domains and deployments were not changed. Free-plan verification does
+not establish model quality, available remaining neurons or production readiness.
+
+Real intent responses exposed two ambiguities: treating built-in UI as forbidden
+executable code, and putting explanatory "none" strings in `unsupported`.
+The compiler prompt now explains the declarative runtime and requires an empty
+unsupported array when appropriate; the field's schema description reinforces
+that rule. A real counter then passed intent extraction. A separate real request
+for user-supplied/remote executable scripts still returned `unsupported_intent`,
+with no package. No unsupported entries are filtered or silently reinterpreted.
+Final script-rejection receipt: `.local/cloudflare-results/1791288573860/benchmark.json`.
+
+The next measured layer used GPT-OSS 120B for intent and
+`@cf/qwen/qwen3-30b-a3b-fp8` for generation and two repairs. JSON-object mode
+finished in 32.252 seconds using 196.452 observed neurons; schema-constrained
+mode finished in 51.885 seconds using 222.521 neurons. All upstream calls
+returned HTTP 200 with token/neuron usage, but both produced zero signed
+packages: invalid JSON, table references or definitions were rejected. These
+are unsuccessful generation trials, not production acceptance. Private receipts:
+`.local/cloudflare-results/1791288475862/benchmark.json` and
+`.local/cloudflare-results/1791288556086/benchmark.json`.
+See [GPT-OSS 120B](https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/)
+and [Qwen 30B](https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/).
 
 ## Measured OpenRouter failures
 
