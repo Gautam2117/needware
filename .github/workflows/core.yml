@@ -24,7 +24,7 @@ jobs:
       - run: python3 scripts/token_guard.py run 'cargo build -p needware-wasm --target wasm32-unknown-unknown --release'
       - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts && git diff --exit-code -- packages/ir-types specs/application.schema.json'
       - run: python3 scripts/token_guard.py run 'cargo install wasm-bindgen-cli --version 0.2.129 --locked'
-      - run: python3 scripts/token_guard.py run 'pnpm build'
+      - run: python3 scripts/token_guard.py run 'cargo build --release -p needware-control-plane && pnpm build'
       - run: python3 scripts/token_guard.py run 'node scripts/verify_build_readiness.mjs'
       - run: python3 scripts/token_guard.py run 'pnpm exec playwright install --with-deps chromium firefox webkit'
       - run: |
@@ -37,7 +37,7 @@ jobs:
       - run: pnpm test:compiler
         timeout-minutes: 10
       - name: Deno native and Next.js compatibility (authored fixture)
-        run: python3 scripts/token_guard.py run 'cargo build --release -p needware-control-plane && npx --yes deno@2.9.6 run --no-config --no-lock --node-modules-dir=manual -A scripts/verify-deno-compatibility.mjs'
+        run: python3 scripts/token_guard.py run 'npx --yes deno@2.9.6 run --no-config --no-lock --node-modules-dir=manual -A scripts/verify-deno-compatibility.mjs && node scripts/build-readiness.mjs'
         timeout-minutes: 5
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
