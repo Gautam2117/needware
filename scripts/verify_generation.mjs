@@ -79,6 +79,24 @@ export async function verifyGeneration({page,otherPage,enrolledPage,context,pool
     assert.equal((await pool.query('SELECT count(*)::int AS count FROM needware_generation_job WHERE owner_id=$1',[account])).rows[0].count,beforeDisabled);
   }finally{if(priorMode===undefined)delete process.env.NEEDWARE_BILLING_MODE;else process.env.NEEDWARE_BILLING_MODE=priorMode;}
   assert.equal((await generationUsage(pool,account)).plan,'pro');
+  // Exercise the actual dispatch transaction and bounded worker in this guarded DB.
+  const {dispatchGenerationJob,finishGenerationJob}=await import('../apps/web/lib/generation-store.ts');
+  const priorQuota=process.env.NEEDWARE_GENERATION_QUOTA;
+  try{process.env.NEEDWARE_BILLING_MODE='disabled';process.env.NEEDWARE_GENERATION_QUOTA='cloudflare-free';
+    const atomic=await createGenerationJob(pool,otherAccount,randomUUID(),'Track habits',otherRecipient,provider,500000);
+    const leased=(await pool.query(`UPDATE needware_generation_job SET state='running',lease_id=$2,lease_until=now()+interval '90 seconds' WHERE id=$1 RETURNING *`,[atomic.id,randomUUID()])).rows[0];
+    await pool.query(`CREATE FUNCTION reject_global_dispatch() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'Acceptance dispatch failure';END$$; CREATE TRIGGER reject_global_dispatch BEFORE UPDATE ON needware_generation_job FOR EACH ROW WHEN (NEW.dispatched_at IS NOT NULL AND OLD.dispatched_at IS NULL) EXECUTE FUNCTION reject_global_dispatch()`);
+    try{await assert.rejects(dispatchGenerationJob(pool,leased));assert.equal((await pool.query('SELECT job_id FROM needware_generation_global_reservation')).rowCount,0);assert.equal((await record(atomic.id)).dispatched_at,null);}finally{await pool.query('DROP TRIGGER reject_global_dispatch ON needware_generation_job;DROP FUNCTION reject_global_dispatch()');}
+    await dispatchGenerationJob(pool,leased);
+    await finishGenerationJob(pool,leased,null,{input_tokens:0,output_tokens:0,unknown_usage_requests:0,configured_cost_microusd:0,conservative_cost_microusd:0},'NO_INFERENCE_TEST');
+    await pool.query('DELETE FROM needware_generation_job WHERE id=$1',[atomic.id]);assert.equal((await pool.query('SELECT job_id FROM needware_generation_global_reservation WHERE job_id=$1',[atomic.id])).rowCount,1,'Job deletion cannot erase the global reservation');
+    const bounded=await createGenerationJob(pool,otherAccount,randomUUID(),'Track habits',otherRecipient,provider,500000),beforeBounded=await count();once();
+    assert.equal((await record(bounded.id)).state,'succeeded',(await record(bounded.id)).failure);assert.equal(await count(),beforeBounded+2);
+    const global=(await pool.query('SELECT state,charged,unknown_usage FROM needware_generation_global_reservation WHERE job_id=$1',[bounded.id])).rows[0];assert.equal(global.state,'settled');assert.equal(global.charged,20);assert.equal(global.unknown_usage,false);
+    // Existing ledger exhaustion must stop the worker before any fixture request.
+    await pool.query("UPDATE needware_generation_global_day SET spent=ceiling WHERE scope='global'");
+    const blocked=await createGenerationJob(pool,otherAccount,randomUUID(),'Track habits',otherRecipient,provider,500000),beforeBlocked=await count();once();assert.equal(await count(),beforeBlocked);assert.equal((await record(blocked.id)).dispatched_at,null);assert.equal((await record(blocked.id)).state,'failed');
+  }finally{if(priorMode===undefined)delete process.env.NEEDWARE_BILLING_MODE;else process.env.NEEDWARE_BILLING_MODE=priorMode;if(priorQuota===undefined)delete process.env.NEEDWARE_GENERATION_QUOTA;else process.env.NEEDWARE_GENERATION_QUOTA=priorQuota;}
   // Deletion cascades queued requests and cost reservations with the account.
   await window();const deleted=payload(randomUUID(),otherRecipient);assert.equal((await post(otherPage,deleted)).status(),202);await pool.query('DELETE FROM auth_user WHERE id=$1',[otherAccount]);once();assert.equal(await record(deleted.id),undefined);assert.equal((await pool.query('SELECT account_id FROM needware_generation_usage WHERE account_id=$1',[otherAccount])).rowCount,0);
   await window();await page.goto(`${origin}/account`);await expect(page.getByRole('button',{name:'Sign out everywhere',exact:true})).toBeVisible();

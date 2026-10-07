@@ -6,6 +6,7 @@ import {loadEnvironment} from './load-environment.mjs';
 loadEnvironment();mkdirSync('.logs',{recursive:true});
 async function port(){const server=createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const value=server.address().port;await new Promise(resolve=>server.close(resolve));return value;}
 const providerPort=await port(),gatewayPort=await port();
+process.env.NEEDWARE_GENERATION_MAX_TOKENS='50000';
 const environment={...process.env,NEEDWARE_HOSTED_GENERATION:'1',NEEDWARE_PROVIDER:'local',NEEDWARE_MODEL:'contract-fixture',NEEDWARE_LOCAL_API_KEY:'',NEEDWARE_LOCAL_ENDPOINT:`http://127.0.0.1:${providerPort}/v1/chat/completions`,NEEDWARE_ALLOW_LOOPBACK:'1',NEEDWARE_FIXTURE_MODE:'1',NEEDWARE_INPUT_MICROUSD_PER_MILLION:'1000000',NEEDWARE_OUTPUT_MICROUSD_PER_MILLION:'1000000',NEEDWARE_COST_CEILING_MICROUSD:'500000',NEEDWARE_CONTROL_TOKEN:randomBytes(32).toString('hex'),NEEDWARE_CONTROL_PORT:String(gatewayPort),NEEDWARE_CONTROL_URL:`http://127.0.0.1:${gatewayPort}`,NEEDWARE_FIXTURE_PORT:String(providerPort),NEEDWARE_FIXTURE_DELAY_MS:'300'};
 execFileSync('cargo',['run','-p','xtask','--','compiler-fixture'],{stdio:'inherit'});execFileSync('cargo',['build','-p','needware-control-plane'],{stdio:'inherit'});
 const children=[];

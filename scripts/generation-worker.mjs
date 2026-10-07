@@ -10,6 +10,7 @@ if(process.env.NEEDWARE_HOSTED_GENERATION!=='1')throw Error('Enable hosted gener
 const {authResources}=await import('../apps/web/lib/auth-options.ts'),{pool,origin}=authResources();
 const {claimGenerationJob,dispatchGenerationJob,finishGenerationJob,generationRecipient,pruneGenerationJobs}=await import('../apps/web/lib/generation-store.ts');
 const {generationProvider}=await import('../apps/web/lib/generation-provider.ts'),{privateControlConfig}=await import('../apps/web/lib/control-config.ts');
+const {globalGenerationPolicy}=await import('../apps/web/lib/generation-global-quota.ts'),globalPolicy=globalGenerationPolicy();
 const {startWorkerHealth}=await import('../apps/web/lib/worker-health.ts');
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url)),{default:canonicalize}=await import(require.resolve('canonicalize'));
 const wasmDirectory=process.env.NEEDWARE_WASM_DIR??join(process.cwd(),'apps/web/public/wasm'),wasm=await import(pathToFileURL(join(wasmDirectory,'needware_wasm.js')).href);
@@ -24,7 +25,7 @@ function usage(value,ceiling){
 }
 async function compile(job,signal){
   const config=privateControlConfig();if(!config)throw Error('PROVIDER_UNAVAILABLE');
-  const response=await fetch(new URL('/api/compile-jobs',config.endpoint),{method:'POST',headers:{...config.headers,'Content-Type':'application/json'},body:JSON.stringify({prompt:job.prompt}),signal,redirect:'error'});
+  const response=await fetch(new URL(globalPolicy?'/api/bounded-compile-jobs':'/api/compile-jobs',config.endpoint),{method:'POST',headers:{...config.headers,'Content-Type':'application/json'},body:JSON.stringify({prompt:job.prompt,...(globalPolicy?{max_tokens:globalPolicy.tokens}: {})}),signal,redirect:'error'});
   if(!response.ok||!response.body||!response.headers.get('content-type')?.startsWith('text/event-stream'))throw Error('PROVIDER_UNAVAILABLE');
   const reader=response.body.getReader(),decoder=new TextDecoder('utf-8',{fatal:true});let buffer='',total=0;
   try{for(;;){const chunk=await reader.read();if(chunk.done)break;total+=chunk.value.length;if(total>8*1024*1024)throw Error('RESULT_SIZE_LIMIT');buffer+=decoder.decode(chunk.value,{stream:true});
@@ -55,7 +56,7 @@ async function work(){const job=await claimGenerationJob(pool);if(!job)return fa
   let result=null,reported=null,failure='COMPILATION_FAILED';
   try{const provider=await generationProvider(new URL(origin).protocol==='https:');if(canonicalize(provider)!==canonicalize(job.provider))throw Error('PROVIDER_CHANGED');
     await dispatchGenerationJob(pool,job);const compiled=await compile(job,AbortSignal.any([controller.signal,AbortSignal.timeout(185000)]));result=compiled.result;reported=compiled.usage;
-  }catch(error){failure=['PROVIDER_CHANGED','PROVIDER_UNAVAILABLE','SIGNER_CHANGED','INVALID_USAGE','RESULT_SIZE_LIMIT','INTERRUPTED_USAGE_UNKNOWN','COMPILATION_FAILED'].includes(error.message)?error.message:controller.signal.aborted?'CANCELLED':'INTERRUPTED_USAGE_UNKNOWN';}
+  }catch(error){failure=['GLOBAL_GENERATION_QUOTA','GLOBAL_GENERATION_CONCURRENCY','GLOBAL_GENERATION_REPLAY','GLOBAL_GENERATION_PROVIDER','GLOBAL_GENERATION_POLICY','GLOBAL_GENERATION_POLICY_REQUIRED','PROVIDER_CHANGED','PROVIDER_UNAVAILABLE','SIGNER_CHANGED','INVALID_USAGE','RESULT_SIZE_LIMIT','INTERRUPTED_USAGE_UNKNOWN','COMPILATION_FAILED'].includes(error.message)?error.message:controller.signal.aborted?'CANCELLED':'INTERRUPTED_USAGE_UNKNOWN';}
   finally{clearInterval(heartbeat);current=undefined;}
   try{await finishGenerationJob(pool,job,result,reported,failure);}finally{result?.ciphertext.fill(0);job.prompt=null;}
   return true;

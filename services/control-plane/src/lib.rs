@@ -59,6 +59,7 @@ pub fn router(gateway: Gateway) -> Router {
         .route("/health/live", get(|| async { "ok" }))
         .route("/api/providers", get(providers))
         .route("/api/compile-jobs", post(compile))
+        .route("/api/bounded-compile-jobs", post(bounded_compile))
         .layer(DefaultBodyLimit::max(40 * 1024))
         .with_state(Arc::new(gateway))
 }
@@ -71,7 +72,49 @@ async fn providers(
         provider: state.compiler.as_ref().map(|c| c.provider_info()),
     }))
 }
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoundedCompileRequest {
+    prompt: String,
+    max_tokens: u64,
+}
+async fn bounded_compile(
+    State(state): State<Arc<Gateway>>,
+    headers: HeaderMap,
+    Json(request): Json<BoundedCompileRequest>,
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    state.authorize(&headers)?;
+    let compiler = state
+        .compiler
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    if request.max_tokens == 0
+        || request.max_tokens > 50_000
+        || compiler.token_ceiling() > request.max_tokens
+    {
+        return Err(StatusCode::CONFLICT);
+    }
+    compile_inner(
+        State(state),
+        headers,
+        Json(CompileRequest {
+            prompt: request.prompt,
+        }),
+    )
+    .await
+}
 async fn compile(
+    state: State<Arc<Gateway>>,
+    headers: HeaderMap,
+    request: Json<CompileRequest>,
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    state.0.authorize(&headers)?;
+    if std::env::var("NEEDWARE_GENERATION_QUOTA").as_deref() == Ok("cloudflare-free") {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    compile_inner(state, headers, request).await
+}
+async fn compile_inner(
     State(state): State<Arc<Gateway>>,
     headers: HeaderMap,
     Json(request): Json<CompileRequest>,
@@ -187,6 +230,26 @@ mod tests {
         )?;
         let token = "0123456789abcdef0123456789abcdef";
         let app = router(Gateway::new(Some(compiler), token.into())?);
+        // Mismatched bounds reject before inference or semaphore acquisition.
+        for ceiling in [0, 50_000, 50_001] {
+            let bounded = Request::builder()
+                .method("POST")
+                .uri("/api/bounded-compile-jobs")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    "{{\"prompt\":\"Track habits\",\"max_tokens\":{ceiling}}}"
+                )))?;
+            assert_eq!(
+                app.clone().oneshot(bounded).await?.status(),
+                StatusCode::CONFLICT
+            );
+        }
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), listener.accept())
+                .await
+                .is_err()
+        );
         let request = || {
             Request::builder()
                 .method("POST")

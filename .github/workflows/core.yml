@@ -67,6 +67,7 @@ jobs:
       - run: pnpm test:registry
         timeout-minutes: 20
       - run: pnpm test:generation
+      - run: pnpm test:generation:global-quota
         timeout-minutes: 20
       - run: pnpm test:billing
         timeout-minutes: 20

@@ -6,6 +6,7 @@ import type {ProviderInfo} from '@needware/ir-types/ProviderInfo';
 import type {Usage} from '@needware/ir-types/Usage';
 import {creationHeld} from './creation-hold.ts';
 import {billingEnabled} from './billing-policy.ts';
+import {globalGenerationPolicy,reserveGlobalGeneration,reconcileGlobalGeneration} from './generation-global-quota.ts';
 export class GenerationFailure extends Error {readonly status:number;constructor(status:number,message:string){super(message);this.status=status;}}
 export type GenerationJob={id:string;owner_id:string;prompt:string|null;recipient:Certificate;provider:ProviderInfo;period:string;reservation:string;state:'queued'|'running'|'cancel_requested'|'succeeded'|'failed'|'cancelled';attempts:number;lease_id:string|null;lease_until:Date|null;dispatched_at:Date|null;stage:unknown;usage:Usage|null;failure:string|null;result_metadata:unknown;result_ciphertext:Buffer|null;package_digest:string|null;created_at:Date;finished_at:Date|null};
 const limits={free:{daily:3,monthly:20,budget:10000000},pro:{daily:50,monthly:200,budget:100000000}};
@@ -62,6 +63,7 @@ export async function cancelGenerationJob(pool:Pool,owner:string,id:string){cons
 type EncryptedResult={metadata:unknown;ciphertext:Buffer;digest:string};
 async function settle(client:PoolClient,job:GenerationJob,state:'succeeded'|'failed'|'cancelled',cost:number,usage:Usage|null,failure:string|null,result:EncryptedResult|null){
   if(!Number.isSafeInteger(cost)||cost<0||cost>Number(job.reservation))throw new GenerationFailure(503,'Generation usage exceeds its reserved ceiling');
+  await reconcileGlobalGeneration(client,job.id,usage);
   await client.query(`UPDATE needware_generation_usage SET reserved_microusd=reserved_microusd-$3,spent_microusd=spent_microusd+$4,input_tokens=input_tokens+$5,output_tokens=output_tokens+$6,unknown_requests=unknown_requests+$7 WHERE account_id=$1 AND period=$2`,[job.owner_id,job.period,job.reservation,cost,usage?.input_tokens??0,usage?.output_tokens??0,usage?.unknown_usage_requests??(job.dispatched_at?1:0)]);
   await client.query(`UPDATE needware_generation_job SET state=$2,prompt=NULL,lease_id=NULL,lease_until=NULL,usage=$3,failure=$4,result_metadata=$5,result_ciphertext=$6,package_digest=$7,finished_at=now() WHERE id=$1`,[job.id,state,usage?canonicalize(usage):null,failure,result?canonicalize(result.metadata):null,result?.ciphertext??null,result?.digest??null]);
 }
@@ -81,6 +83,9 @@ export async function claimGenerationJob(pool:Pool):Promise<GenerationJob|undefi
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 export async function dispatchGenerationJob(pool:Pool,job:GenerationJob){const client=await pool.connect();try{await client.query('BEGIN');await ownerLock(client,job.owner_id);if(await creationHeld(client,job.owner_id))throw new GenerationFailure(403,'Creation is paused after operator review');await generationRecipient(client,job.owner_id,job.recipient);
+  const current=(await client.query<GenerationJob>(`SELECT * FROM needware_generation_job WHERE id=$1 AND lease_id=$2 AND state='running' AND dispatched_at IS NULL FOR UPDATE`,[job.id,job.lease_id])).rows[0];
+  if(!current)throw new GenerationFailure(409,'Creation lease or consent changed');
+  const policy=globalGenerationPolicy();if(policy)await reserveGlobalGeneration(client,current,policy);
   const result=await client.query(`UPDATE needware_generation_job SET dispatched_at=now() WHERE id=$1 AND lease_id=$2 AND state='running' AND dispatched_at IS NULL RETURNING id`,[job.id,job.lease_id]);if(!result.rowCount)throw new GenerationFailure(409,'Creation lease or consent changed');await client.query('COMMIT');job.dispatched_at=new Date();
 }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
 export async function finishGenerationJob(pool:Pool,job:GenerationJob,result:EncryptedResult|null,usage:Usage|null,failure:string|null){const client=await pool.connect();try{await client.query('BEGIN');await ownerLock(client,job.owner_id);

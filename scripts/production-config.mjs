@@ -1,6 +1,7 @@
 // Pure, redacted deployment checks. No environment loading, network calls or writes.
 import {isIP} from 'node:net';
 import {billingEnabled} from '../apps/web/lib/billing-policy.ts';
+import {globalGenerationPolicy} from '../apps/web/lib/generation-global-quota.ts';
 const loopback=host=>['localhost','127.0.0.1','[::1]'].includes(host);
 const publicHost=host=>!isIP(host)&&!loopback(host)&&host.includes('.')&&!/(?:^|\.)(?:localhost|invalid|example|test|local)$/.test(host);
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -50,6 +51,12 @@ export function productionConfiguration(env){
     check(/^acct_[A-Za-z0-9]+$/.test(env.STRIPE_ACCOUNT_ID??''),'STRIPE_ACCOUNT_ID');
   }else{
     for(const key of ['STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_PRO_PRICE_ID','STRIPE_ACCOUNT_ID'])check(!env[key],'DISABLED_BILLING_'+key);
+    let quota;try{quota=globalGenerationPolicy(env);}catch{}
+    check(Boolean(quota)&&env.NEEDWARE_GENERATION_MAX_TOKENS!==undefined&&quota.neurons<=quota.daily&&quota.neurons<=quota.accountDaily,'GLOBAL_GENERATION_POLICY');
+    check(env.NEEDWARE_PROVIDER==='local'&&env.NEEDWARE_MODEL==='@cf/openai/gpt-oss-120b'&&/^[0-9a-f]{32}$/.test(env.NEEDWARE_CLOUDFLARE_ACCOUNT_ID??''),'FREE_GENERATION_PROVIDER');
+    check(env.NEEDWARE_APPLICATION_FORMAT==='canonical','FREE_GENERATION_FORMAT');
+    check(env.NEEDWARE_LOCAL_ENDPOINT===`https://api.cloudflare.com/client/v4/accounts/${env.NEEDWARE_CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions`,'FREE_GENERATION_ENDPOINT');
+    check(['NEEDWARE_INPUT_MICROUSD_PER_MILLION','NEEDWARE_OUTPUT_MICROUSD_PER_MILLION','NEEDWARE_COST_CEILING_MICROUSD'].every(key=>env[key]==='0'),'FREE_GENERATION_NO_PAID_FALLBACK');
   }
   const operators=env.NEEDWARE_OPERATOR_ACCOUNTS?.split(',')??[];
   check(operators.length>0&&operators.length<=16&&operators.every(value=>uuid.test(value))&&new Set(operators).size===operators.length,'NEEDWARE_OPERATOR_ACCOUNTS');

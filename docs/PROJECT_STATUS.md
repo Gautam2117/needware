@@ -2,6 +2,16 @@
 
 Statuses describe actual code and checks, not planned completeness.
 
+2026-10-07 checkpoint: exact c330654 preview publication and all three CI workflows
+passed. The approved Netlify $0 credit-Free migration completed with 300 shared
+monthly credits, no saved card or overage. The [global generation guard](deployment/global-generation-quota.md)
+now reserves durable account/global neuron budgets before dispatch, binds the
+private compiler token ceiling, and retains unknown usage across restarts/deletion.
+Concurrent PostgreSQL and bounded worker fixture checks pass locally. Production
+migration, representative real-provider qualification, hosted worker resource
+measurement and public account/product acceptance remain unverified. See
+[Netlify status](deployment/netlify-free-status.md).
+
 Latest local verification, 2026-10-05: runtime controls, typed forms, complete visual families and reviewed draft and browser history safety (decisions
 0018 through 0025), production/WASM build, 114 native tests, 13 server tests, 174
 three-engine consumer browser cases,

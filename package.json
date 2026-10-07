@@ -27,6 +27,7 @@
     "test:revisions": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --revisions'",
     "test:registry": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --registry'",
     "test:generation": "python3 scripts/token_guard.py run 'node scripts/run-generation-acceptance.mjs'",
+    "test:generation:global-quota": "python3 scripts/token_guard.py run 'node scripts/verify-global-generation-quota.mjs'",
     "test:billing": "python3 scripts/token_guard.py run 'node scripts/run-billing-acceptance.mjs'",
     "test:operations": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --operations'",
     "test:scheduled-workers": "python3 scripts/token_guard.py run 'node scripts/verify-scheduled-workers.mjs'",

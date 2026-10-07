@@ -1363,6 +1363,7 @@ dependencies = [
  "hex",
  "needware-compiler",
  "needware-crypto",
+ "serde",
  "serde_json",
  "subtle",
  "tokio",

@@ -126,6 +126,9 @@ pub struct Compiler {
     canonical: bool,
 }
 impl Compiler {
+    pub fn token_ceiling(&self) -> u64 {
+        self.policy.max_tokens
+    }
     pub fn new(
         config: provider::Config,
         policy: Policy,

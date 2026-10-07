@@ -3,6 +3,25 @@ use needware_compiler::{Compiler, Policy, provider::Config};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let compiler = if std::env::var("NEEDWARE_PROVIDER").is_ok_and(|value| !value.is_empty()) {
         let policy = Policy {
+            max_output_tokens: if std::env::var("NEEDWARE_GENERATION_QUOTA").as_deref()
+                == Ok("cloudflare-free")
+            {
+                4096
+            } else {
+                8192
+            },
+            max_repairs: if std::env::var("NEEDWARE_GENERATION_QUOTA").as_deref()
+                == Ok("cloudflare-free")
+            {
+                1
+            } else {
+                2
+            },
+            max_tokens: std::env::var("NEEDWARE_GENERATION_MAX_TOKENS")
+                .ok()
+                .map(|v| v.parse())
+                .transpose()?
+                .unwrap_or(250_000),
             max_cost_microusd: std::env::var("NEEDWARE_COST_CEILING_MICROUSD")
                 .ok()
                 .map(|v| v.parse())
