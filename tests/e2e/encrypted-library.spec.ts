@@ -46,3 +46,22 @@ test('device-local application state is encrypted and restored without entering 
   await page.getByRole('button',{name:'Open Habit tracker',exact:true}).click();await expect(frame.getByText('Never enters shared history',{exact:true})).toBeVisible();
   await expect(page.getByText('Encrypted browser storage · 0 pending changes',{exact:true})).toBeVisible();
 });
+test('synchronized package review preserves its signed definition and directs installation to encrypted storage',async({page,offlineServer})=>{
+  await page.goto(offlineServer.url);const account=await trustedVault(page);
+  await page.goto(`${offlineServer.url}encrypted#account=${account}`);
+  await page.getByRole('button',{name:'Try encrypted habit tracker',exact:true}).click();
+  await page.getByRole('button',{name:'Trust signer and save encrypted application',exact:true}).click();
+  const exported=page.waitForEvent('download');await page.getByRole('button',{name:'Export plaintext package',exact:true}).click();
+  const path=await (await exported).path();expect(path).toBeTruthy();
+  const {readFile}=await import('node:fs/promises');const bytes=await readFile(path!);
+  await page.goto(offlineServer.url);await page.getByLabel('Import .need',{exact:true}).setInputFiles({name:'shared.need',mimeType:'application/vnd.needware.package',buffer:bytes});
+  await expect(page.getByRole('region',{name:'Encrypted storage required'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Trust signer and run application',exact:true})).toBeDisabled();
+  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download signed definition',exact:true}).click();
+  expect(await readFile((await (await download).path())!)).toEqual(bytes);
+  await page.getByRole('link',{name:'Open Your encrypted apps',exact:true}).click();
+  await expect(page.getByText('Encrypted browser storage ready',{exact:true})).toBeVisible();
+  await page.getByLabel('Import encrypted-library application').setInputFiles({name:'shared.need',mimeType:'application/vnd.needware.package',buffer:bytes});
+  await expect(page.getByRole('region',{name:'Application permissions'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Trust signer and save encrypted application',exact:true})).toBeEnabled();
+});

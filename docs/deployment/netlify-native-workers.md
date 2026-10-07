@@ -18,8 +18,9 @@ The separate real DB/SMTP empty-queue probe passed cold/warm certificate-verifie
 connections and bounded mail dispatch, with no email sent. It measured2659.76ms
 and1546.45ms of work at1024MiB allocated. The canonical account installation later
 passed real signup and email verification; its automatic scheduled retry reported
-healthy idle execution at2026-10-07T11:45:26.988Z. Verified operator access passed
-against the published source `46b9647`; generation remains disabled.
+healthy idle execution at2026-10-07T11:45:26.988Z and2026-10-07T12:15:26.457Z.
+Verified operator access passed; current published source `9c5828a` has green exact
+Core/Audit/Sanitizer CI. Generation remains disabled after failed model qualification.
 
 Account mail runs once after committed auth responses; a protected HTTP endpoint
 drains one retry every15minutes. Netlify's scheduled function invokes that endpoint

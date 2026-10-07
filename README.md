@@ -7,7 +7,18 @@ Needware is being built as a local-first application platform. Models produce a 
 This repository is under active implementation. It is not a completed or production-ready product. See [project status](docs/PROJECT_STATUS.md) for evidence and remaining requirements.
 
 Live account installation: [needware.continuumarc.tech](https://needware.continuumarc.tech/account).
-Verified email, operator access and encrypted synchronization are deployed. Hosted generation and billing remain disabled; representative model qualification failed.
+Verified email, operator access, encrypted synchronization, recovery-file import and reviewed cross-account sharing are deployed. Live document revocation preserved both owner devices and archived history. Hosted generation and billing remain disabled; representative model qualification failed.
+
+Actual production Habit tracker after cross-account editing and retained-device key rotation:
+
+![Production collaboration check after reviewed key rotation](docs/images/production-collaboration-20261007.jpg)
+
+This built-in example verifies encrypted collaboration; it is not model-generation evidence.
+
+An [independent signed remix](https://needware.continuumarc.tech/a/7eac235a-41a0-43e8-9518-5d9dcfc7a148)
+also passed hosted publication, pinned downloads, approved encrypted Chrome execution,
+separate storage, cloud acknowledgment and reopening. Packages with synchronized
+permissions run through the encrypted library after signer review.
 
 ## Development
 

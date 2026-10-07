@@ -3,27 +3,45 @@
 Statuses describe actual code and checks, not planned completeness.
 
 2026-10-07 production checkpoint: [canonical HTTPS accounts](https://needware.continuumarc.tech/account)
-run source `46b9647`, published as Netlify deploy `6ac6319fe8b04078f205beda`.
+run source `9c5828a`, published as Netlify deploy `6ac636b14fafc10009b0dcbf`.
 Real owner signup/email verification, verified operator authorization, user-held
 recovery setup, encrypted Habit tracker upload acknowledgment and Safari reopen passed.
 Real recovery-file import into Chrome, exact signer/package review and encrypted
-two-browser edit convergence also passed; both browsers have zero pending changes.
+two-browser edit convergence also passed. A second verified account imported the
+approved Habit tracker and edited its shared collection; the owner received the edit.
+Document rotation then retained both owner devices and removed the collaborator's
+future cloud access. Its stale browser was denied sync while preserving old local data.
+Retained Chrome explicitly reviewed the new epoch and synced another edit to Safari.
+The owner published and opened an account-private registry pointer; anonymous current,
+pinned and download requests return404 and discovery excludes it. Unlisted signed-definition
+publication also passed real hosted validation with the unchanged built-in package.
+The independently signed remix published with pinned source lineage and exact anonymous
+current/pinned downloads. It started with empty encrypted storage, then an approved
+Chrome run, separate test edit, cloud acknowledgment and reopening passed. Its own
+document grants only the owner Chrome device; stored ciphertext contains no test labels.
+The home runtime rejects synchronized permissions; review now directs these packages
+to encrypted import without changing the signed bytes or weakening runtime checks.
 Operations now refreshes on demand and after actions; a disposable account/browser
 check verifies no dashboard reads during 45 seconds of idle time and one explicit refresh.
 The automatic 15-minute mail retry reported healthy scheduled execution; anonymous
 operations and mail dispatch are denied. Production migration0012 and matching
 isolated PostgreSQL17 encrypted backup/restore passed, including the verified owner
-and conservative captured provider-spend baseline. `f0bdeb6` exact CI passed;
-`46b9647` Core failed WebKit offline control (80 cases passed, one failed).
+and conservative captured provider-spend baseline. A fresh post-collaboration encrypted
+backup restored all40tables, archived history, both owner grants and a post-rotation frame.
+A later distinct encrypted backup also restored the independent remix document/frame,
+all three registry entries and pinned source lineage; prior backups were preserved.
+`9c5828a` exact Core/Audit/Sanitizer CI passed. Earlier WebKit failures remain recorded.
 The correction removes stale client-ID lookup from scope-limited worker claim;
 45 focused three-engine cases passed, including unavailable-lookup/lost-message
-regression and real offline cold reload. Exact correction CI remains pending.
+regression and real offline cold reload. Clean public Chromium/Firefox cold offline
+reopening passed. Public WebKit passed with its actual network tunnel stopped, including
+an uncached HTTPS failure and service-worker reload; Playwright offline emulation failed.
 The approved $0 Netlify Free plan shares 300 monthly credits across nine sites;
 no card, overage or paid fallback. Actual musl native/background fixture compatibility
 and DB/SMTP cold/warm measurements passed; these do not qualify real generation.
 Representative Cloudflare model qualification failed after bounded repair, so calls
-stopped and hosted generation/billing remain disabled. Production cross-account
-collaborator/revocation/revision acceptance and full release remain open.
+stopped and hosted generation/billing remain disabled. Production schema-revision,
+account-root rotation acceptance, model quality and full release remain open.
 See [Netlify status](deployment/netlify-free-status.md) and [worker evidence](deployment/netlify-native-workers.md).
 
 Latest local verification, 2026-10-05: runtime controls, typed forms, complete visual families and reviewed draft and browser history safety (decisions
@@ -64,6 +82,6 @@ working implementation and accepted ADRs. Production completion remains open.
 | Operations and encrypted backup | VERIFIED LOCAL | Verified fresh allowlisted operators, bounded/deduplicated reports, audited CAS moderation and published-definition inspection, independent moderation checks on discovery/stable/pinned downloads/remix sources, retained owner exports, account creation/publication/checkout holds with correct generation settlement, worker replica/stale health and audited retained email/billing/deletion retries. Authenticated streaming PostgreSQL 18 backups restore real accounts/vault roots/devices/members/encrypted chunks exactly into a separate empty database; wrong-key/tamper/truncation/symlink, occupied targets, duplicate publication and atomic SQL failure preserve source/target data. Actual PostgreSQL/account/browser operations and backup acceptance pass; 13 server tests and 78 three-engine browser cases pass. Production backup retention/key custody/deletion reconciliation/RPO/RTO, alerts, staffing and live restore remain unverified. See [operations and backups](decisions/0017-operations-and-encrypted-backups.md) |
 | Registry, stable sharing and remix | VERIFIED LOCAL | PostgreSQL private encrypted pointers and deliberate unlisted/public signed definitions; server-native signature/schema validation, immutable exact-parent successors, owner CAS, charged metadata/definition bounds and deletion cascades. Stable entry and pinned revision URLs require consumer signer/permission review before isolated execution. Native remix creates independent identities/signers, copies definitions/assets without runtime state or keys, and signs the source digest; lineage survives source deletion. Actual independent-account/anonymous publication/open/remix, visibility/auth/ownership/origin/canonical/CAS/tamper boundaries, injected publication rollback, immutable downloads, spoof-resistant request/download budgets and cascades pass. Final 90 native tests, 10 server tests, 75 three-engine browser cases, 9 compiler fixtures, account/root/schema/registry suites, builds and audits pass locally. Audited moderation and creation holds are implemented in decision 0017; registry paid-plan capacity and production acceptance remain pending. See [registry boundary](decisions/0014-registry-sharing-and-remix.md) |
 | Hosted generation and usage | VERIFIED LOCAL | Stable request UUID/provider/signer/certificate binding, concurrent/daily/monthly/reserved-cost quotas, entitlement expiry, atomic enqueue/settlement, leased worker restart, cancellation, no automatic dispatched replay, bounded encrypted-only native HPKE results and 128 MiB storage cap. Requesting-device review/import, consumer creation/history/cold reopen, 24-hour queue expiry, 30-day result expiry/pruning, device removal and account deletion pass actual PostgreSQL/account/browser acceptance. Full 92 native tests, 10 server proof tests, 78 three-engine browser cases, 9 compiler fixtures, account/root/schema/registry/generation suites, builds and dependency audits pass locally. Paid entitlement fixtures are confined to guarded disposable databases. Real provider quality, billing activation and production acceptance remain unverified. See [hosted generation](decisions/0015-durable-hosted-generation.md) |
-| Deployment/device/provider acceptance | PARTIAL PRODUCTION | Canonical HTTPS/email/operator/owner encrypted upload/reopen and isolated encrypted production restore passed above. Generation is disabled after unsuccessful representative model qualification; cross-device recovery/collaboration/revocation and full release remain open |
+| Deployment/device/provider acceptance | PARTIAL PRODUCTION | Canonical HTTPS/email/operator, cross-device recovery, encrypted convergence, approved cross-account editing, document revocation, retained-device epoch review, private/unlisted registry publication, independently signed remix execution and isolated encrypted production restore passed above. Generation remains disabled after unsuccessful representative model qualification; production schema revisions, account-root rotation and full release remain open |
 
 Fixture credentials and fixture applications are never production evidence. Real integrations are marked externally blocked only after their executable boundary exists and the missing prerequisite is identified.

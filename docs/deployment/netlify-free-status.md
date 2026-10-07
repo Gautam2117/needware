@@ -19,7 +19,12 @@ passed. This proves preview publication, not hosted generation/account acceptanc
 [Netlify compute](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/)
 costs 10 credits/GB-hour across functions and other compute. Production deploys,
 traffic and the other eight sites share the same finite allowance. Frequent cron
-polling remains unqualified; prefer on-demand bounded draining. The migration
-does not measure actual native compiler startup, function memory/runtime,
-database/mail access, retry behavior or workload credit use. Do not enable a
-production worker until those gates pass with the exact Linux artifact.
+polling consumes shared credits; operations now refreshes on demand. Subsequent
+exact Linux/musl ordinary/background fixture probes and real DB/SMTP measurements
+passed, documented in [native worker evidence](netlify-native-workers.md).
+Canonical accounts now verify real email, recovery and reviewed encrypted collaboration.
+A bounded mail retry runs every15minutes. Its measured idle estimate is45credits/month,
+not an upper bound; traffic, deployment and the other sites also use the same cap.
+Account/collaboration source `9c5828a` passed exact Core/Audit/Sanitizer CI and published as
+`6ac636b14fafc10009b0dcbf`. Generation and billing remain disabled after model
+qualification failed. This is a partial account/collaboration release, not full production acceptance.
