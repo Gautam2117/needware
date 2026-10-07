@@ -43,6 +43,19 @@ fn canonical_input_retains_strict_parsing_and_wire_resource_bounds()
         json!({"type":"null"})
     );
     assert_eq!(schema.decode_canonical(&bytes)?, app);
+    let mut missing_style = serde_json::to_value(&app)?;
+    missing_style["screens"][0]["root"]
+        .as_object_mut()
+        .ok_or("missing root object")?
+        .remove("style");
+    match schema.decode_canonical(&serde_json::to_vec(&missing_style)?) {
+        Err(CompileError::Diagnostics { path, message }) => {
+            assert_eq!(path, "application");
+            assert!(message.contains("missing field `style`"));
+            assert!(message.len() <= 256);
+        }
+        _ => panic!("Required node fields must reject with bounded repair diagnostics"),
+    }
     let duplicate = format!(
         "{{\"title\":\"spoof\",{}",
         &String::from_utf8(bytes.clone())?[1..]
@@ -492,6 +505,47 @@ async fn repair_is_bounded_and_acceptance_is_independent() -> Result<(), Box<dyn
         Err(CompileError::Validation)
     ));
     assert_eq!(task.await?.map_err(std::io::Error::other)?.len(), 4);
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_behavior_supplies_fresh_state_diagnostics_for_bounded_repair()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut app = needware_ir::examples::habit_tracker();
+    app.tests.push(acceptance());
+    let mut wrong = app.clone();
+    wrong.tests[0].assertion = needware_ir::Expr::Literal {
+        value: needware_ir::Value::Boolean(false),
+    };
+    let (url, task) = fixture(
+        Kind::Local,
+        vec![
+            json!({"goal":"Track habits","requirements":[],"unsupported":[]}).to_string(),
+            serde_json::to_string(&wrong)?,
+            serde_json::to_string(&app)?,
+        ],
+    )
+    .await?;
+    let compiler = Compiler::new_canonical(
+        config(Kind::Local, &url)?,
+        Policy {
+            max_repairs: 1,
+            ..Policy::default()
+        },
+        SecretKey::random()?,
+    )?;
+    let result = compiler
+        .compile("Track habits", &[], &Cancellation::new(), |_| {})
+        .await?;
+    needware_package::verify(&result.package)?;
+    let requests = task.await?.map_err(std::io::Error::other)?;
+    assert_eq!(requests.len(), 3);
+    let feedback = requests[2]["messages"][0]["content"]
+        .as_str()
+        .ok_or("feedback")?;
+    assert!(feedback.contains("tests/0/assertion"));
+    assert!(feedback.contains("exactly one action from default state"));
+    assert!(feedback.contains("unique keys"));
     Ok(())
 }
 #[tokio::test]

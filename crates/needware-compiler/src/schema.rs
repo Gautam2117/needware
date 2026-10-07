@@ -70,8 +70,13 @@ impl WireSchema {
         schema
     }
     pub fn decode_canonical(&self, bytes: &[u8]) -> Result<needware_ir::Application, CompileError> {
-        let app = needware_package::parse_json::<needware_ir::Application>(bytes)
-            .map_err(|_| CompileError::InvalidOutput)?;
+        let app =
+            needware_package::parse_json::<needware_ir::Application>(bytes).map_err(|error| {
+                CompileError::Diagnostics {
+                    path: "application".into(),
+                    message: error.to_string().chars().take(256).collect(),
+                }
+            })?;
         // Retain wire table, nesting and decoder fuel bounds for this representation too.
         self.decode(&self.encode(&app)?)
     }

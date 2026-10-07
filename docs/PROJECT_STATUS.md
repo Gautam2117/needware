@@ -2,6 +2,17 @@
 
 Statuses describe actual code and checks, not planned completeness.
 
+2026-10-07 release continuation: account root epoch2 and both owned document
+root bindings were rechecked on the live database. Retained-device acceptance
+and live synchronized revision acceptance remain open. Canonical generation now
+returns bounded parse and failed-test diagnostics to its existing repair loop,
+and clarifies fresh-state tests and required node style. Native118 and strict
+clippy/security checks passed; real-model qualification is still unverified.
+Billing is now a release requirement: a separate Needware Cashfree merchant is
+required, preserving the existing unrelated merchant and the Stripe integration.
+No Pro price, new merchant credentials, subscription activation or payment
+acceptance has been established. Production completion is not claimed.
+
 2026-10-07 production checkpoint: [canonical HTTPS accounts](https://needware.continuumarc.tech/account)
 was verified on source `9c5828a`, published as Netlify deploy `6ac636b14fafc10009b0dcbf`.
 Real owner signup/email verification, verified operator authorization, user-held

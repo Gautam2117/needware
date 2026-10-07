@@ -260,7 +260,7 @@ impl Compiler {
                 usage,
             );
             let representation = if self.canonical {
-                "Use the supplied canonical JSON schema with nested typed expressions/actions/types/values/nodes and ordinary JSON maps. Component identifiers must be globally unique ASCII alphanumeric or underscore characters, 1-64 characters; hyphens are invalid. Actions must include their kind tag; an empty action object is invalid. Set actions use kind=set, key and value. Comparisons are expressions with op=binary and operator=eq, never op=eq. Generated tests must dispatch a nonempty declared action; initial-state checks belong in independent acceptance, not an empty test action. Buttons must put their visible label directly in their text expression, not in child text nodes."
+                "Use the supplied canonical JSON schema with nested typed expressions/actions/types/values/nodes and ordinary JSON maps. Component identifiers must be globally unique ASCII alphanumeric or underscore characters, 1-64 characters; hyphens are invalid. Actions must include their kind tag; an empty action object is invalid. Set actions use kind=set, key and value. Comparisons are expressions with op=binary and operator=eq, never op=eq. Generated tests must dispatch a nonempty declared action; initial-state checks belong in independent acceptance, not an empty test action. Never copy a repeated-action acceptance sequence into separate TestCases: every TestCase resets to defaults, so a toggle from default false always asserts true. Return exactly one JSON object with unique keys, including during repair. Every node requires options and children arrays and style={tone:neutral,size:medium}, including text and button nodes. Buttons must put their visible label directly in their text expression, not in child text nodes."
             } else {
                 "Use the supplied acyclic schema: expressions/actions/types/values/nodes contain nodes; integer references index the corresponding table. Maps are arrays of unique key/value entries."
             };
@@ -322,7 +322,7 @@ impl Compiler {
         if tests.is_empty() || tests.len() > 256 {
             return Err(CompileError::Validation);
         }
-        for test in tests {
+        for (index, test) in tests.into_iter().enumerate() {
             let grants = Grants {
                 application: application.id.clone(),
                 revision: application.revision.clone(),
@@ -361,7 +361,10 @@ impl Compiler {
             )
             .map_err(|_| CompileError::Validation)?
             {
-                return Err(CompileError::Validation);
+                return Err(CompileError::Diagnostics {
+                    path: format!("tests/{index}/assertion"),
+                    message: "Assertion was false after exactly one action from default state. Each test uses a fresh runtime; repeated-action sequences cannot assume earlier tests ran.".into(),
+                });
             }
             runtime.view().map_err(|_| CompileError::Validation)?;
         }
