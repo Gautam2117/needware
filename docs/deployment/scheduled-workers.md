@@ -11,8 +11,9 @@ in the existing implementations. Reusable calls require bounded execution.
 
 Set `NEEDWARE_WORKER_MODE=scheduled` and
 `NEEDWARE_WORKER_INTERVAL_SECONDS=300` consistently on web, scheduler and
-preflight processes. Scheduled installations currently require disabled billing;
-the billing worker remains continuous. A successful bounded tick records `idle`
+preflight processes. Cashfree billing also supports bounded `runBillingWorker`
+invocations; Stripe billing remains continuous. See [Cashfree activation](cashfree.md)
+for its separate host and real payment qualification gates. A successful bounded tick records `idle`
 and stops its health timer. Readiness accepts only the latest scheduled report,
 the configured interval and a completion within that interval plus 60 seconds.
 Future timestamps, stale active heartbeats, stopped or degraded reports fail.

@@ -77,6 +77,8 @@ jobs:
         timeout-minutes: 20
       - run: pnpm test:billing
         timeout-minutes: 20
+      - run: pnpm test:billing:cashfree
+        timeout-minutes: 10
       - run: pnpm test:operations
         timeout-minutes: 20
       - name: Bounded scheduled workers in Node and Deno (local services only)

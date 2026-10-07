@@ -44,6 +44,13 @@ test('scheduled workers require explicit bounded cadence and disabled billing',(
   for(const value of ['0','59','3601','300x'])assert.equal(productionConfiguration({...beta,NEEDWARE_WORKER_INTERVAL_SECONDS:value}).ok,false);
   assert.equal(productionConfiguration({...beta,NEEDWARE_WORKER_MODE:'always-ready'}).ok,false);
 });
+test('Cashfree activation requires live approval, real acceptance and the unchanged free provider',async()=>{
+  const env={...configured(),...freeProvider,NEEDWARE_BILLING_MODE:'cashfree',NEEDWARE_WORKER_MODE:'scheduled',CASHFREE_ENVIRONMENT:'production',CASHFREE_LIVE_APPROVED:'1',CASHFREE_LIVE_ACCEPTANCE_APPROVED:'1',CASHFREE_CLIENT_ID:'approved_live_client',CASHFREE_CLIENT_SECRET:secret(),CASHFREE_MERCHANT_ID:'cf_'+secret().slice(0,32),CASHFREE_PRO_PLAN_ID:'needware_pro_monthly_499',CASHFREE_PRO_MONTHLY_PAISE:'49900'};
+  assert.equal(productionConfiguration(env).ok,true);
+  for(const [key,value] of [['CASHFREE_ENVIRONMENT','sandbox'],['CASHFREE_LIVE_APPROVED','0'],['CASHFREE_LIVE_ACCEPTANCE_APPROVED','0'],['CASHFREE_CLIENT_ID','TEST_existing'],['CASHFREE_MERCHANT_ID','unbound'],['CASHFREE_PRO_MONTHLY_PAISE','50000'],['NEEDWARE_GENERATION_QUOTA',''],['NEEDWARE_COST_CEILING_MICROUSD','1']])assert.equal(productionConfiguration({...env,[key]:value}).ok,false,key);
+  let stripeCalled=false;const result=await preflight(env,{online:true,artifacts:async()=>true,dependencies:async()=>({database:async()=>({schema:true,operators:true,workers:[]}),mail:async()=>true,provider:async()=>true,cashfree:async()=>false,stripe:async()=>{stripeCalled=true;return true;},origin:async()=>true,close:async()=>{}})});
+  assert.equal(result.status,'FAIL');assert.equal(stripeCalled,false);assert.equal(result.checks.find(c=>c.name==='cashfree').status,'FAIL');
+});
 test('canonical definitions require an explicit compatible provider; unknown formats fail',()=>{
   const env=configured();
   assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canon'}).ok,false);

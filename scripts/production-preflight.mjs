@@ -1,5 +1,5 @@
 import {productionConfiguration} from './production-config.mjs';
-import {billingEnabled} from '../apps/web/lib/billing-policy.ts';
+import {billingEnabled,billingProvider} from '../apps/web/lib/billing-policy.ts';
 import {workerHealthQuery} from '../apps/web/lib/worker-health-query.ts';
 import {buildReady} from './build-readiness.mjs';
 import {schemaReady} from './schema-readiness.mjs';
@@ -57,6 +57,12 @@ export async function onlineDependencies(){
       const {billingConfig}=await import('../apps/web/lib/billing-config.ts');
       return stripeReady(billingConfig(),process.env.BETTER_AUTH_URL);
     },
+    cashfree:async()=>{
+      const {cashfreeConfig}=await import('../apps/web/lib/cashfree-client.ts'),{cashfreePrice}=await import('../apps/web/lib/cashfree-store.ts'),config=cashfreeConfig();
+      if(!config.live||process.env.CASHFREE_LIVE_ACCEPTANCE_APPROVED!=='1')return false;
+      await cashfreePrice(config);
+      return Boolean((await pool.query("SELECT 1 FROM needware_cashfree_event WHERE merchant_id=$1 AND livemode=true AND processed_at>now()-interval '24 hours' AND type='SUBSCRIPTION_PAYMENT_SUCCESS' LIMIT 1",[config.merchant])).rowCount);
+    },
     close:async()=>{mail.close();await pool.end();}
   };
 }
@@ -71,7 +77,7 @@ export async function preflight(env,{online=false,artifacts=buildReady,dependenc
     try{
       probes=await dependencies();
       try{const database=await probes.database();checks.push({name:'database',status:database.schema&&database.operators?'PASS':'FAIL',issues:[...(!database.schema?['DATABASE_SCHEMA']:[]),...(!database.operators?['OPERATOR_ACCOUNTS']:[])]});checks.push({name:'workers',status:database.workers.length?'FAIL':'PASS',issues:database.workers.map(name=>`WORKER_${name.toUpperCase()}`)});}catch{checks.push({name:'database',status:'FAIL',issues:['DATABASE_READINESS']});checks.push({name:'workers',status:'UNVERIFIED',issues:['DATABASE_REQUIRED']});}
-      for(const [name,code] of [['mail','SMTP_TRANSPORT'],['provider','PROVIDER_POLICY'],...(billingEnabled(env)?[['stripe','STRIPE_ACCOUNT_PRICE_WEBHOOK']]:[]),['origin','PUBLIC_HTTPS_ORIGIN']]){
+      for(const [name,code] of [['mail','SMTP_TRANSPORT'],['provider','PROVIDER_POLICY'],...(billingEnabled(env)?[[billingProvider(env),billingProvider(env)==='cashfree'?'CASHFREE_LIVE_PRICE_WEBHOOK_ACCEPTANCE':'STRIPE_ACCOUNT_PRICE_WEBHOOK']]:[]),['origin','PUBLIC_HTTPS_ORIGIN']]){
         try{checks.push({name,status:await probes[name]()?'PASS':'FAIL',issues:[]});}catch{checks.push({name,status:'FAIL',issues:[code]});}
         const check=checks.at(-1);if(check.status==='FAIL')check.issues=[code];
       }

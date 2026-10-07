@@ -15,6 +15,7 @@ describe('Cashfree adapter trust boundaries',()=>{
     for(const [key,value] of [['NEEDWARE_BILLING_MODE','disabled'],['CASHFREE_ENVIRONMENT','test'],['CASHFREE_PRO_MONTHLY_PAISE',''],['CASHFREE_PRO_MONTHLY_PAISE','49900.5'],['CASHFREE_CLIENT_SECRET','short'],['CASHFREE_CLIENT_ID','https://attacker.example'],['CASHFREE_MERCHANT_ID','']])expect(()=>cashfreeConfig({...environment,[key]:value})).toThrow();
     expect(()=>cashfreeConfig({...environment,CASHFREE_ENVIRONMENT:'production'})).toThrow(/approved/);
     expect(cashfreeConfig({...environment,CASHFREE_ENVIRONMENT:'production',CASHFREE_LIVE_APPROVED:'1'}).live).toBe(true);
+    expect(()=>cashfreeConfig({...environment,CASHFREE_CLIENT_ID:'TEST_existing_sandbox_key',CASHFREE_ENVIRONMENT:'production',CASHFREE_LIVE_APPROVED:'1'})).toThrow(/approved/);
   });
   it('matches the precise approved active INR monthly plan',()=>{
     expect(cashfreeMonthlyPrice(config,plan).amount).toBe(49900);

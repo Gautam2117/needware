@@ -7,7 +7,7 @@ export type GlobalPolicy={tokens:number;neurons:number;daily:number;accountDaily
 const integer=(value:string|undefined,fallback:number,max:number)=>{const n=value===undefined?fallback:Number(value);if(!/^[1-9][0-9]*$/.test(String(value??fallback))||!Number.isSafeInteger(n)||n>max)throw Error('GLOBAL_GENERATION_POLICY');return n;};
 export function globalGenerationPolicy(env:NodeJS.ProcessEnv=process.env):GlobalPolicy|undefined{
   if(!env.NEEDWARE_GENERATION_QUOTA){if(env.NEEDWARE_BILLING_MODE==='disabled'&&env.NEEDWARE_FIXTURE_MODE!=='1')throw Error('GLOBAL_GENERATION_POLICY_REQUIRED');return;}
-  if(env.NEEDWARE_GENERATION_QUOTA!=='cloudflare-free'||env.NEEDWARE_BILLING_MODE!=='disabled')throw Error('GLOBAL_GENERATION_POLICY');
+  if(env.NEEDWARE_GENERATION_QUOTA!=='cloudflare-free'||!['disabled','stripe','cashfree'].includes(env.NEEDWARE_BILLING_MODE??''))throw Error('GLOBAL_GENERATION_POLICY');
   const tokens=integer(env.NEEDWARE_GENERATION_MAX_TOKENS,50000,50000),neurons=Math.ceil(tokens*neuronRates.output/1000000);
   return {tokens,neurons,daily:integer(env.NEEDWARE_GENERATION_DAILY_NEURONS,8000,8000),accountDaily:integer(env.NEEDWARE_GENERATION_ACCOUNT_NEURONS,4000,4000),concurrency:integer(env.NEEDWARE_GENERATION_CONCURRENCY,2,2)};
 }

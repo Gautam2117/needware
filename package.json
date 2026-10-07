@@ -29,6 +29,7 @@
     "test:generation": "python3 scripts/token_guard.py run 'node scripts/run-generation-acceptance.mjs'",
     "test:generation:global-quota": "python3 scripts/token_guard.py run 'node scripts/verify-global-generation-quota.mjs'",
     "test:billing": "python3 scripts/token_guard.py run 'node scripts/run-billing-acceptance.mjs'",
+    "test:billing:cashfree": "python3 scripts/token_guard.py run 'node scripts/verify-cashfree-billing.mjs'",
     "test:operations": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --operations'",
     "test:scheduled-workers": "python3 scripts/token_guard.py run 'node scripts/verify-scheduled-workers.mjs'",
     "test:scheduled-workers:deno": "python3 scripts/token_guard.py run 'node scripts/verify-scheduled-workers.mjs --deno'",

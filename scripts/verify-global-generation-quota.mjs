@@ -10,6 +10,7 @@ const require=createRequire(new URL('../apps/web/package.json',import.meta.url))
 const source=new URL(process.env.DATABASE_URL);assert.ok(['127.0.0.1','localhost','[::1]'].includes(source.hostname));
 const database=`needware_global_${randomBytes(16).toString('hex')}`,admin=new Pool({connectionString:source.toString()});let pool,created=false;
 const env={NEEDWARE_GENERATION_QUOTA:'cloudflare-free',NEEDWARE_BILLING_MODE:'disabled'};
+for(const mode of ['stripe','cashfree'])assert.deepEqual(globalGenerationPolicy({...env,NEEDWARE_BILLING_MODE:mode}),globalGenerationPolicy(env),'Billing must not expand the global free budget');
 assert.throws(()=>globalGenerationPolicy({NEEDWARE_BILLING_MODE:'disabled'}));
 for(const change of [{NEEDWARE_GENERATION_DAILY_NEURONS:'10001'},{NEEDWARE_GENERATION_MAX_TOKENS:'50001'},{NEEDWARE_GENERATION_CONCURRENCY:'3'},{NEEDWARE_GENERATION_QUOTA:'paid'},{NEEDWARE_GENERATION_ACCOUNT_NEURONS:'0'}])assert.throws(()=>globalGenerationPolicy({...env,...change}));
 assert.equal(knownNeurons({input_tokens:1000,output_tokens:1000,unknown_usage_requests:0},50000),100);

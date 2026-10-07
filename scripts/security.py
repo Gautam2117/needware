@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 paths = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"]).decode().split("\0")
-patterns = [rb"gh[pousr]_[A-Za-z0-9]{30,}", rb"sk-(?:proj-)?[A-Za-z0-9_-]{32,}", rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", rb"AKIA[0-9A-Z]{16}"]
+patterns = [rb"gh[pousr]_[A-Za-z0-9]{30,}", rb"sk-(?:proj-)?[A-Za-z0-9_-]{32,}", rb"cfsk_[A-Za-z0-9_]{24,}", rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", rb"AKIA[0-9A-Z]{16}"]
 errors = []
 for name in paths:
     path = pathlib.Path(name)
