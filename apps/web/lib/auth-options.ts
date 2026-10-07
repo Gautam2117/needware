@@ -4,7 +4,7 @@ import nodemailer from 'nodemailer';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getCurrentAdapter, getCurrentAuthEndpointContext } from '@better-auth/core/context';
 
-export const accountEmailStatus = new AsyncLocalStorage<{ failed: boolean }>();
+export const accountEmailStatus = new AsyncLocalStorage<{ failed: boolean; queued?: boolean }>();
 
 const loopback = (host: string) => ['localhost', '127.0.0.1', '[::1]', '::1'].includes(host);
 let resources: { options: BetterAuthOptions; pool: Pool; mail: ReturnType<typeof nodemailer.createTransport>; from: string; origin: string } | undefined;
@@ -29,7 +29,7 @@ export function authResources() {
   if (!databaseLocal && database.searchParams.get('sslmode') === 'disable') throw new Error('Remote database TLS is required');
   // pg connection-string SSL parameters must not override certificate verification.
   for (const key of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) database.searchParams.delete(key);
-  const pool = new Pool({ connectionString: database.toString(), max: 10, connectionTimeoutMillis: 5000,
+  const pool = new Pool({ connectionString: database.toString(), max: 10, connectionTimeoutMillis: 5000, query_timeout: 10_000, statement_timeout: 10_000,
     idleTimeoutMillis: 30_000, ssl: databaseLocal ? undefined : { rejectUnauthorized: true, ca: process.env.NEEDWARE_DATABASE_CA_PEM } });
   const mail = nodemailer.createTransport({ host: process.env.SMTP_HOST, port, secure: port === 465,
     requireTLS: !loopback(process.env.SMTP_HOST), connectionTimeout: 10_000, socketTimeout: 15_000,
@@ -42,7 +42,9 @@ export function authResources() {
       const adapter = await getCurrentAdapter(getCurrentAuthEndpointContext().context.adapter);
       await adapter.create({ model: 'needwareEmailOutbox', data: {
         userId: user.id, recipient: user.email, kind, link: url,
+        expiresAt: new Date(Date.now() + (kind === 'verify' ? 3600 : 900) * 1000),
       } });
+      const status = accountEmailStatus.getStore(); if (status) status.queued = true;
     } catch (failure) {
       const code = failure && typeof failure === 'object' && 'code' in failure && typeof failure.code === 'string' ? failure.code : 'ENQUEUE_FAILED';
       const status = accountEmailStatus.getStore(); if (status) status.failed = true;
@@ -58,6 +60,7 @@ export function authResources() {
       needwareEmailOutbox: { modelName: 'needware_email_outbox', disableMigration: true, fields: {
         userId: { type: 'string', fieldName: 'user_id', references: { model: 'user', field: 'id', onDelete: 'cascade' } },
         recipient: { type: 'string' }, kind: { type: 'string' }, link: { type: 'string' },
+        expiresAt: { type: 'date', fieldName: 'expires_at' },
       } },
     } }],
     user: { modelName: 'auth_user', deleteUser: { enabled: true,

@@ -3,6 +3,12 @@
   command = "sh scripts/build-netlify.sh"
   publish = "apps/web/.next"
 
+[functions]
+  directory = "infra/netlify/functions"
+
+[functions."mail-retry"]
+  schedule = "*/15 * * * *"
+
 [build.environment]
   NODE_VERSION = "24.21.0"
   PNPM_VERSION = "11.5.3"

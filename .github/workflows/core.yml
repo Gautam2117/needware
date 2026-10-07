@@ -59,6 +59,9 @@ jobs:
         timeout-minutes: 5
       - run: pnpm test:accounts
         timeout-minutes: 20
+      - name: Netlify bounded account mail lifecycle (local services)
+        run: python3 scripts/token_guard.py run 'node scripts/verify-netlify-mail.mjs'
+        timeout-minutes: 2
       - run: python3 scripts/token_guard.py run 'node scripts/verify_schema_readiness.mjs && node scripts/build-readiness.mjs'
       - name: Netlify frontend packaging (no deployment)
         run: python3 scripts/token_guard.py run 'npx --yes netlify-cli@27.11.1 build --offline --filter @needware/web && python3 scripts/verify-netlify-artifacts.py && pnpm --filter @needware/web check'

@@ -1,6 +1,8 @@
 import { getAuth } from '../../../../lib/auth';
 import { accountEmailStatus, authConfigured, authResources } from '../../../../lib/auth-options';
 import {trustedClientAddress} from '../../../../lib/ingress';
+import {after} from 'next/server';
+import {runMailWorker} from '../../../../../../scripts/mail-worker.mjs';
 export const runtime = 'nodejs';
 const fail = (message: string, status: number) => Response.json({ message }, { status, headers: { 'Cache-Control': 'no-store' } });
 async function handle(request: Request) {
@@ -28,9 +30,13 @@ async function handle(request: Request) {
       for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length; }
       headers.delete('content-length');
     }
-    const status = { failed: false };
+    const status: {failed:boolean;queued?:boolean} = { failed: false };
     const response = await accountEmailStatus.run(status, () => getAuth().handler(new Request(request.url, { method: request.method, headers, body })));
     if (status.failed) return fail('Account email temporarily unavailable; retry later', 503);
+    if (status.queued && response.ok && process.env.NEEDWARE_MAIL_DISPATCH_MODE === 'scheduled') after(async () => {
+      try { await runMailWorker({once:true,reuseResources:true}); }
+      catch { console.error('Bounded account mail dispatch failed; durable retry remains queued'); }
+    });
     response.headers.set('Cache-Control', 'no-store'); return response;
   } catch { return fail('Account service temporarily unavailable', 503); }
 }
