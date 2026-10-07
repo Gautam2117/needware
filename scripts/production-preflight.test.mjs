@@ -4,6 +4,11 @@ import {randomBytes,createPrivateKey,createPublicKey} from 'node:crypto';
 import {productionConfiguration} from './production-config.mjs';
 import {preflight,workersReady,providerMatches,stripeReady} from './production-preflight.mjs';
 const secret=()=>randomBytes(32).toString('hex');
+test('Netlify production ingress requires an explicitly pinned valid site',()=>{
+  const env={...configured(),NEEDWARE_TRUST_PROXY:'netlify'};assert.equal(productionConfiguration(env).ok,false);
+  assert.equal(productionConfiguration({...env,NEEDWARE_NETLIFY_SITE_ID:'877cfef7-8999-45f4-bd95-8af79e14669e'}).ok,true);
+  assert.equal(productionConfiguration({...env,NEEDWARE_NETLIFY_SITE_ID:'caller-controlled'}).ok,false);
+});
 const freeProvider={NEEDWARE_APPLICATION_FORMAT:'canonical',NEEDWARE_GENERATION_QUOTA:'cloudflare-free',NEEDWARE_GENERATION_MAX_TOKENS:'50000',NEEDWARE_CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),NEEDWARE_PROVIDER:'local',NEEDWARE_MODEL:'@cf/openai/gpt-oss-120b',NEEDWARE_LOCAL_API_KEY:'b'.repeat(32),NEEDWARE_LOCAL_ENDPOINT:`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/v1/chat/completions`,NEEDWARE_INPUT_MICROUSD_PER_MILLION:'0',NEEDWARE_OUTPUT_MICROUSD_PER_MILLION:'0',NEEDWARE_COST_CEILING_MICROUSD:'0'};
 export function configured(){return {NODE_ENV:'production',BETTER_AUTH_URL:'https://needware.continuumarc.tech',DATABASE_URL:'postgres://user:password@db.continuumarc.tech/needware',NEEDWARE_DATABASE_CA_PEM:'configured CA',BETTER_AUTH_SECRET:secret(),SMTP_HOST:'smtp.continuumarc.tech',SMTP_PORT:'587',SMTP_USER:'user',SMTP_PASSWORD:secret(),NEEDWARE_MAIL_FROM:'no-reply@continuumarc.tech',NEEDWARE_HOSTED_GENERATION:'1',NEEDWARE_CONTROL_TOKEN:secret(),NEEDWARE_CONTROL_URL:'http://127.0.0.1:3001',NEEDWARE_SIGNING_SEED_HEX:secret(),NEEDWARE_BACKUP_KEY:secret(),NEEDWARE_PROVIDER:'open_ai',OPENAI_API_KEY:secret(),NEEDWARE_MODEL:'configured-model',NEEDWARE_INPUT_MICROUSD_PER_MILLION:'100',NEEDWARE_OUTPUT_MICROUSD_PER_MILLION:'200',NEEDWARE_COST_CEILING_MICROUSD:'500000',STRIPE_SECRET_KEY:'sk_live_'+secret(),STRIPE_WEBHOOK_SECRET:'whsec_'+secret(),STRIPE_PRO_PRICE_ID:'price_approved',STRIPE_ACCOUNT_ID:'acct_approved',NEEDWARE_OPERATOR_ACCOUNTS:'00000000-0000-4000-8000-000000000001'};}
 test('production configuration rejects fixture, transport and authority hazards',()=>{

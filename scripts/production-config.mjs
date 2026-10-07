@@ -24,7 +24,8 @@ export function productionConfiguration(env){
   check(env.NODE_TLS_REJECT_UNAUTHORIZED!=='0','NODE_TLS_REJECT_UNAUTHORIZED');
   for(const key of ['NEEDWARE_FIXTURE_MODE','NEEDWARE_BILLING_FIXTURE','NEEDWARE_ALLOW_LOOPBACK'])check(!env[key]||env[key]==='0',key);
   for(const key of ['NEEDWARE_BILLING_API_URL','NEEDWARE_ACCEPTANCE_DATABASE'])check(!env[key],key);
-  check(!env.NEEDWARE_TRUST_PROXY||['vercel','caddy-loopback'].includes(env.NEEDWARE_TRUST_PROXY),'NEEDWARE_TRUST_PROXY');
+  check(!env.NEEDWARE_TRUST_PROXY||['vercel','caddy-loopback','netlify'].includes(env.NEEDWARE_TRUST_PROXY),'NEEDWARE_TRUST_PROXY');
+  if(env.NEEDWARE_TRUST_PROXY==='netlify')check(uuid.test(env.NEEDWARE_NETLIFY_SITE_ID??''),'NEEDWARE_NETLIFY_SITE_ID');
   check(env.NEEDWARE_HOSTED_GENERATION==='1','NEEDWARE_HOSTED_GENERATION');
   check(['continuous','scheduled'].includes(env.NEEDWARE_WORKER_MODE??'continuous'),'NEEDWARE_WORKER_MODE');
   const period=Number(env.NEEDWARE_WORKER_INTERVAL_SECONDS??'300');
