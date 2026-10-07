@@ -3,9 +3,14 @@
 // a waiting update or changing the runtime version selected for this page.
 export async function registerOfflineShell(): Promise<void> {
   if(process.env.NODE_ENV!=='production'||!('serviceWorker' in navigator))return;
-  await navigator.serviceWorker.register('/sw.js');
-  let timer:ReturnType<typeof setTimeout>|undefined;
-  const registration=await Promise.race([navigator.serviceWorker.ready,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('Offline shell installation did not finish. Keep this page online and retry.')),30_000);})]).finally(()=>{clearTimeout(timer);});
+  const registration=await navigator.serviceWorker.register('/sw.js');
+  // WebKit can leave this document's ready promise pending after navigation,
+  // even with an activated registration. Claim from that registration directly;
+  // activation still requires successful completion of the install/cache event.
+  for(let attempt=0;attempt<120&&registration.active?.state!=='activated';attempt++){
+    await new Promise(resolve=>setTimeout(resolve,250));
+  }
+  if(registration.active?.state!=='activated')throw Error('Offline shell installation did not finish. Keep this page online and retry.');
   // A single claim message can arrive before WebKit exposes the fully navigated
   // client to the worker. Retry only the active worker; never skip a waiting update.
   for(let attempt=0;attempt<40;attempt++){
