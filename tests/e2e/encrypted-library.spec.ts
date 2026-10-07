@@ -65,3 +65,18 @@ test('synchronized package review preserves its signed definition and directs in
   await expect(page.getByRole('region',{name:'Application permissions'})).toBeVisible();
   await expect(page.getByRole('button',{name:'Trust signer and save encrypted application',exact:true})).toBeEnabled();
 });
+test('sharing approval is bound to the opened application, recipient and edit permission',async({page,offlineServer})=>{
+  await page.goto(offlineServer.url);const account=await trustedVault(page);await page.goto(`${offlineServer.url}encrypted#account=${account}`);
+  await expect(page.getByText('Encrypted browser storage ready',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Try encrypted habit tracker',exact:true}).click();await page.getByRole('button',{name:'Trust signer and save encrypted application',exact:true}).click();
+  const identity=await page.evaluate(async()=>{const path='/wasm/needware_wasm.js';const wasm=await import(/* webpackIgnore: true */path);await wasm.default({module_or_path:'/wasm/needware_wasm_bg.wasm'});const v=new wasm.BrowserVault(crypto.randomUUID());try{return JSON.stringify({format:'needware-collaboration-device-v1',certificate:JSON.parse(v.device_certificate())});}finally{v.free();}});
+  await page.getByText('Share this application',{exact:true}).click();
+  const recipient=page.getByLabel('Recipient collaboration device');await recipient.setInputFiles({name:'recipient.json',mimeType:'application/json',buffer:Buffer.from(identity)});
+  const consent=page.getByLabel('I verified this recipient device and approve sharing'),write=page.getByLabel('Allow this recipient to edit shared data'),share=page.getByRole('button',{name:'Approve recipient and download invitation',exact:true});
+  await consent.check();await expect(share).toBeEnabled();await write.check();await expect(consent).not.toBeChecked();await expect(share).toBeDisabled();
+  await consent.check();await recipient.setInputFiles({name:'recipient-again.json',mimeType:'application/json',buffer:Buffer.from(identity)});await expect(write).not.toBeChecked();await expect(consent).not.toBeChecked();
+  await write.check();await consent.check();await expect(share).toBeEnabled();
+  await page.getByRole('button',{name:'Try encrypted habit tracker',exact:true}).click();await page.getByRole('button',{name:'Trust signer and save encrypted application',exact:true}).click();
+  await expect(page.getByRole('region',{name:'Encrypted library'}).getByRole('button',{name:'Open Habit tracker',exact:true})).toHaveCount(2);
+  await expect(page.getByText('Recipient device:',{exact:false})).toHaveCount(0);await expect(write).not.toBeChecked();await expect(consent).not.toBeChecked();await expect(share).toBeDisabled();
+});

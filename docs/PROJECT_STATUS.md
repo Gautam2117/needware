@@ -3,7 +3,7 @@
 Statuses describe actual code and checks, not planned completeness.
 
 2026-10-07 production checkpoint: [canonical HTTPS accounts](https://needware.continuumarc.tech/account)
-run source `9c5828a`, published as Netlify deploy `6ac636b14fafc10009b0dcbf`.
+was verified on source `9c5828a`, published as Netlify deploy `6ac636b14fafc10009b0dcbf`.
 Real owner signup/email verification, verified operator authorization, user-held
 recovery setup, encrypted Habit tracker upload acknowledgment and Safari reopen passed.
 Real recovery-file import into Chrome, exact signer/package review and encrypted
@@ -18,7 +18,11 @@ publication also passed real hosted validation with the unchanged built-in packa
 The independently signed remix published with pinned source lineage and exact anonymous
 current/pinned downloads. It started with empty encrypted storage, then an approved
 Chrome run, separate test edit, cloud acknowledgment and reopening passed. Its own
-document grants only the owner Chrome device; stored ciphertext contains no test labels.
+document initially granted only the owner Chrome device; stored ciphertext contains no test labels.
+Safari subsequently reviewed the same signer/digest and imported the remix with explicit
+approval, retaining the separate test item. No collaborator received remix access.
+Sharing review clears its recipient and consent when another application opens or fresh
+document keys activate; recipient-file and edit-permission changes also require fresh consent.
 The home runtime rejects synchronized permissions; review now directs these packages
 to encrypted import without changing the signed bytes or weakening runtime checks.
 Operations now refreshes on demand and after actions; a disposable account/browser
@@ -30,6 +34,11 @@ and conservative captured provider-spend baseline. A fresh post-collaboration en
 backup restored all40tables, archived history, both owner grants and a post-rotation frame.
 A later distinct encrypted backup also restored the independent remix document/frame,
 all three registry entries and pinned source lineage; prior backups were preserved.
+A fresh post-Safari-import backup restored all40tables, both application documents and
+four owner-device grants, no active collaborator grant, both acknowledged frames and registry lineage.
+Account-root rotation remains at epoch1: its prerequisite rejected an omitted application,
+which was then reviewed in Safari. Final recovery-credential submission and retained-device
+acceptance of new account keys remain unverified.
 `9c5828a` exact Core/Audit/Sanitizer CI passed. Earlier WebKit failures remain recorded.
 The correction removes stale client-ID lookup from scope-limited worker claim;
 45 focused three-engine cases passed, including unavailable-lookup/lost-message
