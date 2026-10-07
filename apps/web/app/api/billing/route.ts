@@ -21,6 +21,7 @@ export async function POST(request:Request){try{const {session,pool}=await accou
   if(billingProvider()==='cashfree'){
     const config=cashfreeConfig();
     if(action==='cancel'){const value=object(payload,['action','consent']);if(value.consent!==true)throw new CloudError(400,'Review cancellation before continuing');return cloudResponse(await cashfreeCancel(pool,session.user.id,config));}
+    if(config.live&&process.env.CASHFREE_LIVE_ACCEPTANCE_APPROVED!=='1')throw new BillingFailure(503,'New subscriptions are paused until live billing acceptance is approved');
     const value=object(payload,['action','id','price','consent','phone']);if(value.action!=='checkout'||value.consent!==true||typeof value.phone!=='string'||canonicalize(value.price)!.length>1024)throw new CloudError(400,'Review price and contact details before checkout');
     if(process.env.NEEDWARE_HOSTED_GENERATION!=='1')throw new BillingFailure(503,'New subscriptions are paused until hosted creation is ready');
     return cloudResponse(await cashfreeCheckout(pool,session.user.id,session.user.email,session.user.name,value.phone,uuid(value.id),value.price,config,origin));
