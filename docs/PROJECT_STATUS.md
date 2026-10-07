@@ -8,10 +8,15 @@ and live synchronized revision acceptance remain open. Canonical generation now
 returns bounded parse and failed-test diagnostics to its existing repair loop,
 and clarifies fresh-state tests and required node style. Native118 and strict
 clippy/security checks passed; real-model qualification is still unverified.
-Billing is now a release requirement: a separate Needware Cashfree merchant is
-required, preserving the existing unrelated merchant and the Stripe integration.
-No Pro price, new merchant credentials, subscription activation or payment
-acceptance has been established. Production completion is not claimed.
+Billing is now a release requirement: ContinuumArc Cashfree onboarding was
+submitted by the human and Payment Gateway is in review. Subscriptions still
+requires activation; the sandbox has no API keys. The user delegated pricing:
+the initial Needware Pro price is INR499/month, with Free at INR0.
+The Cashfree transport/price/raw-webhook adapter passes focused security tests
+and web type/lint checks. Checkout, durable reconciliation and real sandbox
+acceptance are not yet integrated. Production billing stays disabled.
+The custom HTTPS domain is verified and Netlify's injected badge is disabled.
+Production completion is not claimed.
 
 2026-10-07 production checkpoint: [canonical HTTPS accounts](https://needware.continuumarc.tech/account)
 was verified on source `9c5828a`, published as Netlify deploy `6ac636b14fafc10009b0dcbf`.
