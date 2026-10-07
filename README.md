@@ -6,6 +6,9 @@ Needware is being built as a local-first application platform. Models produce a 
 
 This repository is under active implementation. It is not a completed or production-ready product. See [project status](docs/PROJECT_STATUS.md) for evidence and remaining requirements.
 
+Live account installation: [needware.continuumarc.tech](https://needware.continuumarc.tech/account).
+Verified email, operator access and encrypted synchronization are deployed. Hosted generation and billing remain disabled; representative model qualification failed.
+
 ## Development
 
 Required: Rust 1.99.0 with rustfmt, Clippy and `wasm32-unknown-unknown`; Node 24.21.0 LTS; pnpm 11.5.3; Python 3. Docker is needed for service integration checks.
