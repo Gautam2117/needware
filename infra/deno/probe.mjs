@@ -31,6 +31,7 @@ try{
   assert.match(receipt.release,/^[0-9a-f]{40}$/);
   if(!Deno.args.includes('--check')||Deno.args.includes('--require-release')){
     assert.equal(receipt.sourceClean,true);assert.equal(receipt.platform,'linux');assert.equal(receipt.arch,'x64');
+    assert.equal(receipt.nativeTarget,'x86_64-unknown-linux-musl');
   }
   const allowed=['probe.mjs','needware-control-plane','tests/fixtures/provider-server.mjs','artifacts/compiler-fixture.json','wasm/needware_wasm.js','wasm/needware_wasm_bg.wasm'];
   assert.deepEqual(receipt.files.map(file=>file.name).sort(),allowed.sort());

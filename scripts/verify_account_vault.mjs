@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile,writeFile } from 'node:fs/promises';
 import { firefox, webkit, expect } from '@playwright/test';
 import { createRequire } from 'node:module';
 import { verifyDocumentRelay } from './verify_document_relay.mjs';
@@ -111,7 +111,13 @@ export async function verifyAccountVault({ page, context, pool, account, origin,
     const app = page.frameLocator('iframe'); await app.getByLabel('Habit name').fill('Verified account encrypted application');
     await app.getByRole('button', { name: 'Add habit', exact: true }).click();
     await expect(app.getByText('Verified account encrypted application', { exact: true })).toBeVisible();
-    await page.reload(); await page.getByRole('button', { name: 'Open Habit tracker', exact: true }).click();
+    await page.reload();
+    try{await page.getByRole('button', { name: 'Open Habit tracker', exact: true }).click();}
+    catch(error){
+      await page.screenshot({path:'artifacts/account-vault-reload-failure.png',fullPage:true});
+      await writeFile('artifacts/account-vault-reload-failure.json',JSON.stringify({url:page.url(),alerts:await page.getByRole('alert').allTextContents(),status:await page.getByRole('status').allTextContents()}));
+      throw error;
+    }
     await expect(app.getByText('Verified account encrypted application', { exact: true })).toBeVisible();
     await page.screenshot({ path: 'artifacts/encrypted-account-application.png', fullPage: true });
     await page.goto(`${origin}/account`); await expect(page.getByText('Owner Chromium', { exact: true })).toBeVisible();

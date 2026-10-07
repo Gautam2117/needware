@@ -18,7 +18,7 @@ jobs:
         with:
           toolchain: 1.99.0
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown,x86_64-unknown-linux-musl
       - run: python3 scripts/token_guard.py run 'python3 scripts/check.py'
       - run: python3 scripts/token_guard.py run 'sh scripts/verify_production_infra.sh'
       - run: python3 scripts/token_guard.py run 'cargo build -p needware-wasm --target wasm32-unknown-unknown --release'
@@ -26,16 +26,9 @@ jobs:
       - run: python3 scripts/token_guard.py run 'cargo install wasm-bindgen-cli --version 0.2.129 --locked'
       - run: python3 scripts/token_guard.py run 'cargo build --release -p needware-control-plane && pnpm build'
       - run: python3 scripts/token_guard.py run 'node scripts/verify_build_readiness.mjs'
-      - run: python3 scripts/token_guard.py run 'pnpm exec playwright install --with-deps chromium firefox webkit'
-      - run: |
-          pnpm --filter @needware/web start --port 3108 > /tmp/needware-server.log 2>&1 &
-          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3108/ > /dev/null && break; sleep 1; done
-          python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test local-runtime.spec.ts'
-      - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- revision-fixture && NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test revisions.spec.ts synchronized-revisions.spec.ts remix.spec.ts generation-encryption.spec.ts'
-      - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- controls-fixture && node scripts/build-local-storage-fixtures.mjs && NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test runtime-controls.spec.ts runtime-widgets.spec.ts runtime-visuals.spec.ts runtime-drafts.spec.ts runtime-pagination.spec.ts local-effects.spec.ts offline-claim.spec.ts pwa-support.spec.ts accessibility.spec.ts'
-      - run: python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test encrypted-sync.spec.ts vault-storage.spec.ts held-documents.spec.ts document-journal.spec.ts encrypted-library.spec.ts encrypted-drafts.spec.ts effects.spec.ts journal-local-state.spec.ts document-epochs.spec.ts root-epochs.spec.ts root-retained-device.spec.ts root-rotation-store.spec.ts foreign-root-cut.spec.ts'
-      - run: pnpm test:compiler
-        timeout-minutes: 10
+      - name: Build static Linux compiler for hosted workers
+        run: python3 scripts/token_guard.py run 'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends musl-tools && CC_x86_64_unknown_linux_musl=musl-gcc CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc cargo build --locked --release --target x86_64-unknown-linux-musl -p needware-control-plane'
+        timeout-minutes: 15
       - name: Deno native and Next.js compatibility (authored fixture)
         run: python3 scripts/token_guard.py run 'npx --yes deno@2.9.6 run --no-config --no-lock --node-modules-dir=manual -A scripts/verify-deno-compatibility.mjs && node scripts/build-readiness.mjs'
         timeout-minutes: 5
@@ -52,6 +45,16 @@ jobs:
           name: deno-host-probe-${{ github.sha }}
           path: artifacts/deno-host-probe/
           retention-days: 14
+      - run: python3 scripts/token_guard.py run 'pnpm exec playwright install --with-deps chromium firefox webkit'
+      - run: |
+          pnpm --filter @needware/web start --port 3108 > /tmp/needware-server.log 2>&1 &
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3108/ > /dev/null && break; sleep 1; done
+          python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test local-runtime.spec.ts'
+      - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- revision-fixture && NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test revisions.spec.ts synchronized-revisions.spec.ts remix.spec.ts generation-encryption.spec.ts'
+      - run: python3 scripts/token_guard.py run 'cargo run -p xtask -- controls-fixture && node scripts/build-local-storage-fixtures.mjs && NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test runtime-controls.spec.ts runtime-widgets.spec.ts runtime-visuals.spec.ts runtime-drafts.spec.ts runtime-pagination.spec.ts local-effects.spec.ts offline-claim.spec.ts pwa-support.spec.ts accessibility.spec.ts'
+      - run: python3 scripts/token_guard.py run 'NEEDWARE_TEST_URL=http://127.0.0.1:3108 pnpm exec playwright test encrypted-sync.spec.ts vault-storage.spec.ts held-documents.spec.ts document-journal.spec.ts encrypted-library.spec.ts encrypted-drafts.spec.ts effects.spec.ts journal-local-state.spec.ts document-epochs.spec.ts root-epochs.spec.ts root-retained-device.spec.ts root-rotation-store.spec.ts foreign-root-cut.spec.ts'
+      - run: pnpm test:compiler
+        timeout-minutes: 10
       - run: python3 scripts/token_guard.py run 'pnpm bootstrap && python3 scripts/verify_local_services.py'
         timeout-minutes: 5
       - run: pnpm test:accounts
