@@ -10,11 +10,16 @@ and clarifies fresh-state tests and required node style. Native118 and strict
 clippy/security checks passed; real-model qualification is still unverified.
 Billing is now a release requirement: ContinuumArc Cashfree onboarding was
 submitted by the human and Payment Gateway is in review. Subscriptions still
-requires activation; the sandbox has no API keys. The user delegated pricing:
+requires activation; human-provided sandbox credentials are privately configured.
+The user delegated pricing:
 the initial Needware Pro price is INR499/month, with Free at INR0.
-The Cashfree transport/price/raw-webhook adapter passes focused security tests
-and web type/lint checks. Checkout, durable reconciliation and real sandbox
-acceptance are not yet integrated. Production billing stays disabled.
+The Cashfree adapter and subscription lifecycle pass focused security tests
+and web type/lint checks. Real sandbox plan creation/fetch, subscription
+creation/fetch/idempotent replay and cancellation/refetch/retry passed.
+Cashfree hosted checkout displays INR499/month but is under maintenance,
+blocking mandate authorization and charge/refund acceptance. These are provider
+contract checks, not Needware entitlement acceptance. Durable reconciliation
+and the production checkout flow remain incomplete; billing stays disabled.
 The custom HTTPS domain is verified and Netlify's injected badge is disabled.
 Production completion is not claimed.
 

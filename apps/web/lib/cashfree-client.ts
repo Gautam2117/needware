@@ -13,7 +13,8 @@ export function cashfreeConfig(env:Environment=process.env):CashfreeConfig{
   return {clientId,secret,merchant,plan,amount,live:mode==='production'};
 }
 
-export async function cashfreeRequest(config:CashfreeConfig,path:string,options:{method?:'GET'|'POST';body?:unknown;idempotency?:string}={}){
+type RequestOptions={method?:'GET'|'POST';body?:unknown;idempotency?:string};
+async function cashfreeTransport(config:CashfreeConfig,path:string,options:RequestOptions={}){
   if(!/^\/(plans|subscriptions)(\/[A-Za-z0-9_-]{1,128}){0,4}$/.test(path))throw new BillingFailure(503,'Cashfree API path was rejected');
   const method=options.method??'GET';
   if(method==='POST'&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(options.idempotency??''))throw new BillingFailure(503,'Cashfree mutation requires a durable idempotency key');
@@ -28,10 +29,23 @@ export async function cashfreeRequest(config:CashfreeConfig,path:string,options:
     try{for(;;){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.byteLength;if(size>262144)throw new BillingFailure(503,'Cashfree response exceeded its bound');chunks.push(chunk.value);}}
     finally{await reader.cancel();}
     const value:unknown=JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if(!value||typeof value!=='object'||Array.isArray(value))throw new BillingFailure(503,'Cashfree response is invalid');
-    return value as Record<string,unknown>;
+    return value;
   }catch(error){if(error instanceof BillingFailure)throw error;throw new BillingFailure(503,'Cashfree request could not be verified');}
   finally{clearTimeout(timeout);}
+}
+
+export async function cashfreeRequest(config:CashfreeConfig,path:string,options:RequestOptions={}){
+  const value=await cashfreeTransport(config,path,options);
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new BillingFailure(503,'Cashfree response is invalid');
+  return value as Record<string,unknown>;
+}
+export async function cashfreePayments(config:CashfreeConfig,subscription:string){
+  if(!identifier.test(subscription))throw new BillingFailure(503,'Cashfree subscription identity is invalid');
+  const value=await cashfreeTransport(config,`/subscriptions/${subscription}/payments`);
+  // Cashfree returns JSON null before the first payment exists. No paid evidence.
+  if(value===null)return [];
+  if(!Array.isArray(value)||value.length>1000||value.some(row=>!row||typeof row!=='object'||Array.isArray(row)))throw new BillingFailure(503,'Cashfree payment list is invalid');
+  return value as Record<string,unknown>[];
 }
 
 export function cashfreeMonthlyPrice(config:CashfreeConfig,plan:Record<string,unknown>){
