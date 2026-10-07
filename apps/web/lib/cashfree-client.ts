@@ -1,7 +1,7 @@
 import {createHash,createHmac,timingSafeEqual} from 'node:crypto';
 import {BillingFailure} from './billing-config.ts';
 
-export type CashfreeConfig={clientId:string;secret:string;merchant:string;plan:string;amount:number;live:boolean};
+export type CashfreeConfig={clientId:string;secret:string;merchant:string;plan:string;amount:number;live:boolean;deadline?:number};
 export class CashfreeApiFailure extends BillingFailure{readonly apiStatus:number;readonly code:string;constructor(apiStatus:number,code:string){super(503,'Cashfree is temporarily unavailable');this.apiStatus=apiStatus;this.code=code;}}
 type Environment=Record<string,string|undefined>;
 const identifier=/^[A-Za-z0-9_-]{1,128}$/;
@@ -21,7 +21,9 @@ async function cashfreeTransport(config:CashfreeConfig,path:string,options:Reque
   if(method==='POST'&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(options.idempotency??''))throw new BillingFailure(503,'Cashfree mutation requires a durable idempotency key');
   const body=options.body===undefined?undefined:JSON.stringify(options.body);
   if((method==='GET'&&body!==undefined)||(body&&Buffer.byteLength(body)>65536))throw new BillingFailure(503,'Cashfree request was rejected');
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
+  const remaining=config.deadline===undefined?10000:Math.min(10000,config.deadline-Date.now());
+  if(!Number.isFinite(remaining)||remaining<=0)throw new BillingFailure(503,'Cashfree worker deadline reached');
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),remaining);
   try{
     const response=await fetch(`https://${config.live?'api':'sandbox'}.cashfree.com/pg${path}`,{method,body,redirect:'error',signal:controller.signal,headers:{'content-type':'application/json','x-api-version':'2026-01-01','x-client-id':config.clientId,'x-client-secret':config.secret,...(options.idempotency?{'x-idempotency-key':options.idempotency}:{})}});
     if(!response.body||Number(response.headers.get('content-length')??0)>262144)throw new BillingFailure(503,'Cashfree response exceeded its bound');

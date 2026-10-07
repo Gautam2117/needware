@@ -37,6 +37,7 @@
     "mail:worker": "node scripts/mail-worker.mjs",
     "generation:worker": "node scripts/generation-worker.mjs",
     "billing:worker": "node scripts/billing-worker.mjs",
+    "billing:cashfree:prepare": "node scripts/prepare-cashfree-live.mjs",
     "contracts": "python3 scripts/token_guard.py run 'cargo run -p xtask -- contracts'"
   },
   "devDependencies": {

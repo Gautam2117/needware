@@ -34,8 +34,10 @@ suspends stale paid authority; duplicate processed receipts do not revoke it.
 `pnpm billing:worker` runs the selected provider. A scheduler may import
 `runBillingWorker` with `{once:true,reuseResources:true,scheduleSeconds:300}`;
 Cashfree processes at most one event, cleanup and periodic account per tick.
-This interface is implemented; its Netlify hosting, invocation deadline, queue
-capacity and shared Free-credit consumption still require actual qualification.
+`billing-retry` packages a direct Netlify scheduled invocation every five
+minutes, with a shared 20-second provider deadline and a 24-second database
+deadline. Each query has a one-second timeout. Its hosted execution and queue
+capacity still require actual qualification.
 Keep billing disabled until that host gate passes. Failed leases retain bounded
 retry state; account deletion retains a cancellation job without the deleted
 user's contact information. Paid access requires a snapshot under 30 minutes old.
@@ -56,3 +58,34 @@ acceptance. Real sandbox API plan/create/replay/cancel checks have passed, but
 hosted checkout showed provider maintenance and no CHARGE/refund proof exists.
 Production billing and generation remain disabled. The hard global Cloudflare
 free inference budget is unchanged regardless of paid subscription revenue.
+
+## Activation after Cashfree approval
+
+Keep `NEEDWARE_BILLING_MODE=disabled` until Payment Gateway and Subscriptions
+are both approved. Inject production credentials as server secrets; test keys
+cannot activate production. Set `CASHFREE_ENVIRONMENT=production` and
+`CASHFREE_LIVE_APPROVED=1`, then run `pnpm billing:cashfree:prepare` in the
+server-secret environment. It verifies or idempotently creates the exact ₹499
+monthly plan. It creates no subscription or charge and does not enable billing.
+
+Configure the signed webhook above. Qualify actual authorization, successful
+CHARGE, refund/dispute revocation, cancellation and duplicate/out-of-order/lost
+event recovery before setting `CASHFREE_LIVE_ACCEPTANCE_APPROVED=1`. Enable
+`NEEDWARE_BILLING_DISPATCH_MODE=scheduled` with a fresh private dispatch token,
+then set `NEEDWARE_BILLING_MODE=cashfree` only when hosted generation is ready.
+Redeploy after server environment changes and verify the deployed values.
+
+The protected `POST /api/internal/billing` endpoint accepts `{}` and a bearer
+`NEEDWARE_BILLING_DISPATCH_TOKEN` for manual recovery. The scheduled function
+runs directly without paying for a second HTTP invocation. Both preserve the
+durable retry lease on failure. A temporary `NEEDWARE_BILLING_HOST_PROBE=1`
+with `NEEDWARE_BILLING_HOST_PROBE_UNTIL` at most 30 minutes in the future
+performs a certificate-verified read-only schema check with no provider calls.
+The probe expires automatically; remove both settings after qualification. Do not leave the probe enabled during billing.
+
+The five-minute schedule makes 288 invocations per day even while disabled.
+Measure its execution time and the shared Netlify credit balance before enabling
+billing; no paid upgrade is authorized. For rollback pause new creation and keep
+reconciliation/cancellation running for existing subscriptions. Preserve billing
+rows, signed receipts and encrypted backups. Never change merchant/provider
+identity to bypass an existing pending subscription.

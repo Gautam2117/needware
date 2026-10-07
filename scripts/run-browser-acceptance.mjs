@@ -7,7 +7,7 @@ execFileSync('cargo',['run','-p','xtask','--','revision-fixture'],{stdio:'inheri
 execFileSync('cargo',['run','-p','xtask','--','controls-fixture'],{stdio:'inherit'});
 execFileSync(process.execPath,['scripts/build-local-storage-fixtures.mjs'],{stdio:'inherit'});
 const listener=createServer();await new Promise(resolve=>listener.listen(0,'127.0.0.1',resolve));const port=listener.address().port;await new Promise(resolve=>listener.close(resolve));
-const environment={...process.env,NEEDWARE_TEST_URL:`http://127.0.0.1:${port}`,NEEDWARE_BROWSER_OUTPUT:'test-results/core',NEEDWARE_BROWSER_REPORT:'artifacts/browser-results.json'};
+const environment={...process.env,NEEDWARE_TEST_URL:`http://127.0.0.1:${port}`,NEEDWARE_BROWSER_OUTPUT:process.env.NEEDWARE_BROWSER_OUTPUT??'test-results/core',NEEDWARE_BROWSER_REPORT:process.env.NEEDWARE_BROWSER_REPORT??'artifacts/browser-results.json'};
 const server=spawn('pnpm',['--filter','@needware/web','start','--port',String(port)],{env:environment,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']}),log=createWriteStream('.logs/browser-server.log',{flags:'a'});
 server.stdout.pipe(log);server.stderr.pipe(log);const closed=new Promise(resolve=>server.once('close',resolve));
 try{

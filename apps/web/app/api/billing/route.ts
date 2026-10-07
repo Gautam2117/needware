@@ -15,7 +15,8 @@ export async function GET(request:Request){try{const {session,pool}=await accoun
   const [account,usage,price,pending]=await Promise.all([billingEnabled()?billingSummary(pool,session.user.id):null,generationUsage(pool,session.user.id),configured&&provider==='stripe'?billingPrice(billingConfig()):null,provider==='stripe'?pool.query('SELECT id,expires_at FROM needware_billing_checkout WHERE account_id=$1 AND expires_at>now() ORDER BY created_at DESC LIMIT 1',[session.user.id]):{rows:[]}]);
   let cfPrice=null;try{if(cashfree)cfPrice=await cashfreePrice(cashfree);}catch(error){if(!(error instanceof BillingFailure))throw error;}
   const cfPending=cashfree?(await pool.query('SELECT id,expires_at FROM needware_cashfree_checkout WHERE account_id=$1 AND expires_at>now() ORDER BY created_at DESC LIMIT 1',[session.user.id])).rows[0]:null;
-  return cloudResponse({provider,configured,price:provider==='cashfree'?cfPrice:price,account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout:provider==='cashfree'?cfPending??null:pending.rows[0]??null,usage});
+  const checkout_available=configured&&process.env.NEEDWARE_HOSTED_GENERATION==='1'&&!usage.creation_hold&&(provider!=='cashfree'||!cashfree?.live||process.env.CASHFREE_LIVE_ACCEPTANCE_APPROVED==='1');
+  return cloudResponse({provider,configured,checkout_available,price:provider==='cashfree'?cfPrice:price,account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout:provider==='cashfree'?cfPending??null:pending.rows[0]??null,usage});
 }catch(error){return error instanceof BillingFailure?cloudResponse({message:error.message},error.status):cloudFailure(error);}}
 export async function POST(request:Request){try{const {session,pool}=await accountRequest(request),payload=await canonicalBody(request),action=(payload as {action?:unknown})?.action,{origin}=authResources();
   if(billingProvider()==='cashfree'){

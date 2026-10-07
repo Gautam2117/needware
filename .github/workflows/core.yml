@@ -78,6 +78,7 @@ jobs:
       - run: pnpm test:billing
         timeout-minutes: 20
       - run: pnpm test:billing:cashfree
+      - run: python3 scripts/token_guard.py run 'NEEDWARE_BROWSER_OUTPUT=test-results/billing NEEDWARE_BROWSER_REPORT=artifacts/billing-browser-results.json node scripts/run-browser-acceptance.mjs billing-ui.spec.ts registry-form.spec.ts'
         timeout-minutes: 10
       - run: pnpm test:operations
         timeout-minutes: 20

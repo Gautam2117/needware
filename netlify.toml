@@ -9,6 +9,9 @@
 [functions."mail-retry"]
   schedule = "*/15 * * * *"
 
+[functions."billing-retry"]
+  schedule = "*/5 * * * *"
+
 [build.environment]
   NODE_VERSION = "24.21.0"
   PNPM_VERSION = "11.5.3"

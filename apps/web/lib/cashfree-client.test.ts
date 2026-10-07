@@ -10,6 +10,14 @@ const body=Buffer.from(JSON.stringify({type:'SUBSCRIPTION_PAYMENT_SUCCESS',event
 const sign=(bytes:Uint8Array,time=timestamp,secret=config.secret)=>createHmac('sha256',secret).update(time).update(bytes).digest('base64');
 afterEach(()=>vi.unstubAllGlobals());
 describe('Cashfree adapter trust boundaries',()=>{
+  it('enforces one cumulative tick deadline across provider calls',async()=>{
+    const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+    await expect(cashfreeRequest({...config,deadline:Date.now()-1},'/plans/test_plan')).rejects.toThrow(/deadline/);
+    expect(fetch).not.toHaveBeenCalled();
+    fetch.mockImplementation((_url,{signal})=>new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(Error('Aborted')),{once:true});}));
+    await expect(cashfreeRequest({...config,deadline:Date.now()+25},'/plans/test_plan')).rejects.toThrow(/could not be verified/);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it('requires explicit mode, credentials, price and live approval',()=>{
     expect(cashfreeConfig(environment)).toEqual(config);
     for(const [key,value] of [['NEEDWARE_BILLING_MODE','disabled'],['CASHFREE_ENVIRONMENT','test'],['CASHFREE_PRO_MONTHLY_PAISE',''],['CASHFREE_PRO_MONTHLY_PAISE','49900.5'],['CASHFREE_CLIENT_SECRET','short'],['CASHFREE_CLIENT_ID','https://attacker.example'],['CASHFREE_MERCHANT_ID','']])expect(()=>cashfreeConfig({...environment,[key]:value})).toThrow();
