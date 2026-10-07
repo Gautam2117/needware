@@ -4,6 +4,7 @@
 export async function registerOfflineShell(): Promise<void> {
   if(process.env.NODE_ENV!=='production'||!('serviceWorker' in navigator))return;
   const registration=await navigator.serviceWorker.register('/sw.js');
+  if(!registration)throw Error('Offline support is unavailable on this page. Keep it online and export important data.');
   // WebKit can leave this document's ready promise pending after navigation,
   // even with an activated registration. Claim from that registration directly;
   // activation still requires successful completion of the install/cache event.

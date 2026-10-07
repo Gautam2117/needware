@@ -13,6 +13,7 @@ test('publication review resets when the encrypted application changes and fits 
   await consent.check();await expect(publish).toBeEnabled();
   await application.selectOption('second-document');await expect(consent).not.toBeChecked();await expect(publish).toBeDisabled();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  const offline=page.getByRole('complementary',{name:'Offline support'});await expect(offline.getByRole('alert')).toContainText('Offline access could not be prepared');await expect(offline).not.toContainText('TypeError');await offline.getByRole('button',{name:'Check for updates'}).click();await expect(offline.getByRole('alert')).toContainText('Offline support could not be refreshed');
   const title=await page.getByLabel('Application title').boundingBox(),summary=await page.getByLabel('Application summary').boundingBox();
   expect(title&&summary&&summary.y>=title.y+title.height+20).toBeTruthy();
 });
