@@ -30,7 +30,18 @@ beta.
 
 The current direct Cloudflare qualification remains incomplete: one bounded
 native counter trial reached definition validation and was rejected; another
-hit the existing provider deadline with unknown usage. Earlier acceptance of a
-real model package through a private format adapter and three preview browser
-engines does not qualify this direct connection. Do not enable hosted generation
-on that evidence or automatically retry unknown-usage failures.
+hit the existing provider deadline with unknown usage. A fresh captured trial
+returned invalid application/revision identities; a bounded repair trial also
+returned malformed actions and test expressions. Canonical guidance now supplies
+exact UUID syntax and the required action/comparison tags. Invalid candidates
+remain rejected before signing. A later native compilation passed validation and
+signing but independent UI acceptance rejected empty button labels. Guidance
+requires labels on each button itself. These changes do not establish live quality.
+A subsequent raw-captured Cloudflare trial passed the native compiler, generated
+tests and independent counter behavior with one bounded repair. Raw responses
+were forwarded unchanged, and the signer was ephemeral. Its signed package also
+passed explicit signer review, repeated WASM button clicks and saved-state reload
+on the public preview in Chromium, Firefox and WebKit. This qualifies only that
+synthetic counter trial, not a deployed generation service or broader app quality.
+Keep hosted generation disabled until the remaining production gates pass; never
+automatically retry unknown-usage failures.

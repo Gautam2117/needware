@@ -55,6 +55,9 @@ impl WireSchema {
     }
     pub fn canonical_schema(&self) -> Value {
         let mut schema = self.canonical.clone();
+        for identity in ["id", "revision"] {
+            schema["properties"][identity] = json!({"type":"string","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"});
+        }
         schema["$defs"]["Node"]["properties"]["id"] =
             json!({"type":"string","pattern":"^[A-Za-z0-9_]{1,64}$"});
         // Contract fields describe inputs/state types, unlike collection fields with defaults.

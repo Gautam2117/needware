@@ -380,16 +380,20 @@ async fn all_four_http_adapters_compile_verified_behavior() -> Result<(), Box<dy
     Ok(())
 }
 #[tokio::test]
-async fn canonical_json_mode_compiles_signed_independent_behavior_and_repairs_duplicates()
+async fn canonical_json_mode_repairs_duplicate_keys_and_invalid_identities_before_signing()
 -> Result<(), Box<dyn std::error::Error>> {
     let definition = serde_json::to_string(&needware_ir::examples::habit_tracker())?;
     let duplicate = format!("{{\"title\":\"spoof\",{}", &definition[1..]);
+    let mut invalid_identity = serde_json::from_str::<serde_json::Value>(&definition)?;
+    invalid_identity["id"] = json!("counter_app_9f8b7c2d-1a4e-4d9a-9f3b-2c6e5d7a1b3f");
+    invalid_identity["revision"] = json!("rev_20231007_001");
     let (url, task) = fixture(
         Kind::Local,
         vec![
             json!({"goal":"Track habits","requirements":["add a habit"],"unsupported":[]})
                 .to_string(),
             duplicate,
+            invalid_identity.to_string(),
             definition,
         ],
     )
@@ -397,7 +401,7 @@ async fn canonical_json_mode_compiles_signed_independent_behavior_and_repairs_du
     let compiler = Compiler::new_canonical(
         config(Kind::Local, &url)?,
         Policy {
-            max_repairs: 1,
+            max_repairs: 2,
             ..Policy::default()
         },
         SecretKey::random()?,
@@ -414,9 +418,15 @@ async fn canonical_json_mode_compiles_signed_independent_behavior_and_repairs_du
     let verified = needware_package::verify(&compiled.package)?;
     assert_eq!(verified.application().application().title, "Habit tracker");
     assert!(stages.contains(&"repair_definition"));
-    assert_eq!(compiled.usage.input_tokens, 300);
+    assert_eq!(compiled.usage.input_tokens, 400);
     let requests = task.await?.map_err(std::io::Error::other)?;
-    assert_eq!(requests.len(), 3);
+    assert_eq!(requests.len(), 4);
+    assert!(
+        requests[3]["messages"][0]["content"]
+            .as_str()
+            .ok_or("missing repair feedback")?
+            .contains("expected UUID")
+    );
     for request in &requests {
         assert_eq!(request["response_format"]["type"], "json_object");
     }
