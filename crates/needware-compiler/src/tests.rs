@@ -23,6 +23,57 @@ fn typed_contracts_roundtrip_through_the_acyclic_provider_schema()
 }
 
 #[test]
+fn generated_metadata_normalization_preserves_behavior_and_rejects_conflicting_contracts()
+-> Result<(), Box<dyn std::error::Error>> {
+    let app = needware_ir::widgets_example::application();
+    let schema = WireSchema::new();
+    let mut raw = serde_json::to_value(&app)?;
+    raw.as_object_mut().ok_or("object")?.remove("messages");
+    raw["id"] = json!("model_alias");
+    raw["revision"] = json!("revision_alias");
+    let key = app.state_schema.keys().next().ok_or("state contract")?;
+    raw["state_schema"][key]["default"] = serde_json::to_value(&app.state[key])?;
+    let normalized =
+        schema.decode_generated_canonical(&serde_json::to_vec(&raw)?, (&app.id, &app.revision))?;
+    assert_eq!(normalized, app, "Only redundant metadata may be normalized");
+    needware_validation::validate(normalized)?;
+    let mut conflicting = raw.clone();
+    conflicting["state_schema"][key]["default"] = json!({"type":"string","value":"different"});
+    assert!(
+        needware_validation::validate(schema.decode_generated_canonical(
+            &serde_json::to_vec(&conflicting)?,
+            (&app.id, &app.revision)
+        )?)
+        .is_err()
+    );
+    let mut derived = raw.clone();
+    derived["state_schema"][key]["derived"] = json!({"op":"state","key":key});
+    assert!(
+        needware_validation::validate(schema.decode_generated_canonical(
+            &serde_json::to_vec(&derived)?,
+            (&app.id, &app.revision)
+        )?)
+        .is_err()
+    );
+    for (action, fields) in &app.event_schema {
+        if let Some(field) = fields.keys().next() {
+            let mut event_default = raw.clone();
+            event_default["event_schema"][action][field]["default"] =
+                json!({"type":"string","value":"fallback"});
+            assert!(
+                needware_validation::validate(schema.decode_generated_canonical(
+                    &serde_json::to_vec(&event_default)?,
+                    (&app.id, &app.revision)
+                )?)
+                .is_err()
+            );
+            break;
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn canonical_input_retains_strict_parsing_and_wire_resource_bounds()
 -> Result<(), Box<dyn std::error::Error>> {
     let schema = WireSchema::new();
@@ -393,7 +444,7 @@ async fn all_four_http_adapters_compile_verified_behavior() -> Result<(), Box<dy
     Ok(())
 }
 #[tokio::test]
-async fn canonical_json_mode_repairs_duplicate_keys_and_invalid_identities_before_signing()
+async fn canonical_json_mode_rejects_duplicate_keys_and_allocates_package_identities()
 -> Result<(), Box<dyn std::error::Error>> {
     let definition = serde_json::to_string(&needware_ir::examples::habit_tracker())?;
     let duplicate = format!("{{\"title\":\"spoof\",{}", &definition[1..]);
@@ -407,7 +458,6 @@ async fn canonical_json_mode_repairs_duplicate_keys_and_invalid_identities_befor
                 .to_string(),
             duplicate,
             invalid_identity.to_string(),
-            definition,
         ],
     )
     .await?;
@@ -431,14 +481,20 @@ async fn canonical_json_mode_repairs_duplicate_keys_and_invalid_identities_befor
     let verified = needware_package::verify(&compiled.package)?;
     assert_eq!(verified.application().application().title, "Habit tracker");
     assert!(stages.contains(&"repair_definition"));
-    assert_eq!(compiled.usage.input_tokens, 400);
+    assert_eq!(compiled.usage.input_tokens, 300);
     let requests = task.await?.map_err(std::io::Error::other)?;
-    assert_eq!(requests.len(), 4);
-    assert!(
-        requests[3]["messages"][0]["content"]
-            .as_str()
-            .ok_or("missing repair feedback")?
-            .contains("expected UUID")
+    assert_eq!(requests.len(), 3);
+    let generated = verified.application().application();
+    assert!(uuid::Uuid::parse_str(&generated.id).is_ok());
+    assert!(uuid::Uuid::parse_str(&generated.revision).is_ok());
+    assert_ne!(generated.id, generated.revision);
+    let mut unchanged = generated.clone();
+    let original = needware_ir::examples::habit_tracker();
+    unchanged.id.clone_from(&original.id);
+    unchanged.revision.clone_from(&original.revision);
+    assert_eq!(
+        unchanged, original,
+        "Only fresh package identities may change"
     );
     for request in &requests {
         assert_eq!(request["response_format"]["type"], "json_object");

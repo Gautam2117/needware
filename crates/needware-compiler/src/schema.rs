@@ -80,6 +80,38 @@ impl WireSchema {
         // Retain wire table, nesting and decoder fuel bounds for this representation too.
         self.decode(&self.encode(&app)?)
     }
+    pub(crate) fn decode_generated_canonical(
+        &self,
+        bytes: &[u8],
+        identities: (&str, &str),
+    ) -> Result<needware_ir::Application, CompileError> {
+        let mut value: Value =
+            needware_package::parse_json(bytes).map_err(|_| CompileError::InvalidOutput)?;
+        let object = value.as_object_mut().ok_or(CompileError::InvalidOutput)?;
+        object.insert("id".into(), json!(identities.0));
+        object.insert("revision".into(), json!(identities.1));
+        object.entry("messages").or_insert_with(|| json!({}));
+        let state = object.get("state").cloned().unwrap_or(Value::Null);
+        if let Some(contracts) = object
+            .get_mut("state_schema")
+            .and_then(Value::as_object_mut)
+        {
+            for (key, contract) in contracts {
+                if let Some(field) = contract.as_object_mut()
+                    && field.get("derived").is_none_or(Value::is_null)
+                    && field.get("default").is_some_and(|default| {
+                        !default.is_null() && state.get(key) == Some(default)
+                    })
+                {
+                    // Only remove a redundant copy of the actual state
+                    // default. Never alter state, event contracts or actions.
+                    field.insert("default".into(), Value::Null);
+                }
+            }
+        }
+        let normalized = serde_json::to_vec(&value).map_err(|_| CompileError::InvalidOutput)?;
+        self.decode_canonical(&normalized)
+    }
     pub fn encode(&self, application: &needware_ir::Application) -> Result<Value, CompileError> {
         let mut value =
             serde_json::to_value(application).map_err(|_| CompileError::InvalidOutput)?;

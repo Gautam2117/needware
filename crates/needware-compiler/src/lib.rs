@@ -1,4 +1,5 @@
 //! Structured intent compilation. Provider output never crosses verification as executable code.
+mod model_schema;
 pub mod protocol;
 pub mod provider;
 mod response_json;
@@ -244,6 +245,12 @@ impl Compiler {
             return Err(CompileError::InvalidOutput);
         }
         let normalized = serde_json::to_string(&intent).map_err(|_| CompileError::InvalidOutput)?;
+        // Fresh package metadata belongs to the compiler, not model text. Keep
+        // these identities stable across repairs; all behavior remains unaltered.
+        let identities = (
+            uuid::Uuid::new_v4().to_string(),
+            uuid::Uuid::new_v4().to_string(),
+        );
         let acceptance_json =
             serde_json::to_string(acceptance).map_err(|_| CompileError::InvalidOutput)?;
         let mut feedback = String::new();
@@ -277,7 +284,8 @@ impl Compiler {
             let response = self.generate(&guidance, definition_schema, usage).await?;
             emit(stage, started, "validate_definition", attempt, usage);
             let candidate = if self.canonical {
-                self.schema.decode_canonical(response.as_bytes())
+                self.schema
+                    .decode_generated_canonical(response.as_bytes(), (&identities.0, &identities.1))
             } else {
                 needware_package::parse_json(response.as_bytes())
                     .map_err(|_| CompileError::InvalidOutput)

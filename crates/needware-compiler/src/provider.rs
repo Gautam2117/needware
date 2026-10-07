@@ -159,7 +159,8 @@ impl Adapter {
             }
             Kind::Local => {
                 if self.json_mode {
-                    let mut body = json!({"model":self.config.model,"messages":[{"role":"user","content":format!("{prompt}\nJSON Schema: {schema}")}],"max_tokens":output_tokens,"stream":false,"temperature":0,"response_format":{"type":"json_object"}});
+                    let contract = super::model_schema::compact(schema);
+                    let mut body = json!({"model":self.config.model,"messages":[{"role":"user","content":format!("{prompt}\n{contract}")}],"max_tokens":output_tokens,"stream":false,"temperature":0,"response_format":{"type":"json_object"}});
                     if self.config.model == "@cf/openai/gpt-oss-120b" {
                         body["reasoning_effort"] = json!("low");
                     }
