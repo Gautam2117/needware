@@ -6,16 +6,24 @@ Statuses describe actual code and checks, not planned completeness.
 run source `46b9647`, published as Netlify deploy `6ac6319fe8b04078f205beda`.
 Real owner signup/email verification, verified operator authorization, user-held
 recovery setup, encrypted Habit tracker upload acknowledgment and Safari reopen passed.
+Real recovery-file import into Chrome, exact signer/package review and encrypted
+two-browser edit convergence also passed; both browsers have zero pending changes.
+Operations now refreshes on demand and after actions; a disposable account/browser
+check verifies no dashboard reads during 45 seconds of idle time and one explicit refresh.
 The automatic 15-minute mail retry reported healthy scheduled execution; anonymous
 operations and mail dispatch are denied. Production migration0012 and matching
 isolated PostgreSQL17 encrypted backup/restore passed, including the verified owner
-and conservative captured provider-spend baseline. Exact source CI remains pending.
+and conservative captured provider-spend baseline. `f0bdeb6` exact CI passed;
+`46b9647` Core failed WebKit offline control (80 cases passed, one failed).
+The correction removes stale client-ID lookup from scope-limited worker claim;
+45 focused three-engine cases passed, including unavailable-lookup/lost-message
+regression and real offline cold reload. Exact correction CI remains pending.
 The approved $0 Netlify Free plan shares 300 monthly credits across nine sites;
 no card, overage or paid fallback. Actual musl native/background fixture compatibility
 and DB/SMTP cold/warm measurements passed; these do not qualify real generation.
 Representative Cloudflare model qualification failed after bounded repair, so calls
-stopped and hosted generation/billing remain disabled. Cross-browser recovery,
-production collaborator/revocation/revision acceptance and full release remain open.
+stopped and hosted generation/billing remain disabled. Production cross-account
+collaborator/revocation/revision acceptance and full release remain open.
 See [Netlify status](deployment/netlify-free-status.md) and [worker evidence](deployment/netlify-native-workers.md).
 
 Latest local verification, 2026-10-05: runtime controls, typed forms, complete visual families and reviewed draft and browser history safety (decisions

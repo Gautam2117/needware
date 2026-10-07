@@ -1,5 +1,6 @@
 import {test,expect,waitForOfflineReady} from './fixtures';
 test('offline registration claims with ready pending and retries lost requests without forcing a waiting update',async({page,offlineServer})=>{
+  offlineServer.unavailableClientLookup();
   await page.addInitScript(()=>{
     const container=navigator.serviceWorker;const getter=Object.getOwnPropertyDescriptor(ServiceWorkerContainer.prototype,'controller')!.get!;let claims=0;
     Object.defineProperty(container,'ready',{configurable:true,get:()=>new Promise<ServiceWorkerRegistration>(()=>{})});
