@@ -9,6 +9,17 @@ async function trustedVault(page: import('@playwright/test').Page): Promise<stri
     return account;
   });
 }
+test('unselected encrypted vault does not claim saved applications are missing',async({page,offlineServer})=>{
+  await page.goto(offlineServer.url);const account=await trustedVault(page);
+  await page.goto(`${offlineServer.url}encrypted`);
+  await expect(page.getByText('Your encrypted library has not been opened.',{exact:false})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Open your encrypted account',exact:true})).toHaveAttribute('href','/account');
+  await expect(page.getByText('No encrypted applications saved yet.',{exact:true})).toHaveCount(0);
+  await page.goto(`${offlineServer.url}encrypted#account=${account}`);
+  await page.reload();
+  await expect(page.getByText('Encrypted browser storage ready',{exact:true})).toBeVisible();
+  await expect(page.getByText('No encrypted applications saved yet.',{exact:true})).toBeVisible();
+});
 test('encrypted worker and opaque application frame retain durable edits through tab conflict and actual offline cold reload',async({page,context,offlineServer})=>{
   await page.goto(offlineServer.url);const account=await trustedVault(page);
   const url=`${offlineServer.url}encrypted#account=${account}`;await page.goto(url);

@@ -68,6 +68,11 @@ cannot activate production. Set `CASHFREE_ENVIRONMENT=production` and
 server-secret environment. It verifies or idempotently creates the exact ₹499
 monthly plan. It creates no subscription or charge and does not enable billing.
 
+Payment Gateway activation does not activate Subscriptions. If plan creation
+returns `profile_inactive`, open Subscriptions in the merchant dashboard and
+complete Request Activation. Keep `CASHFREE_LIVE_APPROVED=0` until that profile
+is active; a successful authenticated plan lookup alone is insufficient.
+
 Configure the signed webhook above. Qualify actual authorization, successful
 CHARGE, refund/dispute revocation, cancellation and duplicate/out-of-order/lost
 event recovery before setting `CASHFREE_LIVE_ACCEPTANCE_APPROVED=1`. Enable
