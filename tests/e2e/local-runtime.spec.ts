@@ -59,6 +59,8 @@ test('reopening the same application replaces its bound channel', async ({ page 
   await page.getByRole('button', { name: 'Trust signer and run application' }).click();
   const frame = page.frameLocator('iframe'); await frame.getByLabel('Habit name').fill('Reconnect');
   await frame.getByRole('button', { name: 'Add habit', exact: true }).click();
+  await expect(frame.getByLabel('Habit name')).toHaveValue('');
+  await expect(page.getByRole('region', { name: 'Unsaved input recovery' }).getByRole('status')).toContainText('0 unsaved inputs');
   for (let index = 0; index < 3; index++) {
     const oldFrame = await page.locator('iframe').elementHandle();
     await page.getByRole('button', { name: 'Open Habit tracker' }).click();
