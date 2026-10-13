@@ -1,5 +1,49 @@
 # Cashfree billing activation
 
+## One-time Pro passes (current launch path)
+
+Cashfree has refused Subscriptions for the current merchant profile. Its active
+Payment Gateway is separate. Use `NEEDWARE_BILLING_MODE=cashfree_once` only after
+written product/domain scope confirmation and real financial acceptance. Never
+reuse subscription approval flags as gateway approval.
+
+The pass is INR499 total for exactly 720 hours from verified successful captured
+payment time, with no mandate or automatic renewal. New orders are blocked while
+a pass is unexpired or another checkout remains pending. Apply migration0014
+after an encrypted backup and verified repeat migration on an isolated restore.
+Server credentials stay private. `CASHFREE_PG_LIVE_APPROVED` confirms provider
+scope; `CASHFREE_PG_ACCEPTANCE_APPROVED` is allowed only after actual checkout,
+payment, signed webhook, refund/dispute, expiry and lost-event acceptance.
+
+For the actual human payment trial before public acceptance, set only the
+reviewed account ID in `CASHFREE_PG_ACCEPTANCE_ACCOUNT`, with absolute
+`CASHFREE_PG_ACCEPTANCE_STARTED_AT` and `CASHFREE_PG_ACCEPTANCE_UNTIL` timestamps
+spanning at most30minutes. This still requires provider scope approval and live
+credentials. Only that verified account can test checkout/entitlement while
+hosted creation is paused; its UI explicitly discloses a real test charge.
+All other users remain blocked. Remove the window after the trial; never use
+this exception to imply public availability or skip financial acceptance.
+
+Order creation durably binds owner, merchant, mode, price/contact review and UUID
+before provider dispatch. Retries resume the same order. Raw signed notices only
+suspend stale access and queue reconciliation; SDK redirects grant nothing.
+Reconciliation verifies exact order/customer/currency/amount, a single captured
+success, all refunds and disputes. It stores an immutable payment/start/end and
+enforces30-minute snapshot freshness. Unknown identity, partial refund, pending
+refund, unresolved dispute and provider failure keep access at Free. Deleted
+accounts cannot transfer orders to a new account. The scheduled worker handles
+durable retries and periodic reconciliation for missed events.
+
+Public `/pricing`, `/terms`, `/privacy`, `/refunds` expose product facts and a
+seven-day refund policy with support through gautam@continuumarc.tech. Refunds
+are reviewed and processed by the operator through Cashfree; no automatic refund
+or financial-action execution is claimed. `pnpm test:billing:orders` proves
+authored responses with disposable real PostgreSQL, not provider acceptance.
+Keep production billing disabled until the above gates and generation capacity
+qualification pass. The global free inference ceiling remains unchanged.
+
+## Legacy subscription adapter (not approved for this account)
+
 Cashfree is selected explicitly with `NEEDWARE_BILLING_MODE=cashfree`. Stripe
 remains available with `stripe`; `disabled` rejects checkout and webhook work.
 The shared billing-account row pins one provider, merchant namespace and mode.

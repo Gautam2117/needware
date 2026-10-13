@@ -10,7 +10,7 @@ export const handler=async()=>{
     console.log(JSON.stringify(await probeCashfreeHost(authResources().pool.options)));
     return {statusCode:200,body:'Host probe complete'};
   }
-  if(process.env.NEEDWARE_BILLING_DISPATCH_MODE!=='scheduled'||process.env.NEEDWARE_BILLING_MODE!=='cashfree')return {statusCode:200,body:'Disabled'};
+  if(process.env.NEEDWARE_BILLING_DISPATCH_MODE!=='scheduled'||!['cashfree','cashfree_once'].includes(process.env.NEEDWARE_BILLING_MODE??''))return {statusCode:200,body:'Disabled'};
   const result=await scheduledCashfree(authResources().pool.options,cashfreeConfig());
   if(!result.ok)throw Error('Billing reconciliation requires durable retry');
   console.log(JSON.stringify({billingTick:'PASS',elapsedMs:Date.now()-started}));

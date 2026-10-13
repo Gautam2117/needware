@@ -275,12 +275,18 @@ impl Compiler {
                 "Produce a complete Needware application matching this intent: {normalized}. Original request: {prompt}. Independent canonical acceptance cases: {acceptance_json}. {representation} Supply fresh UUID application/revision identities in the exact 8-4-4-4-12 hexadecimal form, without name prefixes or revision aliases, schema_version=1, runtime_features including typed_contracts_v1 and declarative_widgets_v1 for node value/disabled bindings, an initial screen and explicit scoped capabilities. Declare state_schema for exactly every state default and event_schema for exactly every action, including empty contracts for actions without inputs. Contracts use Field types with no default or derived expression; optional inputs are nullable, unknown inputs reject. No scripts, raw HTML, SQL, remote assets, executable output, recursive table cycles, or hidden effects. Use only supported components: text,heading,button,stack,row,grid,card,divider,spacer,list,text_input,numeric_input,date_input,datetime_input,textarea,badge,alert,empty_state,stat. Include deterministic behavioral tests; each case starts from default state and dispatches exactly one action. Do not add capabilities that the application does not need. {feedback}"
             );
             let canonical_schema;
+            let guidance = format!(
+                "{guidance} Include every required top-level field, including messages={{}} and migrations=[] when unused. When the request specifies exact display text or exactly a numeric string, render that expression alone with no label/prefix/suffix; use a separate heading for descriptive labels. The form component is supported: every typed input must be a descendant of a form whose action is the submit action. Each input's field names a field in that action's event_schema; its action may be absent or match the form action. Put the submit button inside that form and bind it to the same action. Never put an input directly under a stack/card without a form. Do not nest forms or place lists inside forms; repeated record forms belong inside the record container."
+            );
             let definition_schema = if self.canonical {
                 canonical_schema = self.schema.canonical_schema();
                 &canonical_schema
             } else {
                 self.schema.schema()
             };
+            let guidance = format!(
+                "{guidance} Honor explicit capability exclusions: if the original request says no capabilities, emit capabilities=[] even when it contains collections or forms. Local in-memory collections do not by themselves authorize persistence, synchronized storage or network access. Never infer a new capability from a component."
+            );
             let response = self.generate(&guidance, definition_schema, usage).await?;
             emit(stage, started, "validate_definition", attempt, usage);
             let candidate = if self.canonical {

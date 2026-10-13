@@ -2,6 +2,17 @@
 
 Statuses describe actual code and checks, not planned completeness.
 
+2026-10-13 continuation: provider rejected automatic Subscriptions; dashboard
+In-Review is not approval. User approved a one-time INR499/30-day manual-renewal
+pass. Additive order checkout/reconciliation, immutable expiry, refund/dispute
+revocation, durable signed event retry and public product/pricing/policy pages
+implemented. Disposable PostgreSQL acceptance and existing Cashfree regressions
+PASS. Production stays paused pending written Gateway scope, actual financial
+acceptance, representative model qualification and retained-browser recovery.
+Fresh habit model case PASS; expense initially FAIL, exposing missing form
+guidance (fixed without relaxing validation). Final qualification/checks ongoing.
+Older subscription readiness notes below are historical, not current approval.
+
 2026-10-07 release continuation: account root epoch2 and both owned document
 root bindings were rechecked on the live database. Retained-device acceptance
 and live synchronized revision acceptance remain open. Canonical generation now

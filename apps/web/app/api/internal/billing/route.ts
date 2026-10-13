@@ -8,7 +8,7 @@ export async function POST(request:Request){
   const token=process.env.NEEDWARE_BILLING_DISPATCH_TOKEN,provided=request.headers.get('authorization');
   const headers={'Cache-Control':'no-store'};
   if(process.env.NEEDWARE_BILLING_DISPATCH_MODE!=='scheduled'||!token||!/^[0-9a-f]{64}$/.test(token)||!provided||Buffer.byteLength(provided)!==71||!timingSafeEqual(Buffer.from(provided),Buffer.from('Bearer '+token)))return new Response('Unauthorized',{status:401,headers});
-  if(process.env.NEEDWARE_BILLING_MODE!=='cashfree')return Response.json({status:'DISABLED'},{headers});
+  if(!['cashfree','cashfree_once'].includes(process.env.NEEDWARE_BILLING_MODE??''))return Response.json({status:'DISABLED'},{headers});
   if(Number(request.headers.get('content-length')??0)>2)return new Response('Body limit',{status:413,headers});
   const reader=request.body?.getReader();let length=0,timedOut=false;
   const timer=setTimeout(()=>{timedOut=true;void reader?.cancel().catch(()=>{});},1000);

@@ -8,8 +8,17 @@ import {generationUsage} from '../../../lib/generation-store';
 import {billingEnabled,billingProvider} from '../../../lib/billing-policy';
 import {cashfreeConfig} from '../../../lib/cashfree-client';
 import {cashfreePrice,cashfreeCheckout,cashfreeCancel} from '../../../lib/cashfree-store';
+import {cashfreePassPrice,cashfreeOrderCheckout,synchronizeCashfreePass} from '../../../lib/cashfree-orders';
+import {cashfreePassQa} from '../../../lib/billing-acceptance';
 export const runtime='nodejs';
 export async function GET(request:Request){try{const {session,pool}=await accountRequest(request),provider=billingProvider();
+  if(provider==='cashfree_once'){
+    const config=cashfreeConfig(),account=await billingSummary(pool,session.user.id),usage=await generationUsage(pool,session.user.id);
+    const checkout=(await pool.query("SELECT id,expires_at FROM needware_cashfree_order WHERE account_id=$1 AND state='pending' AND expires_at>now() ORDER BY created_at DESC LIMIT 1",[session.user.id])).rows[0]??null;
+    const acceptance_qa=cashfreePassQa(session.user.id);
+    const checkout_available=!usage.creation_hold&&(acceptance_qa||process.env.NEEDWARE_HOSTED_GENERATION==='1'&&(!config.live||process.env.CASHFREE_PG_ACCEPTANCE_APPROVED==='1'));
+    return cloudResponse({provider,configured:true,checkout_available,acceptance_qa,price:cashfreePassPrice(config),account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout,usage});
+  }
   let cashfree;try{if(provider==='cashfree')cashfree=cashfreeConfig();}catch(error){if(!(error instanceof BillingFailure))throw error;}
   const configured=provider==='cashfree'?Boolean(cashfree):billingConfigured();
   const [account,usage,price,pending]=await Promise.all([billingEnabled()?billingSummary(pool,session.user.id):null,generationUsage(pool,session.user.id),configured&&provider==='stripe'?billingPrice(billingConfig()):null,provider==='stripe'?pool.query('SELECT id,expires_at FROM needware_billing_checkout WHERE account_id=$1 AND expires_at>now() ORDER BY created_at DESC LIMIT 1',[session.user.id]):{rows:[]}]);
@@ -19,6 +28,13 @@ export async function GET(request:Request){try{const {session,pool}=await accoun
   return cloudResponse({provider,configured,checkout_available,price:provider==='cashfree'?cfPrice:price,account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout:provider==='cashfree'?cfPending??null:pending.rows[0]??null,usage});
 }catch(error){return error instanceof BillingFailure?cloudResponse({message:error.message},error.status):cloudFailure(error);}}
 export async function POST(request:Request){try{const {session,pool}=await accountRequest(request),payload=await canonicalBody(request),action=(payload as {action?:unknown})?.action,{origin}=authResources();
+  if(billingProvider()==='cashfree_once'){
+    const config=cashfreeConfig();
+    if(action==='verify'){object(payload,['action']);await synchronizeCashfreePass(pool,session.user.id,config);return cloudResponse({verified:true});}
+    if(!cashfreePassQa(session.user.id)&&(config.live&&process.env.CASHFREE_PG_ACCEPTANCE_APPROVED!=='1'||process.env.NEEDWARE_HOSTED_GENERATION!=='1'))throw new BillingFailure(503,'New purchases are paused until payment and creation services are ready');
+    const value=object(payload,['action','id','price','consent','phone']);if(value.action!=='checkout'||value.consent!==true||typeof value.phone!=='string')throw new CloudError(400,'Review one-time payment before checkout');
+    return cloudResponse(await cashfreeOrderCheckout(pool,session.user.id,session.user.email,session.user.name,value.phone,uuid(value.id),value.price,config,origin));
+  }
   if(billingProvider()==='cashfree'){
     const config=cashfreeConfig();
     if(action==='cancel'){const value=object(payload,['action','consent']);if(value.consent!==true)throw new CloudError(400,'Review cancellation before continuing');return cloudResponse(await cashfreeCancel(pool,session.user.id,config));}

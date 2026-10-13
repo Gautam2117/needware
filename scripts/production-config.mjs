@@ -1,5 +1,6 @@
 // Pure, redacted deployment checks. No environment loading, network calls or writes.
 import {isIP} from 'node:net';
+import {createHash} from 'node:crypto';
 import {billingEnabled,billingProvider} from '../apps/web/lib/billing-policy.ts';
 import {globalGenerationPolicy} from '../apps/web/lib/generation-global-quota.ts';
 const loopback=host=>['localhost','127.0.0.1','[::1]'].includes(host);
@@ -44,14 +45,16 @@ export function productionConfiguration(env){
   check(typeof env.NEEDWARE_MODEL==='string'&&env.NEEDWARE_MODEL.length>0&&env.NEEDWARE_MODEL.length<=200&&!/[\r\n]/.test(env.NEEDWARE_MODEL),'NEEDWARE_MODEL');
   if(env.NEEDWARE_PROVIDER==='local'){const endpoint=url('NEEDWARE_LOCAL_ENDPOINT');check(endpoint?.protocol==='https:'&&publicHost(endpoint.hostname)&&!endpoint.username&&!endpoint.password&&!endpoint.search&&!endpoint.hash,'NEEDWARE_LOCAL_ENDPOINT');}
   for(const key of ['NEEDWARE_INPUT_MICROUSD_PER_MILLION','NEEDWARE_OUTPUT_MICROUSD_PER_MILLION','NEEDWARE_COST_CEILING_MICROUSD'])check(/^(0|[1-9][0-9]*)$/.test(env[key]??'')&&Number.isSafeInteger(Number(env[key]))&&Number(env[key])<=(key==='NEEDWARE_COST_CEILING_MICROUSD'?1000000000:1000000000000),key);
-  check(['disabled','stripe','cashfree'].includes(env.NEEDWARE_BILLING_MODE??'stripe'),'NEEDWARE_BILLING_MODE');
-  if(billingProvider(env)==='cashfree'){
-    check(env.CASHFREE_ENVIRONMENT==='production'&&env.CASHFREE_LIVE_APPROVED==='1','CASHFREE_LIVE_APPROVAL');
+  check(['disabled','stripe','cashfree','cashfree_once'].includes(env.NEEDWARE_BILLING_MODE??'stripe'),'NEEDWARE_BILLING_MODE');
+  const once=billingProvider(env)==='cashfree_once';
+  if(billingProvider(env)==='cashfree'||once){
+    check(env.CASHFREE_ENVIRONMENT==='production'&&(once?env.CASHFREE_PG_LIVE_APPROVED:env.CASHFREE_LIVE_APPROVED)==='1','CASHFREE_LIVE_APPROVAL');
     check(/^[A-Za-z0-9_-]{1,128}$/.test(env.CASHFREE_CLIENT_ID??'')&&!env.CASHFREE_CLIENT_ID?.startsWith('TEST'),'CASHFREE_CLIENT_ID');
     check(typeof env.CASHFREE_CLIENT_SECRET==='string'&&env.CASHFREE_CLIENT_SECRET.length>=24&&env.CASHFREE_CLIENT_SECRET.length<=512&&!/[\r\n]/.test(env.CASHFREE_CLIENT_SECRET),'CASHFREE_CLIENT_SECRET');
     check(/^cf_[0-9a-f]{32}$/.test(env.CASHFREE_MERCHANT_ID??''),'CASHFREE_MERCHANT_ID');
-    check(/^[A-Za-z0-9_-]{1,128}$/.test(env.CASHFREE_PRO_PLAN_ID??'')&&env.CASHFREE_PRO_MONTHLY_PAISE==='49900','CASHFREE_PRO_PRICE');
-    check(env.CASHFREE_LIVE_ACCEPTANCE_APPROVED==='1','CASHFREE_LIVE_ACCEPTANCE');
+    if(once)check(env.CASHFREE_MERCHANT_ID==='cf_'+createHash('sha256').update(env.CASHFREE_CLIENT_ID??'').digest('hex').slice(0,32),'CASHFREE_PG_MERCHANT_BINDING');
+    check((once||/^[A-Za-z0-9_-]{1,128}$/.test(env.CASHFREE_PRO_PLAN_ID??''))&&env.CASHFREE_PRO_MONTHLY_PAISE==='49900','CASHFREE_PRO_PRICE');
+    check((once?env.CASHFREE_PG_ACCEPTANCE_APPROVED:env.CASHFREE_LIVE_ACCEPTANCE_APPROVED)==='1','CASHFREE_LIVE_ACCEPTANCE');
   }else if(billingEnabled(env)){
     check(/^sk_live_[A-Za-z0-9]{24,}$/.test(env.STRIPE_SECRET_KEY??''),'STRIPE_SECRET_KEY');
     check(/^whsec_[A-Za-z0-9]{24,}$/.test(env.STRIPE_WEBHOOK_SECRET??''),'STRIPE_WEBHOOK_SECRET');
@@ -61,7 +64,7 @@ export function productionConfiguration(env){
     for(const key of ['STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_PRO_PRICE_ID','STRIPE_ACCOUNT_ID'])check(!env[key],'DISABLED_BILLING_'+key);
     for(const key of ['CASHFREE_CLIENT_ID','CASHFREE_CLIENT_SECRET'])check(!env[key],'DISABLED_BILLING_'+key);
   }
-  if(!billingEnabled(env)||env.NEEDWARE_GENERATION_QUOTA==='cloudflare-free'||billingProvider(env)==='cashfree'){
+  if(!billingEnabled(env)||env.NEEDWARE_GENERATION_QUOTA==='cloudflare-free'||billingProvider(env)==='cashfree'||once){
     let quota;try{quota=globalGenerationPolicy(env);}catch{}
     check(Boolean(quota)&&env.NEEDWARE_GENERATION_MAX_TOKENS!==undefined&&quota.neurons<=quota.daily&&quota.neurons<=quota.accountDaily,'GLOBAL_GENERATION_POLICY');
     check(env.NEEDWARE_PROVIDER==='local'&&env.NEEDWARE_MODEL==='@cf/openai/gpt-oss-120b'&&/^[0-9a-f]{32}$/.test(env.NEEDWARE_CLOUDFLARE_ACCOUNT_ID??''),'FREE_GENERATION_PROVIDER');

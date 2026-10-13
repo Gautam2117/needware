@@ -6,17 +6,20 @@ export class CashfreeApiFailure extends BillingFailure{readonly apiStatus:number
 type Environment=Record<string,string|undefined>;
 const identifier=/^[A-Za-z0-9_-]{1,128}$/;
 export function cashfreeConfig(env:Environment=process.env):CashfreeConfig{
-  const {CASHFREE_CLIENT_ID:clientId,CASHFREE_CLIENT_SECRET:secret,CASHFREE_MERCHANT_ID:merchant,CASHFREE_PRO_PLAN_ID:plan}=env;
+  const {CASHFREE_CLIENT_ID:clientId,CASHFREE_CLIENT_SECRET:secret,CASHFREE_MERCHANT_ID:merchant}=env;
+  const once=env.NEEDWARE_BILLING_MODE==='cashfree_once',plan=once?'needware_pro_30_days':env.CASHFREE_PRO_PLAN_ID;
   const mode=env.CASHFREE_ENVIRONMENT,amount=Number(env.CASHFREE_PRO_MONTHLY_PAISE);
-  if(env.NEEDWARE_BILLING_MODE!=='cashfree'||!clientId||!secret||!merchant||!plan)throw new BillingFailure(503,'Cashfree billing is not configured');
+  if(!['cashfree','cashfree_once'].includes(env.NEEDWARE_BILLING_MODE??'')||!clientId||!secret||!merchant||!plan)throw new BillingFailure(503,'Cashfree billing is not configured');
   if(!identifier.test(clientId)||secret.length<24||secret.length>512||/[\r\n]/.test(secret)||!identifier.test(merchant)||!identifier.test(plan)||!['sandbox','production'].includes(mode??'')||!Number.isSafeInteger(amount)||amount<=0||amount>10000000)throw new BillingFailure(503,'Cashfree billing configuration is invalid');
-  if(mode==='production'&&(env.CASHFREE_LIVE_APPROVED!=='1'||clientId.startsWith('TEST')))throw new BillingFailure(503,'Cashfree live activation has not been approved');
+  if(once&&(amount!==49900||merchant!=='cf_'+createHash('sha256').update(clientId).digest('hex').slice(0,32)))throw new BillingFailure(503,'One-time Pro price or merchant scope is invalid');
+  if(mode==='production'&&((once?env.CASHFREE_PG_LIVE_APPROVED:env.CASHFREE_LIVE_APPROVED)!=='1'||clientId.startsWith('TEST')))throw new BillingFailure(503,'Cashfree live activation has not been approved');
   return {clientId,secret,merchant,plan,amount,live:mode==='production'};
 }
 
 type RequestOptions={method?:'GET'|'POST';body?:unknown;idempotency?:string};
 async function cashfreeTransport(config:CashfreeConfig,path:string,options:RequestOptions={}){
-  if(!/^\/(plans|subscriptions)(\/[A-Za-z0-9_-]{1,128}){0,4}$/.test(path)&&!((options.method??'GET')==='GET'&&(/^\/orders\/[A-Za-z0-9_-]{1,128}(\/refunds|\/payments\/[0-9]{1,40})?$/.test(path)||/^\/payments\/[0-9]{1,40}\/disputes$/.test(path))))throw new BillingFailure(503,'Cashfree API path was rejected');
+  const pgRead=/^\/orders\/[A-Za-z0-9_-]{3,45}(\/refunds|\/payments(\/[0-9]{1,40})?)?$/.test(path)||/^\/payments\/[0-9]{1,40}\/disputes$/.test(path);
+  if(!/^\/(plans|subscriptions)(\/[A-Za-z0-9_-]{1,128}){0,4}$/.test(path)&&!((options.method??'GET')==='GET'&&pgRead)&&!((options.method==='POST')&&path==='/orders'))throw new BillingFailure(503,'Cashfree API path was rejected');
   const method=options.method??'GET';
   if(method==='POST'&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(options.idempotency??''))throw new BillingFailure(503,'Cashfree mutation requires a durable idempotency key');
   const body=options.body===undefined?undefined:JSON.stringify(options.body);
@@ -61,7 +64,7 @@ export function cashfreeMonthlyPrice(config:CashfreeConfig,plan:Record<string,un
   return {id:config.plan,amount:config.amount,currency:'inr',interval:'month' as const,livemode:config.live};
 }
 
-const webhookTypes=new Set(['PAYMENT_SUCCESS_WEBHOOK','SUBSCRIPTION_STATUS_CHANGED','SUBSCRIPTION_AUTH_STATUS','SUBSCRIPTION_PAYMENT_NOTIFICATION_INITIATED','SUBSCRIPTION_PAYMENT_SUCCESS','SUBSCRIPTION_PAYMENT_FAILED','SUBSCRIPTION_PAYMENT_CANCELLED','SUBSCRIPTION_REFUND_STATUS','SUBSCRIPTION_CARD_EXPIRY_REMINDER','SUBSCRIPTION_CONTROLLED_NOTIFICATION_STATUS','SUBSCRIPTION_CONTROLLED_EXECUTION_STATUS']);
+const webhookTypes=new Set(['PAYMENT_SUCCESS_WEBHOOK','PAYMENT_FAILED_WEBHOOK','PAYMENT_USER_DROPPED_WEBHOOK','REFUND_STATUS_WEBHOOK','DISPUTE_CREATED','DISPUTE_UPDATED','DISPUTE_CLOSED','SUBSCRIPTION_STATUS_CHANGED','SUBSCRIPTION_AUTH_STATUS','SUBSCRIPTION_PAYMENT_NOTIFICATION_INITIATED','SUBSCRIPTION_PAYMENT_SUCCESS','SUBSCRIPTION_PAYMENT_FAILED','SUBSCRIPTION_PAYMENT_CANCELLED','SUBSCRIPTION_REFUND_STATUS','SUBSCRIPTION_CARD_EXPIRY_REMINDER','SUBSCRIPTION_CONTROLLED_NOTIFICATION_STATUS','SUBSCRIPTION_CONTROLLED_EXECUTION_STATUS']);
 export function verifyCashfreeWebhook(config:CashfreeConfig,body:Uint8Array,timestamp:string|null,signature:string|null,now=Date.now()){
   if(body.byteLength===0||body.byteLength>262144||!timestamp||!/^\d{13}$/.test(timestamp)||Math.abs(now-Number(timestamp))>300000||!signature||! /^[A-Za-z0-9+/]{43}=$/.test(signature))throw new BillingFailure(400,'Cashfree webhook signature is invalid');
   const expected=createHmac('sha256',config.secret).update(timestamp).update(body).digest(),actual=Buffer.from(signature,'base64');

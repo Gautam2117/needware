@@ -57,6 +57,11 @@ export async function onlineDependencies(){
       const {billingConfig}=await import('../apps/web/lib/billing-config.ts');
       return stripeReady(billingConfig(),process.env.BETTER_AUTH_URL);
     },
+    cashfree_once:async()=>{
+      const {cashfreeConfig}=await import('../apps/web/lib/cashfree-client.ts'),config=cashfreeConfig();
+      if(!config.live||process.env.CASHFREE_PG_ACCEPTANCE_APPROVED!=='1')return false;
+      return Boolean((await pool.query("SELECT 1 FROM needware_cashfree_order o JOIN needware_cashfree_order_event e ON e.order_id=o.order_id AND e.merchant_id=o.merchant_id AND e.livemode=o.livemode WHERE o.merchant_id=$1 AND o.livemode=true AND o.payment_id IS NOT NULL AND o.verified_at>now()-interval '24 hours' AND e.processed_at>now()-interval '24 hours' LIMIT 1",[config.merchant])).rowCount);
+    },
     cashfree:async()=>{
       const {cashfreeConfig}=await import('../apps/web/lib/cashfree-client.ts'),{cashfreePrice}=await import('../apps/web/lib/cashfree-store.ts'),config=cashfreeConfig();
       if(!config.live||process.env.CASHFREE_LIVE_ACCEPTANCE_APPROVED!=='1')return false;

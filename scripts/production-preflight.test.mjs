@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {randomBytes,createPrivateKey,createPublicKey} from 'node:crypto';
+import {randomBytes,createPrivateKey,createPublicKey,createHash} from 'node:crypto';
 import {productionConfiguration} from './production-config.mjs';
 import {preflight,workersReady,providerMatches,stripeReady} from './production-preflight.mjs';
 const secret=()=>randomBytes(32).toString('hex');
@@ -56,6 +56,14 @@ test('canonical definitions require an explicit compatible provider; unknown for
   assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canon'}).ok,false);
   assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canonical'}).ok,false);
   assert.equal(productionConfiguration({...env,NEEDWARE_APPLICATION_FORMAT:'canonical',NEEDWARE_PROVIDER:'local',NEEDWARE_LOCAL_API_KEY:'a'.repeat(32),NEEDWARE_LOCAL_ENDPOINT:'https://api.provider.com/v1/chat/completions'}).ok,true);
+});
+test('one-time gateway scope cannot inherit subscription approval and requires its own online acceptance',async()=>{
+  const env={...configured(),...freeProvider,NEEDWARE_BILLING_MODE:'cashfree_once',NEEDWARE_WORKER_MODE:'scheduled',CASHFREE_ENVIRONMENT:'production',CASHFREE_CLIENT_ID:'approved_live_client',CASHFREE_CLIENT_SECRET:secret(),CASHFREE_MERCHANT_ID:'cf_'+secret().slice(0,32),CASHFREE_PRO_MONTHLY_PAISE:'49900',CASHFREE_LIVE_APPROVED:'1',CASHFREE_LIVE_ACCEPTANCE_APPROVED:'1'};
+  assert.equal(productionConfiguration(env).ok,false);
+  Object.assign(env,{CASHFREE_PG_LIVE_APPROVED:'1',CASHFREE_PG_ACCEPTANCE_APPROVED:'1',CASHFREE_MERCHANT_ID:'cf_'+createHash('sha256').update(env.CASHFREE_CLIENT_ID).digest('hex').slice(0,32)});assert.equal(productionConfiguration(env).ok,true);
+  for(const patch of [{CASHFREE_PG_LIVE_APPROVED:'0'},{CASHFREE_PG_ACCEPTANCE_APPROVED:'0'},{CASHFREE_PRO_MONTHLY_PAISE:'50000'}])assert.equal(productionConfiguration({...env,...patch}).ok,false);
+  const result=await preflight(env,{online:true,artifacts:async()=>true,dependencies:async()=>({database:async()=>({schema:true,operators:true,workers:[]}),mail:async()=>true,provider:async()=>true,cashfree_once:async()=>false,origin:async()=>true,close:async()=>{}})});
+  assert.equal(result.status,'FAIL');assert.equal(result.checks.find(c=>c.name==='cashfree_once').status,'FAIL');
 });
 test('disabled billing rejects retained credentials and still requires generation, mail and online gates',async()=>{
   const env={...configured(),...freeProvider,NEEDWARE_BILLING_MODE:'disabled'};

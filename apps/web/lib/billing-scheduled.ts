@@ -2,6 +2,7 @@ import {Pool} from 'pg';
 import type {CashfreeConfig} from './cashfree-client.ts';
 import {processCashfreeCleanup,processCashfreeEvent,reconcileCashfreeAccounts} from './cashfree-store.ts';
 import {startWorkerHealth} from './worker-health.ts';
+import {processCashfreeOrderEvent,reconcileCashfreePassAccounts} from './cashfree-orders.ts';
 
 export async function probeCashfreeHost(options:Pool['options']){
   if(!options.ssl||typeof options.ssl!=='object'||options.ssl.rejectUnauthorized!==true)throw Error('Billing host probe requires certificate-verified database TLS');
@@ -10,7 +11,7 @@ export async function probeCashfreeHost(options:Pool['options']){
     await pool.query('BEGIN READ ONLY');
     const row=await pool.query("SELECT count(*)::integer AS tables FROM information_schema.tables WHERE table_schema='public'");
     await pool.query('COMMIT');
-    if(row.rows[0]?.tables!==44)throw Error('Billing host schema unavailable');
+    if(row.rows[0]?.tables<44)throw Error('Billing host schema unavailable');
     return {billingHostProbe:'PASS',elapsedMs:Date.now()-started,databaseTls:true,readOnly:true,providerCalls:0};
   }finally{await pool.end();}
 }
@@ -31,9 +32,10 @@ export async function scheduledCashfree(poolOptions:Pool['options'],config:Cashf
   let health:Awaited<ReturnType<typeof startWorkerHealth>>|undefined;
   try{
     health=await startWorkerHealth(pool,'billing',300);
-    const cleaned=await processCashfreeCleanup(pool,scoped);
-    const processed=await processCashfreeEvent(pool,scoped);
-    const reconciled=await reconcileCashfreeAccounts(pool,scoped);
+    const once=process.env.NEEDWARE_BILLING_MODE==='cashfree_once';
+    const cleaned=once?false:await processCashfreeCleanup(pool,scoped);
+    const processed=await (once?processCashfreeOrderEvent:processCashfreeEvent)(pool,scoped);
+    const reconciled=await (once?reconcileCashfreePassAccounts:reconcileCashfreeAccounts)(pool,scoped);
     if(cleaned||processed||reconciled)health.healthy();
     return {ok:true,cleaned,processed,reconciled};
   }catch{health?.degraded();return {ok:false};}

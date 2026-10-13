@@ -18,22 +18,18 @@ try {
   const sql = await migrations.compileMigrations();
   if (process.argv.includes('--emit') && sql.trim()) await writeFile('services/control-plane/migrations/auth-schema.sql', sql);
   await migrations.runMigrations();
-  await pool.query(await readFile('services/control-plane/migrations/0001-email-outbox.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0002-account-vault.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0003-document-relay.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0004-document-epochs.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0005-epoch-recipient-certificates.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0006-account-root-rotation.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0007-application-registry.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0008-generation-jobs.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0009-billing.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0010-operations.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0011-scheduled-workers.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0012-global-generation-quota.sql', 'utf8'));
-  await pool.query(await readFile('services/control-plane/migrations/0013-cashfree-billing.sql', 'utf8'));
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(1745,1)');
+    await verifyMigrationFiles(client,files);await assertPriorSchema(client);
+    const recorded=(await client.query("SELECT to_regclass('public.needware_schema_migration') IS NOT NULL AS present")).rows[0].present;
+    const applied=new Set(recorded?(await client.query('SELECT name FROM needware_schema_migration')).rows.map(row=>row.name):[]);
+    // Immutable old migrations must not reinstall superseded constraints over
+    // newer billing rows. The new batch and readiness manifest commit together.
+    for(const file of files.filter(file=>/^\d{4}-/.test(file.name))){
+      if(!applied.has(file.name))await client.query(await readFile('services/control-plane/migrations/'+file.name,'utf8'));
+    }
     // Existing charges already include this metadata. Record their exact size
     // without charging twice; canonical JSON differs from PostgreSQL jsonb text.
     const documents = await client.query('SELECT id FROM needware_document ORDER BY id FOR UPDATE');
