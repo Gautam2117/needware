@@ -2,6 +2,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
+import {randomBytes} from 'node:crypto';
 import {buildReady} from './build-readiness.mjs';
 import {productionConfiguration} from './production-config.mjs';
 export function renderConfiguration(env){
@@ -26,6 +27,8 @@ export function renderConfiguration(env){
   }else issues.push('RENDER_STAGE');
   for(const key of ['NEEDWARE_FIXTURE_MODE','NEEDWARE_BILLING_FIXTURE','NEEDWARE_ALLOW_LOOPBACK'])if(env[key]&&env[key]!=='0')issues.push('FIXTURE_DISABLED');
   if(env.NODE_TLS_REJECT_UNAUTHORIZED==='0')issues.push('TLS_REQUIRED');
+  if(env.NEEDWARE_EDGE_PROXY&&env.NEEDWARE_EDGE_PROXY!=='0'&&env.NEEDWARE_EDGE_PROXY!=='1')issues.push('EDGE_PROXY_MODE');
+  if(env.NEEDWARE_EDGE_PROXY==='1'&&(env.NEEDWARE_RENDER_STAGE!=='production'||!/^[0-9a-f]{64}$/.test(env.NEEDWARE_EDGE_ORIGIN_PROOF??'')))issues.push('AUTHENTICATED_EDGE_REQUIRED');
   return {issues,host,alias};
 }
 export async function runRenderService(){
@@ -34,7 +37,7 @@ export async function runRenderService(){
   if(!await buildReady())config.issues.push('BUILD_ARTIFACTS');
   try{if(execFileSync('git',['-c',`safe.directory=${root}`,'rev-parse','HEAD'],{encoding:'utf8'}).trim()!==env.NEEDWARE_RELEASE_SHA||execFileSync('git',['-c',`safe.directory=${root}`,'status','--porcelain','--untracked-files=normal'],{encoding:'utf8'}).trim())config.issues.push('EXACT_CLEAN_RELEASE');}catch{config.issues.push('EXACT_CLEAN_RELEASE');}
   if(config.issues.length)throw Error('RENDER_STARTUP '+config.issues.join(','));
-  const runtime={...env,NEEDWARE_PUBLIC_HOST:config.host,NEEDWARE_ALIAS_REDIRECT_HOST:config.host===config.alias?'never-redirect.invalid':config.alias,NEEDWARE_LOOPBACK_INGRESS:'1'};
+  const runtime={...env,NEEDWARE_PUBLIC_HOST:config.host,NEEDWARE_ACCEPTED_HOSTS:[...new Set([config.host,config.alias])].join(' '),NEEDWARE_ALIAS_REDIRECT_HOST:config.host===config.alias?'never-redirect.invalid':config.alias,NEEDWARE_EDGE_ORIGIN_PROOF:env.NEEDWARE_EDGE_PROXY==='1'?env.NEEDWARE_EDGE_ORIGIN_PROOF:randomBytes(32).toString('hex'),NEEDWARE_LOOPBACK_INGRESS:'1'};
   const children=[];let stopping=false;
   const stop=()=>{if(stopping)return;stopping=true;for(const child of children)try{process.kill(-child.pid,'SIGTERM');}catch{};const timer=setTimeout(()=>{for(const child of children)try{process.kill(-child.pid,'SIGKILL');}catch{}},20000);timer.unref();};
   const start=(name,command,args,options={})=>{const child=spawn(command,args,{cwd:root,env:runtime,stdio:'inherit',detached:true,...options});children.push(child);

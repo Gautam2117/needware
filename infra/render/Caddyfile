@@ -4,14 +4,35 @@
 }
 :{$PORT:10000} {
     encode gzip
-    @unknown not host {$NEEDWARE_PUBLIC_HOST} {$RENDER_EXTERNAL_HOSTNAME}
-    respond @unknown "Unknown host" 421
+    header Strict-Transport-Security "max-age=31536000"
+    @unknown not host {$NEEDWARE_ACCEPTED_HOSTS}
+    handle @unknown {
+        respond "Unknown host" 421
+    }
+    @edge {
+        host {$RENDER_EXTERNAL_HOSTNAME}
+        header X-Needware-Origin-Proof {$NEEDWARE_EDGE_ORIGIN_PROOF}
+    }
+    handle @edge {
+        reverse_proxy 127.0.0.1:3000 {
+            header_up Host {$NEEDWARE_PUBLIC_HOST}
+            header_up X-Forwarded-Host {$NEEDWARE_PUBLIC_HOST}
+            header_up X-Forwarded-Proto https
+            header_up X-Needware-Client-IP {http.request.header.X-Needware-Edge-IP}
+            header_up -X-Needware-Origin-Proof
+            header_up -X-Needware-Edge-IP
+            header_up -X-Needware-Auth-IP
+            header_up -X-Forwarded-For
+            header_up -X-Vercel-Forwarded-For
+            header_up -X-Real-IP
+        }
+    }
+    handle {
     @alias {
         host {$NEEDWARE_ALIAS_REDIRECT_HOST}
         not path /api/health
     }
     redir @alias https://{$NEEDWARE_PUBLIC_HOST}{uri} 308
-    header Strict-Transport-Security "max-age=31536000"
     reverse_proxy 127.0.0.1:3000 {
         header_up -X-Needware-Auth-IP
         # Conservative peer address; never trust a caller-supplied forwarding chain.
@@ -21,5 +42,8 @@
         header_up -X-Real-IP
         header_up X-Forwarded-Proto https
         header_up X-Forwarded-Host {host}
+        header_up -X-Needware-Origin-Proof
+        header_up -X-Needware-Edge-IP
+    }
     }
 }
