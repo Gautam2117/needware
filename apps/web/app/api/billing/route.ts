@@ -10,14 +10,15 @@ import {cashfreeConfig} from '../../../lib/cashfree-client';
 import {cashfreePrice,cashfreeCheckout,cashfreeCancel} from '../../../lib/cashfree-store';
 import {cashfreePassPrice,cashfreeOrderCheckout,synchronizeCashfreePass} from '../../../lib/cashfree-orders';
 import {cashfreePassQa} from '../../../lib/billing-acceptance';
+import {passCatalog} from '../../../lib/pass-catalog';
 export const runtime='nodejs';
 export async function GET(request:Request){try{const {session,pool}=await accountRequest(request),provider=billingProvider();
   if(provider==='cashfree_once'){
     const config=cashfreeConfig(),account=await billingSummary(pool,session.user.id),usage=await generationUsage(pool,session.user.id);
-    const checkout=(await pool.query("SELECT id,expires_at FROM needware_cashfree_order WHERE account_id=$1 AND state='pending' AND expires_at>now() ORDER BY created_at DESC LIMIT 1",[session.user.id])).rows[0]??null;
+    const checkout=(await pool.query("SELECT id,expires_at,plan_id FROM needware_cashfree_order WHERE account_id=$1 AND state='pending' AND expires_at>now() ORDER BY created_at DESC LIMIT 1",[session.user.id])).rows[0]??null;
     const acceptance_qa=cashfreePassQa(session.user.id);
     const checkout_available=!usage.creation_hold&&(acceptance_qa||process.env.NEEDWARE_HOSTED_GENERATION==='1'&&(!config.live||process.env.CASHFREE_PG_ACCEPTANCE_APPROVED==='1'));
-    return cloudResponse({provider,configured:true,checkout_available,acceptance_qa,price:cashfreePassPrice(config),account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout,usage});
+    return cloudResponse({provider,configured:true,checkout_available,acceptance_qa,price:cashfreePassPrice(config),prices:passCatalog.map(plan=>cashfreePassPrice(config,plan.id)),account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout,usage});
   }
   let cashfree;try{if(provider==='cashfree')cashfree=cashfreeConfig();}catch(error){if(!(error instanceof BillingFailure))throw error;}
   const configured=provider==='cashfree'?Boolean(cashfree):billingConfigured();

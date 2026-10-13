@@ -4,13 +4,16 @@ import canonicalize from 'canonicalize';
 import Script from 'next/script';
 import Link from '../offline-link';
 import type {Billing} from './panel';
+import {passCatalog} from '../../lib/pass-catalog';
 export default function PassBilling({data,refresh}:{data:Billing;refresh:()=>Promise<void>}){
  const [phone,setPhone]=useState(''),[review,setReview]=useState<string|null>(null),[sdk,setSdk]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const intent=useRef<{digest:string;id:string}|null>(null),price=data.price;
+ const [planId,setPlanId]=useState(data.checkout?.plan_id??passCatalog[0].id);
+ const intent=useRef<{digest:string;id:string}|null>(null),price=data.prices?.find(price=>price.id===planId)??(data.price?.id===planId?data.price:null);
+ const definition=passCatalog.find(plan=>plan.id===planId),amount=definition?new Intl.NumberFormat('en-IN').format(definition.amount/100):'—',days=definition?.duration_days;
  const digest=canonicalize({price,phone})??null,consent=review!==null&&review===digest;
  async function act(checkout:boolean){setBusy(true);setError('');try{
   let payload:unknown={action:'verify'};
-  if(checkout){if(!price||price.interval!=='once'||price.amount!==49900||price.currency!=='inr'||!consent||!data.checkout_available||!/^\d{10}$/.test(phone)||!sdk)throw Error('Review the price and mobile number before payment');
+  if(checkout){if(!price||!definition||price.interval!=='once'||price.amount!==definition.amount||price.duration_days!==definition.duration_days||price.currency!=='inr'||!consent||!data.checkout_available||!/^\d{10}$/.test(phone)||!sdk)throw Error('Review the price and mobile number before payment');
    if(intent.current?.digest!==digest)intent.current={digest:digest!,id:data.checkout?.id??crypto.randomUUID()};
    payload={action:'checkout',id:intent.current!.id,price,phone,consent:true};
   }
@@ -28,11 +31,11 @@ export default function PassBilling({data,refresh}:{data:Billing;refresh:()=>Pro
  {data.checkout_available&&<Script src="https://sdk.cashfree.com/js/v3/cashfree.js" onReady={()=>setSdk(true)} onError={()=>setError('Cashfree could not load. Please try later.')}/>}
  <section aria-label="Current access"><h2>{active?'Pro':'Free'}</h2><p>{data.usage.quota.daily} creation requests per UTC day · {data.usage.quota.monthly} per calendar month, subject to service capacity.</p>
  {data.account?.paid_until&&<p>Verified access ends {new Date(data.account.paid_until).toLocaleString()}.</p>}<p>Your saved applications remain yours after Pro ends. Paid access requires fresh payment verification.</p></section>
- <section aria-label="One-time Pro purchase"><h2>₹499 · 30 days</h2><p>One-time payment. <strong>No automatic renewal.</strong> The 30 days start at the confirmed payment time. Buy another pass after expiry.</p>
+ <section aria-label="One-time Pro purchase"><h2>₹{amount} · {days} days</h2><label>Pro access period<select value={planId} disabled={busy||active||Boolean(data.checkout)} onChange={event=>{setPlanId(event.target.value);setReview(null);intent.current=null;}}>{passCatalog.map(plan=><option key={plan.id} value={plan.id}>₹{new Intl.NumberFormat('en-IN').format(plan.amount/100)} · {plan.label}{plan.duration_days===365?' · two months free':''}</option>)}</select></label><p>One-time payment. <strong>No automatic renewal.</strong> Access starts at the confirmed payment time. Buy another pass after expiry.</p>
  {!data.checkout_available&&<p role="status" className="notice">Purchases are paused while payment and creation services finish verification.</p>}{price&&!price.livemode&&<p className="notice">Sandbox checkout: no real payment is accepted.</p>}
  <label>10-digit Indian mobile number<input type="tel" inputMode="numeric" autoComplete="tel-national" pattern="[0-9]{10}" maxLength={10} value={phone} onChange={event=>{setPhone(event.target.value);setReview(null);}}/></label>
  <p>Payment details are handled by Cashfree. <Link href="/refunds">Seven-day refund policy</Link> · <Link href="/terms">Terms</Link> · <Link href="/privacy">Privacy</Link>.</p>
- <label><input type="checkbox" checked={consent} onChange={event=>setReview(event.target.checked?digest:null)}/> I reviewed ₹499 for 30 days, no automatic renewal, and the linked policies.</label>
+ <label><input type="checkbox" checked={consent} onChange={event=>setReview(event.target.checked?digest:null)}/> I reviewed ₹{amount} for {days} days, no automatic renewal, and the linked policies.</label>
  <button disabled={busy||active||!data.checkout_available||data.usage.creation_hold||!sdk||!consent||!/^\d{10}$/.test(phone)} onClick={()=>{void act(true);}}>{active?'Your Pro pass is active':'Continue to Cashfree'}</button></section>
  <button disabled={busy||!data.account} onClick={()=>{void act(false);}}>Verify payment and access</button><p><a href="mailto:gautam@continuumarc.tech">Payment or refund support</a></p></main></>;
 }

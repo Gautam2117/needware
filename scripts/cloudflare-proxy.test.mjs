@@ -2,6 +2,20 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import worker,{proxyRequest,keepWarm} from '../infra/cloudflare/needware-proxy.mjs';
 const env={NEEDWARE_CANONICAL_HOST:'needware.continuumarc.tech',NEEDWARE_RENDER_ORIGIN:'https://needware-test.onrender.com',NEEDWARE_EDGE_ORIGIN_PROOF:'a'.repeat(64),NEEDWARE_STAGING_HOST:'needware-test.govindgautam933.workers.dev'};
+test('hashed public assets survive an origin outage without caching authenticated pages or errors',async()=>{
+ const entries=new Map(),cache={match:async key=>entries.get(key.url)?.clone(),put:async(key,value)=>{entries.set(key.url,value);}};
+ let calls=0;const origin=async request=>{calls++;assert.equal(request.headers.get('cookie'),null);assert.equal(request.headers.get('authorization'),null);return new Response('asset',{headers:{'Content-Type':'application/javascript'}});};
+ const asset=new Request('https://needware.continuumarc.tech/_next/static/chunks/abc123.js',{headers:{cookie:'private',authorization:'Bearer private'}});
+ const first=await proxyRequest(asset,env,origin,cache);assert.match(first.headers.get('cache-control'),/immutable/);assert.equal(await first.text(),'asset');
+ const second=await proxyRequest(asset,env,async()=>{throw Error('offline');},cache);assert.equal(await second.text(),'asset');assert.equal(calls,1);
+ for(const path of ['/account','/api/documents','/frame.js','/_next/static/chunks/unexpected.js']){
+  const response=await proxyRequest(new Request('https://needware.continuumarc.tech'+path),env,async()=>new Response('private html',{headers:{'Content-Type':'text/html','Set-Cookie':'private'}}),cache);
+  assert.equal(response.headers.get('cache-control'),'no-store');
+ }
+ assert.equal(entries.size,1);
+ const failure=await proxyRequest(new Request('https://needware.continuumarc.tech/_next/static/chunks/error.js'),env,async()=>new Response('error',{status:503,headers:{'Content-Type':'application/javascript'}}),cache);
+ assert.equal(failure.status,503);assert.equal(entries.size,1);
+});
 test('keep-warm only dispatches an enabled bounded health check to the fixed origin',async()=>{
   let calls=0;
   const upstream=async(url,options)=>{calls++;assert.equal(url,'https://needware-free.onrender.com/api/health');assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.ok(options.signal);assert.equal(options.headers,undefined);return new Response('healthy');};

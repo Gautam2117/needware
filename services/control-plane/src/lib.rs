@@ -77,6 +77,11 @@ async fn providers(
 struct BoundedCompileRequest {
     prompt: String,
     max_tokens: u64,
+    #[serde(default = "legacy_output_bound")]
+    max_output_tokens: u64,
+}
+fn legacy_output_bound() -> u64 {
+    50_000
 }
 async fn bounded_compile(
     State(state): State<Arc<Gateway>>,
@@ -91,6 +96,9 @@ async fn bounded_compile(
     if request.max_tokens == 0
         || request.max_tokens > 50_000
         || compiler.token_ceiling() > request.max_tokens
+        || request.max_output_tokens == 0
+        || request.max_output_tokens > request.max_tokens
+        || compiler.output_token_ceiling() > request.max_output_tokens
     {
         return Err(StatusCode::CONFLICT);
     }
@@ -225,13 +233,18 @@ mod tests {
                 input_microusd_per_million: Some(0),
                 output_microusd_per_million: Some(0),
             },
-            Policy::default(),
+            Policy {
+                max_tokens: 50_000,
+                max_output_tokens: 2048,
+                max_repairs: 1,
+                ..Policy::default()
+            },
             needware_crypto::SecretKey::random()?,
         )?;
         let token = "0123456789abcdef0123456789abcdef";
         let app = router(Gateway::new(Some(compiler), token.into())?);
         // Mismatched bounds reject before inference or semaphore acquisition.
-        for ceiling in [0, 50_000, 50_001] {
+        for ceiling in [0, 49_999, 50_001] {
             let bounded = Request::builder()
                 .method("POST")
                 .uri("/api/bounded-compile-jobs")
@@ -242,6 +255,16 @@ mod tests {
                 )))?;
             assert_eq!(
                 app.clone().oneshot(bounded).await?.status(),
+                StatusCode::CONFLICT
+            );
+        }
+        for output in [0, 6143, 50_001] {
+            let request = Request::builder().method("POST").uri("/api/bounded-compile-jobs")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(format!("{{\"prompt\":\"Track habits\",\"max_tokens\":50000,\"max_output_tokens\":{output}}}")))?;
+            assert_eq!(
+                app.clone().oneshot(request).await?.status(),
                 StatusCode::CONFLICT
             );
         }

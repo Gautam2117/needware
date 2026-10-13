@@ -36,6 +36,11 @@ try{
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM needware_email_outbox WHERE user_id=$1',[user])).rows[0].n,0);
   const response=await fetch(`http://127.0.0.1:58025/api/v1/search?query=${encodeURIComponent(`to:${recipient}`)}`,{signal:AbortSignal.timeout(5000)});assert.equal(response.status,200);assert.equal((await response.json()).messages.length,1);
   await assert.rejects(runMailWorker({reuseResources:true}),/must be bounded/);await assert.rejects(runGenerationWorker({reuseResources:true}),/must be bounded/);
+  const continuous=crypto.randomUUID();await pool.query("INSERT INTO needware_worker_health(worker,instance,state,mode,period_seconds) VALUES('generation',$1,'running','continuous',NULL)",[continuous]);
+  const mixed={NEEDWARE_BILLING_MODE:'disabled',NEEDWARE_HOSTED_GENERATION:'1',NEEDWARE_WORKER_MODE:'scheduled',NEEDWARE_WORKER_INTERVAL_SECONDS:'300',NEEDWARE_GENERATION_WORKER_MODE:'continuous'};
+  assert.deepEqual(await workersReady(pool,mixed),[],'Supervised continuous generation and scheduled email are both healthy');
+  await pool.query("UPDATE needware_worker_health SET updated_at=now()-interval '31 seconds' WHERE instance=$1",[continuous]);assert.deepEqual(await workersReady(pool,mixed),['generation'],'A stale continuous worker is not masked by scheduled history');
+  await pool.query('DELETE FROM needware_worker_health WHERE instance=$1',[continuous]);
   const warm=timings.slice(1),mean=warm.reduce((sum,value)=>sum+value.cpuMs,0)/warm.length;
   console.log(JSON.stringify({status:'PASS',runtime:typeof Deno==='undefined'?'Node':'Deno',scope:'local reusable workers, durable mail retry, no external inference/mail',warmMeanCpuMs:mean,warmMaxCpuMs:Math.max(...warm.map(value=>value.cpuMs)),firstTickCpuMs:timings[0].cpuMs,startupExcludedFromTickTiming:true,scheduledHealth:'fresh idle only; latest failure, stale/future/cadence mismatch rejected',signalListenersPreserved:true,hostedResourceQualification:'UNVERIFIED'}));
 }finally{mail.close();await pool.end();}

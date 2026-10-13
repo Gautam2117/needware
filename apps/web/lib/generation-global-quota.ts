@@ -3,13 +3,15 @@ import type {ProviderInfo} from '@needware/ir-types/ProviderInfo';
 import type {Usage} from '@needware/ir-types/Usage';
 // Official OSS120b rates, 2026-10-07. Integer neurons round upward per job.
 export const neuronRates={input:31818,output:68182};
-export type GlobalPolicy={tokens:number;neurons:number;daily:number;accountDaily:number;concurrency:number};
+export type GlobalPolicy={tokens:number;outputTokens:number;neurons:number;daily:number;accountDaily:number;concurrency:number};
 const integer=(value:string|undefined,fallback:number,max:number)=>{const n=value===undefined?fallback:Number(value);if(!/^[1-9][0-9]*$/.test(String(value??fallback))||!Number.isSafeInteger(n)||n>max)throw Error('GLOBAL_GENERATION_POLICY');return n;};
 export function globalGenerationPolicy(env:NodeJS.ProcessEnv=process.env):GlobalPolicy|undefined{
   if(!env.NEEDWARE_GENERATION_QUOTA){if(env.NEEDWARE_BILLING_MODE==='disabled'&&env.NEEDWARE_FIXTURE_MODE!=='1')throw Error('GLOBAL_GENERATION_POLICY_REQUIRED');return;}
   if(env.NEEDWARE_GENERATION_QUOTA!=='cloudflare-free'||!['disabled','stripe','cashfree','cashfree_once'].includes(env.NEEDWARE_BILLING_MODE??''))throw Error('GLOBAL_GENERATION_POLICY');
-  const tokens=integer(env.NEEDWARE_GENERATION_MAX_TOKENS,50000,50000),neurons=Math.ceil(tokens*neuronRates.output/1000000);
-  return {tokens,neurons,daily:integer(env.NEEDWARE_GENERATION_DAILY_NEURONS,8000,8000),accountDaily:integer(env.NEEDWARE_GENERATION_ACCOUNT_NEURONS,4000,4000),concurrency:integer(env.NEEDWARE_GENERATION_CONCURRENCY,2,2)};
+  const tokens=integer(env.NEEDWARE_GENERATION_MAX_TOKENS,50000,50000),outputTokens=integer(env.NEEDWARE_GENERATION_OUTPUT_TOKENS,2048,4096);
+  // Intent + definition + at most one repair. The private compiler enforces this output bound.
+  const output=Math.min(tokens,3*outputTokens),neurons=Math.ceil((tokens*neuronRates.input+output*(neuronRates.output-neuronRates.input))/1000000);
+  return {tokens,outputTokens,neurons,daily:integer(env.NEEDWARE_GENERATION_DAILY_NEURONS,8000,8000),accountDaily:integer(env.NEEDWARE_GENERATION_ACCOUNT_NEURONS,4000,4000),concurrency:integer(env.NEEDWARE_GENERATION_CONCURRENCY,2,2)};
 }
 export function assertGlobalProvider(provider:ProviderInfo,env:NodeJS.ProcessEnv=process.env){
   if(provider.fixture&&env.NEEDWARE_FIXTURE_MODE==='1'&&new URL(env.BETTER_AUTH_URL??'').protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(new URL(env.BETTER_AUTH_URL??'').hostname)&&['localhost','127.0.0.1','[::1]'].includes(new URL(env.NEEDWARE_LOCAL_ENDPOINT??'').hostname))return;

@@ -130,6 +130,9 @@ impl Compiler {
     pub fn token_ceiling(&self) -> u64 {
         self.policy.max_tokens
     }
+    pub fn output_token_ceiling(&self) -> u64 {
+        u64::from(self.policy.max_output_tokens) * (2 + u64::from(self.policy.max_repairs))
+    }
     pub fn new(
         config: provider::Config,
         policy: Policy,

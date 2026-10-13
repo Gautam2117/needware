@@ -5,19 +5,20 @@ import {BillingFailure} from './billing-config.ts';
 import {ownerLock} from './generation-store.ts';
 import {creationHeld} from './creation-hold.ts';
 import {cashfreeRequest,cashfreeList,type CashfreeConfig,verifyCashfreeWebhook,CashfreeApiFailure} from './cashfree-client.ts';
-const duration=30*86400000;
+import {passDefinition,passCatalog} from './pass-catalog.ts';
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const numeric=(value:unknown)=>typeof value==='string'&&/^[0-9]{1,40}$/.test(value)?value:typeof value==='number'&&Number.isSafeInteger(value)&&value>0?String(value):null;
-export function cashfreePassPrice(config:CashfreeConfig){
+export function cashfreePassPrice(config:CashfreeConfig,id:unknown=passCatalog[0].id){
  if(config.amount!==49900)throw new BillingFailure(503,'One-time Pro price unavailable');
- return {id:'needware_pro_30_days',amount:49900,currency:'inr',interval:'once' as const,duration_days:30,automatic_renewal:false,livemode:config.live};
+ let plan;try{plan=passDefinition(id);}catch{throw new BillingFailure(400,'Unknown Pro pass');}
+ return {id:plan.id,amount:plan.amount,currency:'inr',interval:'once' as const,duration_days:plan.duration_days,automatic_renewal:false,livemode:config.live};
 }
-function checkOrder(order:Record<string,unknown>,orderId:string,customer:string,config:CashfreeConfig){
+function checkOrder(order:Record<string,unknown>,orderId:string,customer:string,amount:number){
  const details=order.customer_details as Record<string,unknown>|undefined;
- if(order.order_id!==orderId||!numeric(order.cf_order_id)||order.order_currency!=='INR'||order.order_amount!==499||details?.customer_id!==customer)throw new BillingFailure(503,'Payment order identity rejected');
+ if(order.order_id!==orderId||!numeric(order.cf_order_id)||order.order_currency!=='INR'||order.order_amount!==amount/100||details?.customer_id!==customer)throw new BillingFailure(503,'Payment order identity rejected');
 }
 export async function cashfreeOrderCheckout(pool:Pool,account:string,email:string,name:string,phone:string,id:string,review:unknown,config:CashfreeConfig,origin:string){
- const price=cashfreePassPrice(config);
+ const price=cashfreePassPrice(config,(review as {id?:unknown}|null)?.id);
  if(!idPattern.test(id)||canonicalize(price)!==canonicalize(review)||!/^\d{10}$/.test(phone)||!email||name.length>200)throw new BillingFailure(400,'Review the one-time price and contact details');
  const url=new URL(origin);if(url.username||url.password||url.pathname!=='/'||url.search||url.hash||!(url.protocol==='https:'||!config.live&&url.protocol==='http:'&&['127.0.0.1','localhost'].includes(url.hostname)))throw new BillingFailure(503,'Checkout origin rejected');
  const orderId='nw_'+id.replaceAll('-','').toLowerCase(),customer='cf_cus_'+account.replaceAll('-','');
@@ -33,32 +34,34 @@ export async function cashfreeOrderCheckout(pool:Pool,account:string,email:strin
   if(!previous&&(await client.query("SELECT id FROM needware_cashfree_order WHERE account_id=$1 AND state='pending' AND expires_at>now()",[account])).rowCount)throw new BillingFailure(409,'Finish the open checkout or wait for expiry');
   expires=previous?new Date(previous.expires_at):new Date(Date.now()+30*60000);
   if(!billing)billing=(await client.query("INSERT INTO needware_billing_account(account_id,customer_id,merchant_id,livemode,provider) VALUES($1,$2,$3,$4,'cashfree_once') RETURNING *",[account,customer,config.merchant,config.live])).rows[0];
-  if(!previous)await client.query('INSERT INTO needware_cashfree_order(id,account_id,merchant_id,livemode,order_id,request_digest,amount,expires_at) VALUES($1,$2,$3,$4,$5,$6,49900,$7)',[id,account,config.merchant,config.live,orderId,digest,expires]);
+  if(!previous)await client.query('INSERT INTO needware_cashfree_order(id,account_id,merchant_id,livemode,order_id,request_digest,amount,expires_at,plan_id,duration_days) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,account,config.merchant,config.live,orderId,digest,price.amount,expires,price.id,price.duration_days]);
   await client.query('COMMIT');
   // Exact order/idempotency identity persists before network dispatch. Lost replies resume it.
   let order;try{order=await cashfreeRequest(config,`/orders/${orderId}`);}catch(error){if(!(error instanceof CashfreeApiFailure)||error.apiStatus!==404)throw error;}
-  order??=await cashfreeRequest(config,'/orders',{method:'POST',idempotency:id,body:{order_id:orderId,order_amount:499,order_currency:'INR',order_expiry_time:expires.toISOString(),customer_details:{customer_id:customer,customer_email:email,customer_name:name,customer_phone:phone},order_meta:{return_url:`${origin.replace(/\/$/,'')}/billing?checkout=returned`,notify_url:`${origin.replace(/\/$/,'')}/api/billing/webhook`},order_note:'Needware Pro: 30 days. One-time payment. No automatic renewal.'}});
-  checkOrder(order,orderId,customer,config);
+  order??=await cashfreeRequest(config,'/orders',{method:'POST',idempotency:id,body:{order_id:orderId,order_amount:price.amount/100,order_currency:'INR',order_expiry_time:expires.toISOString(),customer_details:{customer_id:customer,customer_email:email,customer_name:name,customer_phone:phone},order_meta:{return_url:`${origin.replace(/\/$/,'')}/billing?checkout=returned`,notify_url:`${origin.replace(/\/$/,'')}/api/billing/webhook`},order_note:`Needware Pro: ${price.duration_days} days. One-time payment. No automatic renewal.`}});
+  checkOrder(order,orderId,customer,price.amount);
   if(order.order_status!=='ACTIVE'||typeof order.payment_session_id!=='string'||! /^[A-Za-z0-9_.-]{16,4096}$/.test(order.payment_session_id)||!Number.isFinite(Date.parse(String(order.order_expiry_time)))||Date.parse(String(order.order_expiry_time))>expires.getTime()+1000||Date.parse(String(order.order_expiry_time))<=Date.now())throw new BillingFailure(409,'Payment order is not available for checkout');
   await client.query('BEGIN');await ownerLock(client,account);
   if(await creationHeld(client,account))throw new BillingFailure(403,'Purchases are paused');
-  if(!(await client.query("UPDATE needware_cashfree_order SET session_id=$3 WHERE id=$1 AND account_id=$2 AND request_digest=$4 AND state='pending' AND expires_at>now() AND (session_id IS NULL OR session_id=$3)",[id,account,order.payment_session_id,digest])).rowCount)throw new BillingFailure(409,'Checkout is no longer available');
+  // The authenticated provider may refresh a checkout token for this same verified order.
+  if(!(await client.query("UPDATE needware_cashfree_order SET session_id=$3 WHERE id=$1 AND account_id=$2 AND request_digest=$4 AND state='pending' AND expires_at>now()",[id,account,order.payment_session_id,digest])).rowCount)throw new BillingFailure(409,'Checkout is no longer available');
   await client.query('COMMIT');return {provider:'cashfree_once',session:order.payment_session_id,livemode:config.live};
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
-export async function verifyCashfreePass(config:CashfreeConfig,orderId:string,customer:string,now=Date.now()){
- const order=await cashfreeRequest(config,`/orders/${orderId}`);checkOrder(order,orderId,customer,config);
+export async function verifyCashfreePass(config:CashfreeConfig,orderId:string,customer:string,now=Date.now(),planId:unknown=passCatalog[0].id){
+ const price=cashfreePassPrice(config,planId);
+ const order=await cashfreeRequest(config,`/orders/${orderId}`);checkOrder(order,orderId,customer,price.amount);
  if(order.order_status!=='PAID')return null;
  const payments=await cashfreeList(config,`/orders/${orderId}/payments`),successful=payments.filter(p=>p.payment_status==='SUCCESS');
  // Multiple successes need operator refund review; never extend access from ambiguous evidence.
  if(successful.length!==1)return null;
  const payment=successful[0],paymentId=numeric(payment.cf_payment_id),start=Date.parse(String(payment.payment_completion_time??payment.payment_time));
- if(!paymentId||payment.order_id!==orderId||payment.payment_currency!=='INR'||payment.payment_amount!==499||payment.order_currency!=='INR'||payment.order_amount!==499||payment.is_captured!==true||!Number.isFinite(start)||start>now||!Number.isFinite(Date.parse(String(order.order_expiry_time)))||start>Date.parse(String(order.order_expiry_time))||start<Date.parse(String(order.created_at))||!Number.isFinite(Date.parse(String(order.created_at))))return null;
+ if(!paymentId||payment.order_id!==orderId||payment.payment_currency!=='INR'||payment.payment_amount!==price.amount/100||payment.order_currency!=='INR'||payment.order_amount!==price.amount/100||payment.is_captured!==true||!Number.isFinite(start)||start>now||!Number.isFinite(Date.parse(String(order.order_expiry_time)))||start>Date.parse(String(order.order_expiry_time))||start<Date.parse(String(order.created_at))||!Number.isFinite(Date.parse(String(order.created_at))))return null;
  const [refunds,disputes]=await Promise.all([cashfreeList(config,`/orders/${orderId}/refunds`),cashfreeList(config,`/payments/${paymentId}/disputes`)]);
  if(refunds.some(r=>r.order_id!==orderId||!['FAILED','CANCELLED'].includes(String(r.refund_status))))return null;
  const won=['DISPUTE_MERCHANT_WON','CHARGEBACK_MERCHANT_WON','RETRIEVAL_MERCHANT_WON','PRE_ARBITRATION_MERCHANT_WON','ARBITRATION_MERCHANT_WON'];
- if(disputes.some(d=>numeric(d.cf_payment_id)!==paymentId||!won.includes(String(d.dispute_status))))return null;
- return {paymentId,start:new Date(start),until:new Date(start+duration)};
+ if(disputes.some(d=>{const details=d.order_details as Record<string,unknown>|undefined;return !details||numeric(details.cf_payment_id)!==paymentId||details.order_id!==orderId||details.order_currency!=='INR'||details.order_amount!==price.amount/100||details.payment_currency!=='INR'||details.payment_amount!==price.amount/100||!won.includes(String(d.dispute_status));}))return null;
+ return {paymentId,start:new Date(start),until:new Date(start+price.duration_days*86400000)};
 }
 export async function synchronizeCashfreePass(pool:Pool,account:string,config:CashfreeConfig){
  const client=await pool.connect();
@@ -68,7 +71,7 @@ export async function synchronizeCashfreePass(pool:Pool,account:string,config:Ca
   const rows=(await client.query("SELECT * FROM needware_cashfree_order WHERE account_id=$1 AND merchant_id=$2 AND livemode=$3 AND (state='pending' OR paid_until>now()) ORDER BY created_at,id FOR UPDATE",[account,config.merchant,config.live])).rows;
   if(rows.length>8)throw new BillingFailure(503,'Payment review capacity exceeded');
   let until:Date|null=null;
-  for(const row of rows){const paid=await verifyCashfreePass(config,row.order_id,billing.customer_id);
+  for(const row of rows){const price=cashfreePassPrice(config,row.plan_id);if(row.amount!==price.amount||row.duration_days!==price.duration_days)throw new BillingFailure(503,'Persisted pass identity rejected');const paid=await verifyCashfreePass(config,row.order_id,billing.customer_id,Date.now(),row.plan_id);
    if(paid&&row.payment_id&&(row.payment_id!==paid.paymentId||new Date(row.paid_start).getTime()!==paid.start.getTime()))throw new BillingFailure(503,'Confirmed payment identity changed');
    const state=paid?'paid':row.paid_start?'revoked':new Date(row.expires_at)<=new Date()?'expired':'pending';
    await client.query('UPDATE needware_cashfree_order SET state=$2,payment_id=COALESCE(payment_id,$3),paid_start=COALESCE(paid_start,$4),paid_until=COALESCE(paid_until,$5),verified_at=now() WHERE id=$1',[row.id,state,paid?.paymentId??null,paid?.start??null,paid?.until??null]);

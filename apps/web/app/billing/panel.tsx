@@ -6,8 +6,8 @@ import canonicalize from 'canonicalize';
 import Script from 'next/script';
 import {authClient} from '../../lib/auth-client';
 import PassBilling from './pass-panel';
-type Price={id:string;amount:number;currency:string;interval:'month'|'once';livemode:boolean};
-export type Billing={provider:'stripe'|'cashfree'|'cashfree_once'|'disabled';configured:boolean;checkout_available:boolean;acceptance_qa?:boolean;price:Price|null;checkout:{id:string;expires_at:string}|null;account:{status:string;paid_until:string|null;has_customer:boolean}|null;usage:{plan:string;creation_hold:boolean;quota:{daily:number;monthly:number;budget:number};resets_at:string}};
+type Price={id:string;amount:number;currency:string;interval:'month'|'once';livemode:boolean;duration_days?:number};
+export type Billing={provider:'stripe'|'cashfree'|'cashfree_once'|'disabled';configured:boolean;checkout_available:boolean;acceptance_qa?:boolean;price:Price|null;prices?:Price[];checkout:{id:string;expires_at:string;plan_id?:string}|null;account:{status:string;paid_until:string|null;has_customer:boolean}|null;usage:{plan:string;creation_hold:boolean;quota:{daily:number;monthly:number;budget:number};resets_at:string}};
 declare global{interface Window{Cashfree?:(options:{mode:'sandbox'|'production'})=>{subscriptionsCheckout:(options:{subsSessionId:string;redirectTarget:'_self'})=>Promise<{error?:{message?:string}}>;checkout:(options:{paymentSessionId:string;redirectTarget:'_self'})=>Promise<{error?:{message?:string}}>};}}
 const message=(failure:unknown)=>failure instanceof Error?failure.message:'Billing is temporarily unavailable. Please try again.';
 export default function BillingPanel(){const {data:session,isPending}=authClient.useSession();return <BillingDetails key={session?.user.id??'signedout'} account={session?.user.id} pending={isPending}/>;}

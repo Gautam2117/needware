@@ -6,7 +6,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_output_tokens: if std::env::var("NEEDWARE_GENERATION_QUOTA").as_deref()
                 == Ok("cloudflare-free")
             {
-                4096
+                let output = std::env::var("NEEDWARE_GENERATION_OUTPUT_TOKENS")
+                    .ok()
+                    .map(|v| v.parse::<u32>())
+                    .transpose()?
+                    .unwrap_or(2048);
+                if output == 0 || output > 4096 {
+                    return Err("Invalid free output bound".into());
+                }
+                output
             } else {
                 8192
             },

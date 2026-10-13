@@ -21,11 +21,11 @@ const stop=()=>{stopped=true;current?.abort();};process.on('SIGINT',stop);proces
 const number=value=>Number.isSafeInteger(value)&&value>=0;
 function usage(value,ceiling){
   const keys=['configured_cost_microusd','conservative_cost_microusd','input_tokens','output_tokens','unknown_usage_requests'];
-  if(!value||Object.keys(value).sort().join(',')!==keys.sort().join(',')||!keys.every(key=>number(value[key]))||Math.max(value.configured_cost_microusd,value.conservative_cost_microusd)>ceiling||value.input_tokens+value.output_tokens>1000000)throw Error('INVALID_USAGE');return value;
+  if(!value||Object.keys(value).sort().join(',')!==keys.sort().join(',')||!keys.every(key=>number(value[key]))||Math.max(value.configured_cost_microusd,value.conservative_cost_microusd)>ceiling||value.input_tokens+value.output_tokens>1000000||globalPolicy&&(value.input_tokens+value.output_tokens>globalPolicy.tokens||value.output_tokens>3*globalPolicy.outputTokens))throw Error('INVALID_USAGE');return value;
 }
 async function compile(job,signal){
   const config=privateControlConfig();if(!config)throw Error('PROVIDER_UNAVAILABLE');
-  const response=await fetch(new URL(globalPolicy?'/api/bounded-compile-jobs':'/api/compile-jobs',config.endpoint),{method:'POST',headers:{...config.headers,'Content-Type':'application/json'},body:JSON.stringify({prompt:job.prompt,...(globalPolicy?{max_tokens:globalPolicy.tokens}: {})}),signal,redirect:'error'});
+  const response=await fetch(new URL(globalPolicy?'/api/bounded-compile-jobs':'/api/compile-jobs',config.endpoint),{method:'POST',headers:{...config.headers,'Content-Type':'application/json'},body:JSON.stringify({prompt:job.prompt,...(globalPolicy?{max_tokens:globalPolicy.tokens,max_output_tokens:Math.min(globalPolicy.tokens,3*globalPolicy.outputTokens)}: {})}),signal,redirect:'error'});
   if(!response.ok||!response.body||!response.headers.get('content-type')?.startsWith('text/event-stream'))throw Error('PROVIDER_UNAVAILABLE');
   const reader=response.body.getReader(),decoder=new TextDecoder('utf-8',{fatal:true});let buffer='',total=0;
   try{for(;;){const chunk=await reader.read();if(chunk.done)break;total+=chunk.value.length;if(total>8*1024*1024)throw Error('RESULT_SIZE_LIMIT');buffer+=decoder.decode(chunk.value,{stream:true});

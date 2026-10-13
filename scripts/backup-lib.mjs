@@ -39,11 +39,12 @@ async function reviewedDatabase(pool,pg,tool,scope){
   const result=pg.run(tool,['--version']);let output='';result.child.stdout.on('data',chunk=>{output+=chunk.toString();if(output.length>256)result.child.kill('SIGTERM');});
   const done=await result.done;if(!done.ok||done.warnings||!new RegExp(`^${tool} \\(PostgreSQL\\) ${major}\\.`).test(output))throw Error(`Matching PostgreSQL ${major} ${tool} tools are required`);
 }
-export async function backupDatabase(path,config,{container=false,scope='all'}={}){
+export async function backupDatabase(path,config,{container=false,scope='all',snapshot}={}){
+  if(snapshot!==undefined&&(typeof snapshot!=='string'||! /^[0-9a-f]{8}-[0-9a-f]{8}-[0-9a-f]+$/i.test(snapshot)))throw Error('Invalid exported backup snapshot');
   const target=resolve(path),temporary=join(dirname(target),`.needware-backup-${randomBytes(16).toString('hex')}`);let file,pg,processResult;
   try{pg=await driver(config,container);const pool=await databasePool(config);try{await reviewedDatabase(pool,pg,'pg_dump',scope);}finally{await pool.end();}
     file=await open(temporary,'wx',0o600);const nonce=randomBytes(12),header=Buffer.concat([MAGIC,nonce]);if((await file.write(header,0,HEADER,0)).bytesWritten!==HEADER)throw Error('Backup header write failed');const cipher=createCipheriv('aes-256-gcm',config.key,nonce,{authTagLength:TAG});cipher.setAAD(header);
-    processResult=pg.run('pg_dump',['--format=custom','--no-owner','--no-acl','--lock-wait-timeout=5000',...(scope==='public'?['--schema=public']:[]),'--dbname',config.database]);
+    processResult=pg.run('pg_dump',['--format=custom','--no-owner','--no-acl','--lock-wait-timeout=5000',...(scope==='public'?['--schema=public']:[]),...(snapshot?['--snapshot',snapshot]:[]),'--dbname',config.database]);
     await pipeline(processResult.child.stdout,limit(),cipher,fileWriter(file,HEADER));const completed=await processResult.done;if(!completed.ok||completed.warnings)throw Error('PostgreSQL backup failed or emitted a warning; artifact was not published');
     const size=(await file.stat()).size;if((await file.write(cipher.getAuthTag(),0,TAG,size)).bytesWritten!==TAG)throw Error('Backup authentication tag write failed');await file.sync();await file.chmod(0o400);await file.close();file=null;
     await link(temporary,target);await unlink(temporary);const directory=await open(dirname(target),'r');try{await directory.sync();}finally{await directory.close();}return {bytes:size+TAG};

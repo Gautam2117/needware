@@ -1,6 +1,6 @@
 // Streaming canonical-origin gateway. No application state, credentials or model work lives at the edge.
 const unavailable=()=>new Response('Service temporarily unavailable',{status:503,headers:{'Cache-Control':'no-store'}});
-export async function proxyRequest(request,env,upstream=fetch){
+export async function proxyRequest(request,env,upstream=fetch,assetCache=globalThis.caches?.default){
   const url=new URL(request.url);let origin;
   try{origin=new URL(env.NEEDWARE_RENDER_ORIGIN);}catch{return unavailable();}
   if(origin.protocol!=='https:'||! /^[a-z0-9-]+\.onrender\.com$/.test(origin.hostname)||origin.port||origin.pathname!=='/'||origin.search||origin.hash||origin.username||origin.password
@@ -15,6 +15,10 @@ export async function proxyRequest(request,env,upstream=fetch){
     const secure=new URL(url);secure.protocol='https:';secure.port='';return Response.redirect(secure,308);
   }
   const target=new URL(origin);target.pathname=url.pathname;target.search=url.search;
+  // Only content-addressed Next assets may survive an origin outage. Never cache pages or APIs.
+  const immutable=request.method==='GET'&&!url.search&&/^\/_next\/static\/(chunks|css|media)\/[A-Za-z0-9_./-]+\.(js|css|woff2?|ttf|otf|png|jpg|jpeg|svg|webp|avif)$/.test(url.pathname);
+  const cacheKey=immutable?new Request(url.href,{method:'GET'}):null;
+  if(cacheKey&&assetCache){try{const cached=await assetCache.match(cacheKey);if(cached)return cached;}catch{/* Origin remains available if the cache fails. */}}
   const outbound=new Request(target,request);
   outbound.headers.set('Host',origin.host);
   const client=request.headers.get('cf-connecting-ip')??'';
@@ -23,9 +27,14 @@ export async function proxyRequest(request,env,upstream=fetch){
   outbound.headers.set('X-Needware-Edge-IP',client);
   // Staging is public-only: never carry account credentials onto the alternate hostname.
   if(url.hostname!==env.NEEDWARE_CANONICAL_HOST){outbound.headers.delete('cookie');outbound.headers.delete('authorization');}
+  if(immutable){outbound.headers.delete('cookie');outbound.headers.delete('authorization');}
   try{const response=await upstream(outbound,{redirect:'manual',cache:'no-store'});
     const headers=new Headers(response.headers);headers.set('Cache-Control','no-store');
-    return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+    const cacheable=immutable&&response.status===200&&!headers.has('set-cookie')&&/^(application\/(javascript|x-javascript|font-|octet-stream)|text\/(javascript|css)|font\/|image\/)/i.test(headers.get('content-type')??'');
+    if(cacheable)headers.set('Cache-Control','public, max-age=31536000, immutable');
+    const result=new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+    if(cacheable&&cacheKey&&assetCache){try{await assetCache.put(cacheKey,result.clone());}catch{/* Cache failure must not break an available asset. */}}
+    return result;
   }catch{return unavailable();}
 }
 export async function keepWarm(env,upstream=fetch){

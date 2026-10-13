@@ -11,7 +11,7 @@ loadEnvironment();
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url)),{Pool}=require('pg'),source=new URL(process.env.DATABASE_URL);
 assert.ok(['127.0.0.1','localhost','[::1]'].includes(source.hostname),'Local database required');
 const database='needware_orders_'+randomBytes(16).toString('hex'),admin=new Pool({connectionString:source.toString()}),originalFetch=globalThis.fetch;
-let pool,created=false,lose=false,fail=false,refunds=[],disputes=[],multiple=false,wrong=false,creates=0;
+let pool,created=false,lose=false,fail=false,refunds=[],disputes=[],multiple=false,wrong=false,creates=0,rotateSession=false;
 const records=new Map(),clientId='TEST_authored_orders',merchant='cf_'+createHash('sha256').update(clientId).digest('hex').slice(0,32);
 const env={...process.env,NEEDWARE_BILLING_MODE:'cashfree_once',CASHFREE_ENVIRONMENT:'sandbox',CASHFREE_CLIENT_ID:clientId,CASHFREE_CLIENT_SECRET:'authored-fixture-secret-for-orders-only',CASHFREE_MERCHANT_ID:merchant,CASHFREE_PRO_MONTHLY_PAISE:'49900',BETTER_AUTH_URL:'http://127.0.0.1:3108',SMTP_HOST:'127.0.0.1',NEEDWARE_GENERATION_QUOTA:''};
 const config=cashfreeConfig(env),price=cashfreePassPrice(config);
@@ -24,9 +24,9 @@ globalThis.fetch=async(input,options={})=>{
  }
  const match=/^\/pg\/orders\/([^/]+)(.*)$/.exec(url.pathname);
  if(match){const record=records.get(match[1]);if(!record)return Response.json({code:'order_not_found'},{status:404});
-  if(match[2]==='')return Response.json(wrong?{...record,order_amount:1}:record);
+  if(match[2]===''){if(rotateSession)record.payment_session_id='session_refreshed_for_same_order';return Response.json(wrong?{...record,order_amount:1}:record);}
   if(match[2]==='/refunds')return Response.json(refunds);
-  if(match[2]==='/payments'){const p={cf_payment_id:String(1000+[...records.keys()].indexOf(record.order_id)),order_id:record.order_id,payment_currency:'INR',payment_amount:499,order_currency:'INR',order_amount:499,is_captured:true,payment_status:'SUCCESS',payment_completion_time:record.paidTime};return Response.json(record.order_status==='PAID'?(multiple?[p,{...p,cf_payment_id:'9999'}]:[p]):[]);}
+  if(match[2]==='/payments'){const p={cf_payment_id:String(1000+[...records.keys()].indexOf(record.order_id)),order_id:record.order_id,payment_currency:'INR',payment_amount:record.order_amount,order_currency:'INR',order_amount:record.order_amount,is_captured:true,payment_status:'SUCCESS',payment_completion_time:record.paidTime};return Response.json(record.order_status==='PAID'?(multiple?[p,{...p,cf_payment_id:'9999'}]:[p]):[]);}
  }
  if(/^\/pg\/payments\/\d+\/disputes$/.test(url.pathname))return Response.json(disputes);
  throw Error('Unexpected provider request');
@@ -39,6 +39,7 @@ try{
  const id=randomUUID(),checkout=()=>cashfreeOrderCheckout(pool,owner,owner+'@needware.invalid','Orders QA','9900000000',id,price,config,env.BETTER_AUTH_URL);
  await assert.rejects(cashfreeOrderCheckout(pool,owner,owner+'@needware.invalid','Orders QA','invalid',id,price,config,env.BETTER_AUTH_URL));
  lose=true;await assert.rejects(checkout());const first=await checkout();assert.deepEqual(await checkout(),first);assert.equal(creates,1,'Lost acknowledgment resumes same order');
+ rotateSession=true;assert.notEqual((await checkout()).session,first.session,'Authenticated session refresh resumes the same order');assert.equal(creates,1);rotateSession=false;
  await assert.rejects(cashfreeOrderCheckout(pool,other,other+'@needware.invalid','Orders QA','9900000000',id,price,config,env.BETTER_AUTH_URL),/identity/);
  await assert.rejects(cashfreeOrderCheckout(pool,owner,owner+'@needware.invalid','Orders QA','9900000000',randomUUID(),price,config,env.BETTER_AUTH_URL),/open checkout/);
  const sync=()=>synchronizeCashfreePass(pool,owner,config);await sync();assert.equal((await generationUsage(pool,owner)).plan,'free','Created order/redirect not paid evidence');
@@ -56,11 +57,28 @@ try{
  await pool.query('UPDATE needware_cashfree_order_event SET next_attempt_at=now() WHERE id=$1',[event.id]);await processCashfreeOrderEvent(pool,config);assert.equal((await generationUsage(pool,owner)).plan,'pro');
  await enqueueCashfreeOrderEvent(pool,event,config);assert.equal((await generationUsage(pool,owner)).plan,'pro','Processed duplicate notification does not revoke authority');
  refunds=[{order_id:record.order_id,refund_status:'PENDING'}];await sync();assert.equal((await generationUsage(pool,owner)).plan,'free');refunds=[];await sync();
- disputes=[{cf_payment_id:'1000',dispute_status:'DISPUTE_CREATED'}];await sync();assert.equal((await generationUsage(pool,owner)).plan,'free');disputes=[];await sync();
+ const disputedPayment={cf_payment_id:'1000',order_id:record.order_id,order_currency:'INR',order_amount:record.order_amount,payment_currency:'INR',payment_amount:record.order_amount};
+ disputes=[{order_details:disputedPayment,dispute_status:'DISPUTE_CREATED'}];await sync();assert.equal((await generationUsage(pool,owner)).plan,'free');
+ disputes=[{order_details:disputedPayment,dispute_status:'DISPUTE_MERCHANT_WON'}];await sync();assert.equal((await generationUsage(pool,owner)).plan,'pro','Provider nested payment identity accepts a resolved dispute');
+ disputes=[{order_details:{...disputedPayment,order_id:'other'},dispute_status:'DISPUTE_MERCHANT_WON'}];await sync();assert.equal((await generationUsage(pool,owner)).plan,'free','Unrelated resolved dispute fails closed');disputes=[];await sync();
  await pool.query("UPDATE needware_entitlement SET paid_until=now()-interval '1 second' WHERE account_id=$1",[owner]);assert.equal((await generationUsage(pool,owner)).plan,'free','Expiry enforced at request time');
  await sync();await pool.query("UPDATE needware_entitlement SET updated_at=now()-interval '31 minutes' WHERE account_id=$1",[owner]);assert.equal((await generationUsage(pool,owner)).plan,'free','Stale snapshot cannot grant access');
  process.env.BETTER_AUTH_URL='https://needware.invalid';assert.equal((await generationUsage(pool,owner)).plan,'free','Sandbox cannot grant public Pro');process.env.BETTER_AUTH_URL=env.BETTER_AUTH_URL;
  await reconcileCashfreePassAccounts(pool,config);
+ refunds=[];disputes=[];wrong=false;multiple=false;fail=false;
+ const annual=cashfreePassPrice(config,'needware_pro_365_days'),annualId=randomUUID();
+ assert.equal(annual.amount,499000);assert.equal(annual.duration_days,365);assert.equal(annual.automatic_renewal,false);
+ await assert.rejects(cashfreeOrderCheckout(pool,other,other+'@needware.invalid','Orders QA','9900000000',annualId,{...annual,amount:49900},config,env.BETTER_AUTH_URL));
+ assert.throws(()=>cashfreePassPrice(config,'unapproved_plan'));
+ await cashfreeOrderCheckout(pool,other,other+'@needware.invalid','Orders QA','9900000000',annualId,annual,config,env.BETTER_AUTH_URL);
+ await assert.rejects(cashfreeOrderCheckout(pool,other,other+'@needware.invalid','Orders QA','9900000000',annualId,price,config,env.BETTER_AUTH_URL),/identity/);
+ const annualRecord=records.get('nw_'+annualId.replaceAll('-',''));assert.equal(annualRecord.order_amount,4990);
+ annualRecord.order_status='PAID';annualRecord.paidTime=new Date().toISOString();await synchronizeCashfreePass(pool,other,config);
+ const annualPaid=(await pool.query('SELECT * FROM needware_cashfree_order WHERE id=$1',[annualId])).rows[0];
+ assert.equal(annualPaid.plan_id,annual.id);assert.equal(annualPaid.amount,499000);assert.equal(new Date(annualPaid.paid_until)-new Date(annualPaid.paid_start),365*86400000);
+ await assert.rejects(pool.query('UPDATE needware_cashfree_order SET duration_days=30 WHERE id=$1',[annualId]),/constraint/);
+ assert.equal(spawnSync(process.execPath,['scripts/auth-migrate.mjs'],{env,stdio:'inherit'}).status,0,'Replay preserves annual entitlement');
+ refunds=[{order_id:annualRecord.order_id,refund_status:'SUCCESS'}];await synchronizeCashfreePass(pool,other,config);assert.equal((await generationUsage(pool,other)).plan,'free','Annual refund revokes access');
  await pool.query('DELETE FROM auth_user WHERE id=$1',[owner]);assert.equal((await pool.query('SELECT account_id FROM needware_cashfree_order WHERE id=$1',[id])).rows[0].account_id,null,'Deleted account payment cannot attach to a new account');
  console.log('PASS one-time checkout: durable retry, ownership, exact price, no redirect grant, fixed expiry, refund/dispute revocation, webhook replay/retry, freshness, sandbox and deletion boundaries');
 }finally{globalThis.fetch=originalFetch;await pool?.end();if(created){const deadline=Date.now()+5000;while((await admin.query('SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=$1',[database])).rows[0].n){if(Date.now()>deadline)throw Error('Fixture still has open connections');await new Promise(r=>setTimeout(r,20));}await admin.query(`DROP DATABASE "${database}"`);}await admin.end();}
