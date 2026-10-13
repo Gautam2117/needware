@@ -1,4 +1,12 @@
 import { test, expect } from './fixtures';
+test('sample action waits for runtime initialization',async({page})=>{
+  await page.route('**/runtime-worker.js',async route=>{await new Promise(resolve=>setTimeout(resolve,1000));await route.continue();});
+  await page.goto('/');
+  const sample=page.getByRole('button',{name:'Try the authored habit tracker',exact:true});
+  await expect(sample).toBeDisabled();
+  await expect(page.getByText('Local runtime ready',{exact:true})).toBeVisible();
+  await expect(sample).toBeEnabled();
+});
 test('verified Rust application persists, reloads and runs with server unavailable', async ({ page, offlineServer }) => {
   await page.goto(offlineServer.url);
   await expect(page.getByText('Local runtime ready', { exact: true })).toBeVisible();
