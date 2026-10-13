@@ -1,7 +1,14 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {renderConfiguration} from './render-service.mjs';
+import {renderConfiguration,renderLoopbackReady} from './render-service.mjs';
 const preview={RENDER:'true',NEEDWARE_RENDER_FREE:'1',RENDER_GIT_COMMIT:'a'.repeat(40),NEEDWARE_RELEASE_SHA:'a'.repeat(40),PORT:'10000',RENDER_EXTERNAL_HOSTNAME:'needware-test.onrender.com',RENDER_EXTERNAL_URL:'https://needware-test.onrender.com',NEEDWARE_RENDER_STAGE:'preview',NEEDWARE_BILLING_MODE:'disabled',NEEDWARE_HOSTED_GENERATION:'0'};
+test('internal mail dispatch waits until loopback web health is ready',async()=>{
+  let called=0,closed=0;
+  assert.equal(await renderLoopbackReady(async (url,options)=>{called++;assert.equal(url,'http://127.0.0.1:3000/api/health');assert.equal(options.redirect,'error');return {ok:false,body:{cancel:async()=>{closed++;}}};}),false);
+  assert.equal(await renderLoopbackReady(async()=>({ok:true,body:{cancel:async()=>{closed++;}}})),true);
+  assert.equal(await renderLoopbackReady(async()=>{throw Error('connection refused');}),false);
+  assert.equal(called,1);assert.equal(closed,2);
+});
 test('public hosting probe excludes accounts and paid generation',()=>assert.deepEqual(renderConfiguration(preview),{issues:[],host:'needware-test.onrender.com',alias:'needware-test.onrender.com'}));
 test('preview rejects every production secret and either activation flag',()=>{
   for(const key of ['DATABASE_URL','BETTER_AUTH_SECRET','RESEND_API_KEY','SMTP_PASSWORD','NEEDWARE_CONTROL_TOKEN','NEEDWARE_SIGNING_SEED_HEX','NEEDWARE_LOCAL_API_KEY','CASHFREE_CLIENT_SECRET','STRIPE_SECRET_KEY'])assert.ok(renderConfiguration({...preview,[key]:'private'}).issues.includes('PREVIEW_PRIVATE_'+key));

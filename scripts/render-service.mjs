@@ -31,6 +31,9 @@ export function renderConfiguration(env){
   if(env.NEEDWARE_EDGE_PROXY==='1'&&(env.NEEDWARE_RENDER_STAGE!=='production'||!/^[0-9a-f]{64}$/.test(env.NEEDWARE_EDGE_ORIGIN_PROOF??'')))issues.push('AUTHENTICATED_EDGE_REQUIRED');
   return {issues,host,alias};
 }
+export async function renderLoopbackReady(fetcher=fetch){
+  try{const response=await fetcher('http://127.0.0.1:3000/api/health',{redirect:'error',signal:AbortSignal.timeout(3000)});await response.body?.cancel();return response.ok;}catch{return false;}
+}
 export async function runRenderService(){
   const env=process.env,config=renderConfiguration(env),root=process.cwd();
   if(Number(process.versions.node.split('.')[0])!==24)config.issues.push('NODE_24_REQUIRED');
@@ -47,7 +50,10 @@ export async function runRenderService(){
   start('ingress','caddy',['run','--config',root+'/infra/render/Caddyfile','--adapter','caddyfile']);
   if(env.NEEDWARE_HOSTED_GENERATION==='1'){start('control',root+'/target/release/needware-control-plane',[]);start('generation',process.execPath,['scripts/generation-worker.mjs'],{env:{...runtime,NODE_OPTIONS:'--max-old-space-size=96'}});}
   const targets=env.NEEDWARE_RENDER_STAGE==='production'?[['mail',env.NEEDWARE_MAIL_DISPATCH_TOKEN,15000],...(env.NEEDWARE_BILLING_MODE==='disabled'?[]:[['billing',env.NEEDWARE_BILLING_DISPATCH_TOKEN,300000]])]:[];
-  const next=new Map();while(!stopping){for(const [name,token,interval] of targets){if((next.get(name)??0)>Date.now())continue;next.set(name,Date.now()+interval);
+  const next=new Map();let webReady=false;while(!stopping){
+    // The scheduler must not dispatch against Next.js while it is still starting.
+    if(!webReady){webReady=await renderLoopbackReady();if(!webReady){await delay(1000);continue;}}
+    for(const [name,token,interval] of targets){if((next.get(name)??0)>Date.now())continue;next.set(name,Date.now()+interval);
     try{const response=await fetch('http://127.0.0.1:3000/api/internal/'+name,{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(25000)});await response.body?.cancel();if(!response.ok)console.error('RENDER_BOUNDED_RETRY',name,response.status);}catch{console.error('RENDER_BOUNDED_RETRY',name,'unavailable');}}
     await delay(1000);
   }
