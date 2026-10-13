@@ -6,7 +6,7 @@ test('intent passes Rust compilation, permission review and WASM execution', asy
   await expect(page.getByText('Local runtime ready', { exact: true })).toBeVisible();
   await page.getByLabel('Describe your application').fill('Track my reading habits');
   await expect(page.getByRole('button', { name: 'Create application', exact: true })).toBeDisabled();
-  await page.getByRole('checkbox', { name: /Fixture mode: authored contract-test output/ }).check();
+  await page.getByRole('checkbox', { name: /Use the authored test provider/ }).check();
   await page.getByRole('button', { name: 'Create application', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Review Habit tracker' })).toBeVisible();
   await page.getByText('Creation checks', { exact: true }).click();
@@ -24,7 +24,7 @@ test('cancelled compilation does not start an application', async ({ page }) => 
   await expect(page.getByLabel('Describe your application')).toBeDisabled();resume();
   await expect(page.getByText('Local runtime ready',{exact:true})).toBeVisible();
   await page.getByLabel('Describe your application').fill('Track habits');
-  await page.getByRole('checkbox', { name: /Fixture mode: authored contract-test output/ }).check();
+  await page.getByRole('checkbox', { name: /Use the authored test provider/ }).check();
   await page.getByRole('button', { name: 'Create application', exact: true }).click();
   await page.getByRole('button', { name: 'Cancel creation', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Creation cancelled.' })).toBeVisible();
