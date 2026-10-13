@@ -572,6 +572,17 @@ fn render(
         },
     };
     let (input_contract, value, disabled) = widgets::binding(node, app, ctx, form, budget)?;
+    // Text widgets may bind their displayed content through the value expression.
+    let text = if node.kind == Component::Text && node.text.is_none() {
+        value
+            .as_ref()
+            .map(needware_expr::display)
+            .transpose()
+            .map_err(expression_error)?
+            .unwrap_or_default()
+    } else {
+        text
+    };
     let raster = visuals::prepare(node, &value, &text, scope.package, meter)?;
     if open && matches!(node.kind, Component::List | Component::Table) {
         let collection = node

@@ -69,3 +69,19 @@ test('reopening the same application replaces its bound channel', async ({ page 
     await expect(frame.getByRole('button', { name: index % 2 ? 'Complete' : 'Undo', exact: true })).toBeVisible();
   }
 });
+
+test('production-generated counter displays bound values and retains them after reopening', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Local runtime ready', { exact: true })).toBeVisible();
+  await page.getByLabel('Import .need').setInputFiles('tests/fixtures/production-counter-value.need');
+  await page.getByRole('button', { name: 'Trust signer and run application' }).click();
+  const frame = page.frameLocator('iframe');
+  await expect(frame.getByText('0', { exact: true })).toBeVisible();
+  await frame.getByRole('button', { name: 'Increment', exact: true }).click();
+  await expect(frame.getByText('1', { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Open Simple Counter', exact: true }).click();
+  await expect(frame.getByText('1', { exact: true })).toBeVisible();
+  await frame.getByRole('button', { name: 'Reset', exact: true }).click();
+  await expect(frame.getByText('0', { exact: true })).toBeVisible();
+});

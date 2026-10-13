@@ -1,0 +1,218 @@
+{
+  "actions": {
+    "increment": {
+      "key": "count",
+      "kind": "set",
+      "value": {
+        "left": {
+          "key": "count",
+          "op": "state"
+        },
+        "op": "binary",
+        "operator": "add",
+        "right": {
+          "op": "literal",
+          "value": {
+            "type": "integer",
+            "value": "1"
+          }
+        }
+      }
+    },
+    "reset": {
+      "key": "count",
+      "kind": "set",
+      "value": {
+        "op": "literal",
+        "value": {
+          "type": "integer",
+          "value": "0"
+        }
+      }
+    }
+  },
+  "capabilities": [],
+  "collections": {},
+  "description": "A counter that starts at 0, can be incremented by 1, and reset to 0.",
+  "event_schema": {
+    "increment": {},
+    "reset": {}
+  },
+  "id": "825672d5-d9a6-4b17-bb78-f8a91867b98d",
+  "initial_screen": "main_screen",
+  "locale": "en-US",
+  "messages": {},
+  "migrations": [],
+  "parent": null,
+  "revision": "19475e4c-d2e5-4773-a057-f229defd9d30",
+  "runtime_features": [
+    "typed_contracts_v1",
+    "declarative_widgets_v1"
+  ],
+  "schema_version": 1,
+  "screens": [
+    {
+      "id": "main_screen",
+      "root": {
+        "action": null,
+        "children": [
+          {
+            "action": null,
+            "children": [],
+            "collection": null,
+            "field": null,
+            "id": "heading_counter",
+            "kind": "heading",
+            "options": [],
+            "style": {
+              "size": "medium",
+              "tone": "neutral"
+            },
+            "text": {
+              "op": "literal",
+              "value": {
+                "type": "string",
+                "value": "Counter"
+              }
+            }
+          },
+          {
+            "action": null,
+            "children": [],
+            "collection": null,
+            "field": null,
+            "id": "text_current",
+            "kind": "text",
+            "options": [],
+            "style": {
+              "size": "medium",
+              "tone": "neutral"
+            },
+            "text": null,
+            "value": {
+              "key": "count",
+              "op": "state"
+            }
+          },
+          {
+            "action": "increment",
+            "children": [],
+            "collection": null,
+            "field": null,
+            "id": "button_increment",
+            "kind": "button",
+            "options": [],
+            "style": {
+              "size": "medium",
+              "tone": "neutral"
+            },
+            "text": {
+              "op": "literal",
+              "value": {
+                "type": "string",
+                "value": "Increment"
+              }
+            }
+          },
+          {
+            "action": "reset",
+            "children": [],
+            "collection": null,
+            "field": null,
+            "id": "button_reset",
+            "kind": "button",
+            "options": [],
+            "style": {
+              "size": "medium",
+              "tone": "neutral"
+            },
+            "text": {
+              "op": "literal",
+              "value": {
+                "type": "string",
+                "value": "Reset"
+              }
+            }
+          }
+        ],
+        "collection": null,
+        "field": null,
+        "id": "root_stack",
+        "kind": "stack",
+        "options": [],
+        "style": {
+          "size": "medium",
+          "tone": "neutral"
+        },
+        "text": null
+      },
+      "title": "Counter"
+    }
+  ],
+  "state": {
+    "count": {
+      "type": "integer",
+      "value": "0"
+    }
+  },
+  "state_schema": {
+    "count": {
+      "data_type": {
+        "type": "integer"
+      },
+      "default": null,
+      "derived": null,
+      "max_length": null,
+      "maximum": null,
+      "minimum": null
+    }
+  },
+  "tests": [
+    {
+      "action": "increment",
+      "assertion": {
+        "left": {
+          "key": "count",
+          "op": "state"
+        },
+        "op": "binary",
+        "operator": "eq",
+        "right": {
+          "op": "literal",
+          "value": {
+            "type": "integer",
+            "value": "1"
+          }
+        }
+      },
+      "event": {},
+      "name": "increment_increases_count"
+    },
+    {
+      "action": "reset",
+      "assertion": {
+        "left": {
+          "key": "count",
+          "op": "state"
+        },
+        "op": "binary",
+        "operator": "eq",
+        "right": {
+          "op": "literal",
+          "value": {
+            "type": "integer",
+            "value": "0"
+          }
+        }
+      },
+      "event": {},
+      "name": "reset_returns_to_zero"
+    }
+  ],
+  "theme": {
+    "accent": "indigo",
+    "density": "comfortable",
+    "radius": "rounded"
+  },
+  "title": "Simple Counter"
+}

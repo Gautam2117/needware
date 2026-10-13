@@ -307,3 +307,27 @@ fn dynamically_wrong_state_type_and_delete_identifier_roll_back()
     assert_eq!(r.state().values["counter"], Value::Integer("0".into()));
     Ok(())
 }
+
+#[test]
+fn generated_text_value_tracks_actions_and_snapshot_restore()
+-> Result<(), Box<dyn std::error::Error>> {
+    let app = serde_json::from_str(include_str!("fixtures/production-counter-value.json"))?;
+    let mut r = runtime(app)?;
+    let action = |name: &str| Event {
+        action: name.into(),
+        values: BTreeMap::new(),
+        now: "2026-10-14T00:00:00Z".into(),
+        timezone: "UTC".into(),
+    };
+    assert_eq!(r.view()?.children[1].text, "0");
+    r.dispatch(&action("increment"))?;
+    assert_eq!(r.view()?.children[1].text, "1");
+    let saved = r.state().clone();
+    r.dispatch(&action("increment"))?;
+    assert_eq!(r.view()?.children[1].text, "2");
+    r.dispatch(&action("reset"))?;
+    assert_eq!(r.view()?.children[1].text, "0");
+    r.restore(saved)?;
+    assert_eq!(r.view()?.children[1].text, "1");
+    Ok(())
+}
