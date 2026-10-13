@@ -12,14 +12,16 @@ import {cashfreePassPrice,cashfreeOrderCheckout,synchronizeCashfreePass} from '.
 import {cashfreePassQa} from '../../../lib/billing-acceptance';
 import {passCatalog} from '../../../lib/pass-catalog';
 import {generationAllowed} from '../../../lib/generation-access';
+import {creationReady,paidLaunchCapacity} from '../../../lib/paid-launch-capacity';
 export const runtime='nodejs';
 export async function GET(request:Request){try{const {session,pool}=await accountRequest(request),provider=billingProvider();
   if(provider==='cashfree_once'){
-    const config=cashfreeConfig(),account=await billingSummary(pool,session.user.id),usage=await generationUsage(pool,session.user.id);
-    const checkout=(await pool.query("SELECT id,expires_at,plan_id FROM needware_cashfree_order WHERE account_id=$1 AND state='pending' AND expires_at>now() ORDER BY created_at DESC LIMIT 1",[session.user.id])).rows[0]??null;
+    const config=cashfreeConfig();
+    const [account,usage,pending,launch_capacity]=await Promise.all([billingSummary(pool,session.user.id),generationUsage(pool,session.user.id),pool.query("SELECT id,expires_at,plan_id FROM needware_cashfree_order WHERE account_id=$1 AND state='pending' AND expires_at>now() ORDER BY created_at DESC LIMIT 1",[session.user.id]),config.live?paidLaunchCapacity(pool,session.user.id,config.merchant):Promise.resolve(undefined)]);
+    const checkout=pending.rows[0]??null;
     const acceptance_qa=cashfreePassQa(session.user.id);
-    const checkout_available=!usage.creation_hold&&(acceptance_qa||generationAllowed(session.user.id)&&(!config.live||process.env.CASHFREE_PG_ACCEPTANCE_APPROVED==='1'));
-    return cloudResponse({provider,configured:true,checkout_available,acceptance_qa,price:cashfreePassPrice(config),prices:passCatalog.map(plan=>cashfreePassPrice(config,plan.id)),account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout,usage});
+    const checkout_available=!usage.creation_hold&&(acceptance_qa||generationAllowed(session.user.id)&&creationReady(usage.availability)&&(!config.live||process.env.CASHFREE_PG_ACCEPTANCE_APPROVED==='1')&&(launch_capacity?.available??true));
+    return cloudResponse({provider,configured:true,checkout_available,acceptance_qa,launch_capacity,price:cashfreePassPrice(config),prices:passCatalog.map(plan=>cashfreePassPrice(config,plan.id)),account:account?{status:account.status,paid_until:account.paid_until,has_customer:true}:null,checkout,usage});
   }
   let cashfree;try{if(provider==='cashfree')cashfree=cashfreeConfig();}catch(error){if(!(error instanceof BillingFailure))throw error;}
   const configured=provider==='cashfree'?Boolean(cashfree):billingConfigured();

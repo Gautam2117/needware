@@ -2,7 +2,9 @@ import {createHash,randomUUID} from 'node:crypto';
 import canonicalize from 'canonicalize';
 import type {Pool} from 'pg';
 import {BillingFailure} from './billing-config.ts';
-import {ownerLock} from './generation-store.ts';
+import {ownerLock,generationUsage} from './generation-store.ts';
+import {assertPaidLaunchCapacity,creationReady} from './paid-launch-capacity.ts';
+import {cashfreePassQa} from './billing-acceptance.ts';
 import {creationHeld} from './creation-hold.ts';
 import {cashfreeRequest,cashfreeList,type CashfreeConfig,verifyCashfreeWebhook,CashfreeApiFailure} from './cashfree-client.ts';
 import {passDefinition,passCatalog} from './pass-catalog.ts';
@@ -24,6 +26,10 @@ export async function cashfreeOrderCheckout(pool:Pool,account:string,email:strin
  const orderId='nw_'+id.replaceAll('-','').toLowerCase(),customer='cf_cus_'+account.replaceAll('-','');
  const digest=createHash('sha256').update(canonicalize({price,email,name,phone})!).digest('hex'),client=await pool.connect();let expires:Date;
  try{await client.query('BEGIN');await ownerLock(client,account);
+  if(config.live&&!cashfreePassQa(account)){
+   await assertPaidLaunchCapacity(client,account,config.merchant);
+   if(!creationReady((await generationUsage(client,account)).availability))throw new BillingFailure(503,'Creation capacity is unavailable; checkout reopens when capacity returns');
+  }
   if(await creationHeld(client,account))throw new BillingFailure(403,'New purchases are paused after operator review');
   let billing=(await client.query('SELECT * FROM needware_billing_account WHERE account_id=$1 FOR UPDATE',[account])).rows[0];
   if(billing&&(billing.provider!=='cashfree_once'||billing.merchant_id!==config.merchant||billing.livemode!==config.live))throw new BillingFailure(409,'Review the existing billing provider before purchasing');

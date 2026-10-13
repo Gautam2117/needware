@@ -12,12 +12,13 @@ test('one-time checkout binds consent and retries, never grants Pro from SDK ret
  await button.click();await expect.poll(()=>posts.length).toBe(1);expect(posts[0].price).toEqual(data.price);await expect(page.getByRole('heading',{name:'Free',exact:true})).toBeVisible();
  await button.click();await expect.poll(()=>posts.length).toBe(2);expect(posts[1].id).toBe(posts[0].id);
  await phone.fill('9900000001');await expect(consent).not.toBeChecked();await expect(button).toBeDisabled();
- data.checkout_available=false;await page.getByRole('button',{name:'Verify payment and access'}).click();await expect(page.getByText(/Purchases are paused/)).toBeVisible();await expect(button).toBeDisabled();
+ data.checkout_available=false;Object.assign(data.usage,{availability:{state:'daily_limit',resets_at:'2026-10-15T00:00:00Z'}});await page.getByRole('button',{name:'Verify payment and access'}).click();await expect(page.getByText(/today’s creation capacity is used/)).toBeVisible();await expect(button).toBeDisabled();
+ Object.assign(data,{launch_capacity:{limit:3,remaining:0,available:false}});await page.getByRole('button',{name:'Verify payment and access'}).click();await expect(page.getByText(/initial paid pilot is full/)).toBeVisible();await expect(button).toBeDisabled();
 });
 test('public pricing and policies are accessible without an account and fit narrow screens',async({page},info)=>{
  await page.setViewportSize({width:320,height:740});
  for(const path of ['/pricing','/refunds','/terms','/privacy']){await page.goto(path);await expect(page.locator('#main')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   const results=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();expect(results.violations.map(v=>v.id)).toEqual([]);
  }
- await page.goto('/pricing');await expect(page.getByRole('heading',{name:'Pro · ₹499 for 30 days'})).toBeVisible();await expect(page.getByText(/Paid checkout and hosted creation are currently paused/)).toBeVisible();await page.screenshot({path:info.outputPath('pricing-mobile.png'),fullPage:true});
+ await page.goto('/pricing');await expect(page.getByRole('heading',{name:'Pro · ₹499 for 30 days'})).toBeVisible();await expect(page.getByText(/Checkout availability is checked live before payment/)).toBeVisible();await page.screenshot({path:info.outputPath('pricing-mobile.png'),fullPage:true});
 });

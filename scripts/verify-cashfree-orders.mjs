@@ -7,6 +7,7 @@ import {loadEnvironment} from './load-environment.mjs';
 import {cashfreeConfig,verifyCashfreeWebhook} from '../apps/web/lib/cashfree-client.ts';
 import {cashfreePassPrice,cashfreeOrderCheckout,synchronizeCashfreePass,enqueueCashfreeOrderEvent,processCashfreeOrderEvent,reconcileCashfreePassAccounts} from '../apps/web/lib/cashfree-orders.ts';
 import {generationUsage} from '../apps/web/lib/generation-store.ts';
+import {assertPaidLaunchCapacity,paidLaunchCapacity} from '../apps/web/lib/paid-launch-capacity.ts';
 loadEnvironment();
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url)),{Pool}=require('pg'),source=new URL(process.env.DATABASE_URL);
 assert.ok(['127.0.0.1','localhost','[::1]'].includes(source.hostname),'Local database required');
@@ -80,5 +81,22 @@ try{
  assert.equal(spawnSync(process.execPath,['scripts/auth-migrate.mjs'],{env,stdio:'inherit'}).status,0,'Replay preserves annual entitlement');
  refunds=[{order_id:annualRecord.order_id,refund_status:'SUCCESS'}];await synchronizeCashfreePass(pool,other,config);assert.equal((await generationUsage(pool,other)).plan,'free','Annual refund revokes access');
  await pool.query('DELETE FROM auth_user WHERE id=$1',[owner]);assert.equal((await pool.query('SELECT account_id FROM needware_cashfree_order WHERE id=$1',[id])).rows[0].account_id,null,'Deleted account payment cannot attach to a new account');
+ const pilotMerchant='cf_'+randomBytes(16).toString('hex'),pilotUsers=[randomUUID(),randomUUID()];process.env.NEEDWARE_PAID_COHORT_LIMIT='1';
+ for(const user of pilotUsers)await pool.query('INSERT INTO auth_user(id,name,email,"emailVerified","createdAt","updatedAt") VALUES($1,$2,$3,true,now(),now())',[user,'Pilot QA',user+'@needware.invalid']);
+ async function reservePilot(user){const c=await pool.connect();try{await c.query('BEGIN');await assertPaidLaunchCapacity(c,user,pilotMerchant);const request=randomUUID();
+  await c.query("INSERT INTO needware_cashfree_order(id,account_id,merchant_id,livemode,order_id,request_digest,amount,expires_at,plan_id,duration_days) VALUES($1,$2,$3,true,$4,$5,49900,now()+interval '30 minutes','needware_pro_30_days',30)",[request,user,pilotMerchant,'nw_'+request.replaceAll('-',''),'a'.repeat(64)]);await c.query('COMMIT');return user;
+ }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}}
+ const pilotResults=await Promise.allSettled(pilotUsers.map(reservePilot));assert.equal(pilotResults.filter(r=>r.status==='fulfilled').length,1,'Concurrent buyers cannot oversubscribe the paid pilot');
+ const winner=pilotResults.find(r=>r.status==='fulfilled').value,loser=pilotUsers.find(id=>id!==winner);
+ assert.equal((await paidLaunchCapacity(pool,winner,pilotMerchant)).available,true,'An existing checkout can retry its reserved slot');
+ assert.equal((await paidLaunchCapacity(pool,loser,pilotMerchant)).available,false);
+ await pool.query("UPDATE needware_cashfree_order SET expires_at=now()-interval '1 second' WHERE merchant_id=$1",[pilotMerchant]);assert.equal((await paidLaunchCapacity(pool,loser,pilotMerchant)).available,true,'Unpaid expired checkouts release slots');
+ await pool.query("UPDATE needware_cashfree_order SET state='revoked',paid_start=now(),paid_until=now()+interval '30 days' WHERE merchant_id=$1",[pilotMerchant]);assert.equal((await paidLaunchCapacity(pool,loser,pilotMerchant)).available,false,'Refund-review passes keep their capacity reservation');
+ Object.assign(process.env,{NEEDWARE_HOSTED_GENERATION:'1',NEEDWARE_GENERATION_QUOTA:'cloudflare-free',NEEDWARE_GENERATION_MAX_TOKENS:'22000',CASHFREE_ENVIRONMENT:'production',CASHFREE_PG_LIVE_APPROVED:'1',CASHFREE_PG_ACCEPTANCE_APPROVED:'1',CASHFREE_MERCHANT_ID:pilotMerchant});
+ await pool.query("INSERT INTO needware_generation_global_day(day,scope,ceiling,spent) VALUES((now() AT TIME ZONE 'UTC')::date,'global',8000,8000)");
+ const ordersBefore=(await pool.query('SELECT count(*)::int AS n FROM needware_cashfree_order')).rows[0].n,createsBefore=creates;
+ await assert.rejects(cashfreeOrderCheckout(pool,winner,winner+'@needware.invalid','Pilot QA','9900000000',randomUUID(),cashfreePassPrice({...config,live:true}),{...config,live:true,merchant:pilotMerchant},'https://needware.invalid'),/Creation capacity/);
+ assert.equal((await pool.query('SELECT count(*)::int AS n FROM needware_cashfree_order')).rows[0].n,ordersBefore,'Exhausted creation capacity cannot create a durable payment order');assert.equal(creates,createsBefore,'Exhausted capacity cannot call the payment provider');
+ console.log('PASS paid pilot concurrent admission, idempotent slot retries, checkout expiry and refund-review capacity');
  console.log('PASS one-time checkout: durable retry, ownership, exact price, no redirect grant, fixed expiry, refund/dispute revocation, webhook replay/retry, freshness, sandbox and deletion boundaries');
 }finally{globalThis.fetch=originalFetch;await pool?.end();if(created){const deadline=Date.now()+5000;while((await admin.query('SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=$1',[database])).rows[0].n){if(Date.now()>deadline)throw Error('Fixture still has open connections');await new Promise(r=>setTimeout(r,20));}await admin.query(`DROP DATABASE "${database}"`);}await admin.end();}

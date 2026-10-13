@@ -29,7 +29,7 @@ export function authResources() {
   if (!databaseLocal && database.searchParams.get('sslmode') === 'disable') throw new Error('Remote database TLS is required');
   // pg connection-string SSL parameters must not override certificate verification.
   for (const key of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) database.searchParams.delete(key);
-  const pool = new Pool({ connectionString: database.toString(), max: 10, connectionTimeoutMillis: 5000, query_timeout: 10_000, statement_timeout: 10_000,
+  const pool = new Pool({ connectionString: database.toString(), max: process.env.NEEDWARE_RENDER_FREE==='1'?4:10, connectionTimeoutMillis: 5000, query_timeout: 10_000, statement_timeout: 10_000,
     idleTimeoutMillis: 30_000, ssl: databaseLocal ? undefined : { rejectUnauthorized: true, ca: process.env.NEEDWARE_DATABASE_CA_PEM } });
   const mail = nodemailer.createTransport({ host: process.env.SMTP_HOST, port, secure: port === 465,
     requireTLS: !loopback(process.env.SMTP_HOST), connectionTimeout: 10_000, socketTimeout: 15_000,
