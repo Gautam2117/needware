@@ -23,6 +23,9 @@ export async function proxyRequest(request,env,upstream=fetch){
   outbound.headers.set('X-Needware-Edge-IP',client);
   // Staging is public-only: never carry account credentials onto the alternate hostname.
   if(url.hostname!==env.NEEDWARE_CANONICAL_HOST){outbound.headers.delete('cookie');outbound.headers.delete('authorization');}
-  try{return await upstream(outbound,{redirect:'manual',cache:'no-store'});}catch{return unavailable();}
+  try{const response=await upstream(outbound,{redirect:'manual',cache:'no-store'});
+    const headers=new Headers(response.headers);headers.set('Cache-Control','no-store');
+    return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+  }catch{return unavailable();}
 }
 export default {fetch:(request,env)=>proxyRequest(request,env)};

@@ -22,6 +22,11 @@ test('invalid destination, proof or canonical configuration stays closed before 
 test('an origin outage returns no exception or private values',async()=>{
   const response=await proxyRequest(new Request('https://needware.continuumarc.tech/'),env,async()=>{throw Error('private provider detail');});assert.equal(response.status,503);assert.equal(await response.text(),'Service temporarily unavailable');assert.equal(response.headers.get('cache-control'),'no-store');
 });
+test('origin cache directives cannot cache streamed gateway replies',async()=>{
+  const stream=new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('streamed'));controller.close();}});
+  const response=await proxyRequest(new Request('https://needware.continuumarc.tech/pricing'),env,async()=>new Response(stream,{status:200,headers:{'Cache-Control':'s-maxage=31536000','X-Origin':'preserved'}}));
+  assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.get('x-origin'),'preserved');assert.equal(await response.text(),'streamed');
+});
 test('the Workers entrypoint handles execution context without treating it as an upstream',async()=>{
   const original=globalThis.fetch;let called=false;globalThis.fetch=async request=>{called=true;assert.equal(request.headers.get('host'),'needware-test.onrender.com');return new Response('entrypoint');};
   try{const response=await worker.fetch(new Request('https://needware.continuumarc.tech/'),env,{waitUntil(){}});assert.equal(await response.text(),'entrypoint');assert.equal(called,true);}finally{globalThis.fetch=original;}
