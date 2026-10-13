@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: needware-free
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: codex/render-free-host
+    autoDeploy: false
+    dockerfilePath: ./infra/render/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NEEDWARE_RENDER_STAGE
+        value: preview
+      - key: NEEDWARE_RENDER_FREE
+        value: "1"
+      - key: NEEDWARE_BILLING_MODE
+        value: disabled
+      - key: NEEDWARE_HOSTED_GENERATION
+        value: "0"
+      - key: NEEDWARE_RELEASE_SHA
+        sync: false

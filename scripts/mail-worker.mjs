@@ -1,5 +1,6 @@
 import { loadEnvironment } from './load-environment.mjs';
 import {pathToFileURL} from 'node:url';
+import {sendTransactionalMail} from '../apps/web/lib/transactional-mail.ts';
 loadEnvironment();
 export async function runMailWorker({once=false,reuseResources=false,scheduleSeconds=0}={}){
 if((reuseResources||scheduleSeconds)&&!once)throw Error('Reusable scheduled workers must be bounded');
@@ -20,8 +21,8 @@ async function deliver() {
   if (!rows.length) return false;
   const job = rows[0];
   try {
-    await mail.sendMail({ from, to: job.recipient, subject: labels[job.kind],
-      text: `${labels[job.kind]}\n\n${job.link}\n\nIf you did not request this, ignore this email. Password reset does not recover encrypted data.` });
+    await sendTransactionalMail(mail,{ from, to: job.recipient, subject: labels[job.kind],
+      text: `${labels[job.kind]}\n\n${job.link}\n\nIf you did not request this, ignore this email. Password reset does not recover encrypted data.` },job.id);
     await pool.query('DELETE FROM needware_email_outbox WHERE id=$1 AND lease_id=$2', [job.id, lease]);
     health.healthy();
   } catch (error) {
