@@ -1,5 +1,6 @@
 'use client';
 import Link from '../offline-link';
+import SiteHeader from '../site-header';
 import {useEffect,useRef,useState} from 'react';
 import canonicalize from 'canonicalize';
 import type {RegistryEntry} from '../../lib/registry-store';
@@ -23,7 +24,7 @@ export default function RegistryPanel(){
     const response=await fetch('/api/registry',{method:'POST',headers:{'Content-Type':'application/json'},body:canonicalize({action:'publish',id:editing?.id??draftId.current,expected_version:Number(editing?.version??0),visibility,title,summary,document:visibility==='private'?document:null,package:visibility==='private'?null:packageBytes?base64(packageBytes):null,source:editing?.source_entry?{entry:editing.source_entry,digest:editing.source_digest}:source})});
     const result=await response.json();if(!response.ok)throw Error(result.message);edit(result.application);await refresh();setStatus('Application published. Its sharing URL stays the same across revisions.');
   }
-  return <><header><Link href="/">needware /</Link><nav><Link href="/encrypted">Your encrypted apps</Link><Link href="/account">Your account</Link></nav></header><main id="main"><span className="eyebrow">Software worth sharing</span><h1>Application registry</h1><p>Discover public applications, or publish a definition for others to review and use.</p><p role="status" aria-live="polite">{status}</p>{error&&<p role="alert" className="notice error">{error}</p>}
+  return <><SiteHeader current="registry"/><main id="main"><span className="eyebrow">Find your next useful thing</span><h1>Application registry</h1><p>Discover tools made by the community, or share something you built.</p><p role="status" aria-live="polite">{status}</p>{error&&<p role="alert" className="notice error">{error}</p>}
     {account?<section aria-label="Publish an application"><h2>{editing?'Update application':'Publish an application'}</h2><button disabled={busy} onClick={()=>{edit(null);setSource(null);}}>New application</button>{source&&<p>Publishing an independent remix of <Link href={`/a/${source.entry}?revision=${source.digest}`}>this signed source revision</Link>. Upload the remix definition downloaded after review.</p>}
       <form className="registry-form" onSubmit={event=>{event.preventDefault();void run(publish);}}><label>Application title<input required maxLength={120} value={title} onChange={event=>setTitle(event.target.value)}/></label><label>Application summary<textarea maxLength={1000} value={summary} onChange={event=>setSummary(event.target.value)}/></label>
         <label>Visibility<select aria-label="Visibility" value={visibility} onChange={event=>{setVisibility(event.target.value as RegistryEntry['visibility']);setConsent(false);}}><option value="private">Private — only your account</option><option value="unlisted">Unlisted — anyone with the link</option><option value="public">Public — discoverable in the registry</option></select></label>

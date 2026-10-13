@@ -1,6 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import Link from '../offline-link';
+import SiteHeader from '../site-header';
 import canonicalize from 'canonicalize';
 import Script from 'next/script';
 import {authClient} from '../../lib/auth-client';
@@ -26,7 +27,7 @@ function BillingDetails({account,pending}:{account?:string;pending:boolean}){
       const url=new URL(result.url);if(url.protocol!=='https:'||url.hostname!==(action==='portal'?'billing.stripe.com':'checkout.stripe.com'))throw Error('Billing redirect rejected');window.location.assign(url.toString());
     }catch(failure){setError(message(failure));}finally{setBusy(false);}
   }
-  return <><header><strong>needware /</strong><nav aria-label="Needware"><Link href="/generation">Your creations</Link><Link href="/account">Your account</Link><Link href="/">Create application</Link></nav></header><main id="main" className="billing-page" aria-busy={pending||busy}><h1>Billing and your plan</h1>
+  return <><SiteHeader current="account"/><main id="main" className="billing-page" aria-busy={pending||busy}><span className="eyebrow">A little more room to create</span><h1>Billing and your plan</h1>
     {!account&&<p>{pending?'Checking your session…':<>Sign in with a verified account to review billing. <Link href="/account">Sign in or create an account</Link></>}</p>}{account&&!data&&!error&&<p role="status">Loading your plan…</p>}{error&&<p role="alert" className="notice error">{error}</p>}
     {data?.provider==='cashfree'&&data.checkout_available&&<Script src="https://sdk.cashfree.com/js/v3/cashfree.js" onReady={()=>setSdk(true)} onError={()=>setError('Cashfree checkout could not load. Try again later.')}/>}
     {data?.usage.creation_hold&&<p role="alert">Creation and new subscriptions are paused after operator review. Cancellation remains available.</p>}

@@ -1,6 +1,7 @@
 'use client';
 import {useCallback,useEffect,useState} from 'react';
 import Link from '../offline-link';
+import SiteHeader from '../site-header';
 import {authClient} from '../../lib/auth-client';
 import {cancelHostedApplication,type HostedJob} from '../../../../packages/browser-host/src/hosted-compiler-client';
 type Usage={plan:string;creation_hold:boolean;quota:{daily:number;monthly:number;budget:number};attempts:number;daily_attempts:number;reserved_microusd:string;spent_microusd:string;input_tokens:string;output_tokens:string;unknown_requests:number;resets_at:string};
@@ -13,7 +14,7 @@ function GenerationHistory({account}:{account?:string}){
   const refresh=useCallback(async(signal?:AbortSignal)=>{if(!account)return;const response=await fetch('/api/generation/jobs',{cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)}),data=await response.json();if(!response.ok)throw Error(data.message??'Creations unavailable');signal?.throwIfAborted();setJobs(data.jobs);setUsage(data.usage);setError('');},[account]);
   useEffect(()=>{const controller=new AbortController();let loading=false;const load=async()=>{if(loading)return;loading=true;try{await refresh(controller.signal);}catch(failure){if(!controller.signal.aborted)setError(String(failure));}finally{loading=false;}};void load();const timer=setInterval(()=>{if(document.visibilityState==='visible')void load();},15000);return()=>{controller.abort();clearInterval(timer);};},[refresh]);
   async function cancel(id:string){setBusy(true);try{await cancelHostedApplication(id);await refresh();}catch(failure){setError(String(failure));}finally{setBusy(false);}}
-  return <><header><strong>needware /</strong><nav aria-label="Needware"><Link href="/">Create application</Link><Link href="/encrypted">Your encrypted apps</Link><Link href="/account">Your account</Link></nav></header><main id="main"><h1>Your creations</h1>
+  return <><SiteHeader current="generation"/><main id="main"><span className="eyebrow">From idea to useful</span><h1>Your creations</h1>
     <p>Creation continues when you close the page. Descriptions remain on this installation until completion or cancellation and are sent to the provider you reviewed. Results are encrypted to the requesting browser; import them there before relying on another device.</p>
     <p>Queued requests expire after 24 hours without execution. Creation history and encrypted results expire after 30 days. Import anything you want to keep; imported application data is preserved separately.</p>
     {error&&<p role="alert" className="notice error">{error}</p>}

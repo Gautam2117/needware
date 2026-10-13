@@ -1,7 +1,16 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import worker,{proxyRequest} from '../infra/cloudflare/needware-proxy.mjs';
+import worker,{proxyRequest,keepWarm} from '../infra/cloudflare/needware-proxy.mjs';
 const env={NEEDWARE_CANONICAL_HOST:'needware.continuumarc.tech',NEEDWARE_RENDER_ORIGIN:'https://needware-test.onrender.com',NEEDWARE_EDGE_ORIGIN_PROOF:'a'.repeat(64),NEEDWARE_STAGING_HOST:'needware-test.govindgautam933.workers.dev'};
+test('keep-warm only dispatches an enabled bounded health check to the fixed origin',async()=>{
+  let calls=0;
+  const upstream=async(url,options)=>{calls++;assert.equal(url,'https://needware-free.onrender.com/api/health');assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.ok(options.signal);assert.equal(options.headers,undefined);return new Response('healthy');};
+  assert.equal(await keepWarm(env,upstream),false);
+  assert.equal(await keepWarm({...env,NEEDWARE_KEEP_WARM:'1'},upstream),false);
+  assert.equal(await keepWarm({...env,NEEDWARE_KEEP_WARM:'1',NEEDWARE_RENDER_ORIGIN:'https://needware-free.onrender.com'},upstream),true);
+  assert.equal(calls,1);
+  assert.equal(await keepWarm({...env,NEEDWARE_KEEP_WARM:'1',NEEDWARE_RENDER_ORIGIN:'https://needware-free.onrender.com'},async()=>{throw Error('outage');}),false);
+});
 test('raw signed bodies, query bytes, cookies and provider headers pass without redirect following',async()=>{
   const body='{ "signed": "exact bytes" }',headers={host:'needware.continuumarc.tech',cookie:'session=private','content-type':'application/json','x-webhook-signature':'signed','cf-connecting-ip':'2001:db8::1','x-needware-edge-ip':'8.8.8.8','x-needware-origin-proof':'forged','x-forwarded-for':'1.1.1.1','x-needware-auth-ip':'bad'};
   const upstream=async(request,options)=>{assert.equal(request.url,'https://needware-test.onrender.com/api/billing/webhook?cursor=a%2Bb');assert.equal(await request.text(),body);assert.equal(options.redirect,'manual');assert.equal(request.headers.get('cookie'),'session=private');assert.equal(request.headers.get('x-webhook-signature'),'signed');assert.equal(request.headers.get('x-needware-origin-proof'),env.NEEDWARE_EDGE_ORIGIN_PROOF);assert.equal(request.headers.get('x-needware-edge-ip'),'2001:db8::1');assert.equal(request.headers.get('x-forwarded-for'),null);assert.equal(request.headers.get('x-needware-auth-ip'),null);return new Response('redirect',{status:302,headers:{Location:'https://attacker.example.org'}});};

@@ -7,6 +7,7 @@ import { WorkerHost } from '../../../../packages/browser-host/src/worker-host';
 import Sandbox from '../sandbox';
 import EffectReview,{type EffectBroker,type EffectReviewHandle} from '../effect-review';
 import OfflineLink from '../offline-link';
+import SiteHeader from '../site-header';
 import type {SandboxHandle} from '../draft-recovery';
 import RevisionReview from '../revision-review';
 import { frameDocument } from '../frame-document';
@@ -102,9 +103,9 @@ export default function EncryptedApplications() {
     await show(await host.current?.request<EncryptedLoaded>({kind:'publish-shared-revision',account,instance:loaded.instance,digest:schemaReview.review_digest,destructive,permissions:true,retained}));setSchemaReview(undefined);setStatus('Reviewed shared revision published. The previous revision remains in recovery history.');
   }
   const frame = frameDocument(renderer);
-  return <><header><OfflineLink href="/">needware /</OfflineLink><nav><OfflineLink href="/account">Your account</OfflineLink></nav></header><main id="main">
-    <span className="eyebrow">Your trusted browser</span><h1>Encrypted applications</h1><p>Your application and its data are encrypted before being saved on this browser. Already saved applications work offline after the shell finishes caching.</p>
-    <p className="notice">Choose Sync to upload encrypted definitions and shared changes to your account. Other application state stays on this device. Pending changes remain durable here until the service acknowledges them. Cloud recovery needs your account keys and a current document grant.</p>
+  return <><SiteHeader current="encrypted"/><main id="main">
+    <span className="eyebrow">Only yours. Ready anywhere.</span><h1>Encrypted applications</h1><p>Your private apps, saved on this browser and encrypted before they leave it.</p>
+    <details><summary>Saving, syncing &amp; recovery</summary><p>Saved apps work offline once caching finishes. Choose Sync to save encrypted definitions and shared changes to your account; other app state stays on this device. Changes remain here until the cloud acknowledges them. Recovering on another browser needs your account keys and current app access.</p></details>
     <div role="status" aria-live="polite">{busy ? 'Saving encrypted application…' : status}</div>{error && <p className="notice error" role="alert">{error}</p>}
     <div className="toolbar"><button disabled={busy || !account} onClick={() => run(async () => { const bytes = await host.current?.request<Uint8Array>({ kind: 'example', account }); if (bytes) await inspect(bytes); })}>Try encrypted habit tracker</button>
       <label className="file-label">Import encrypted-library application<input type="file" accept=".need" disabled={busy || !account} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void run(async () => { if (file.size > 32*1024*1024) throw new Error('Package exceeds 32 MiB'); await inspect(new Uint8Array(await file.arrayBuffer())); }); }} /></label>

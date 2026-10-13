@@ -28,4 +28,13 @@ export async function proxyRequest(request,env,upstream=fetch){
     return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
   }catch{return unavailable();}
 }
-export default {fetch:(request,env)=>proxyRequest(request,env)};
+export async function keepWarm(env,upstream=fetch){
+  if(env.NEEDWARE_KEEP_WARM!=='1'||env.NEEDWARE_RENDER_ORIGIN!=='https://needware-free.onrender.com')return false;
+  try{
+    const response=await upstream(`${env.NEEDWARE_RENDER_ORIGIN}/api/health`,{method:'GET',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(90000)});
+    const healthy=response.ok;
+    await response.body?.cancel();
+    return healthy;
+  }catch{return false;}
+}
+export default {fetch:(request,env)=>proxyRequest(request,env),scheduled:(_event,env,ctx)=>ctx.waitUntil(keepWarm(env))};
