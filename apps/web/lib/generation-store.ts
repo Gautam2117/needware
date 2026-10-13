@@ -7,6 +7,7 @@ import type {Usage} from '@needware/ir-types/Usage';
 import {creationHeld} from './creation-hold.ts';
 import {billingEnabled,billingProvider} from './billing-policy.ts';
 import {cashfreePassQa} from './billing-acceptance.ts';
+import {generationAllowed} from './generation-access.ts';
 import {globalGenerationPolicy,reserveGlobalGeneration,reconcileGlobalGeneration} from './generation-global-quota.ts';
 export class GenerationFailure extends Error {readonly status:number;constructor(status:number,message:string){super(message);this.status=status;}}
 export type GenerationJob={id:string;owner_id:string;prompt:string|null;recipient:Certificate;provider:ProviderInfo;period:string;reservation:string;state:'queued'|'running'|'cancel_requested'|'succeeded'|'failed'|'cancelled';attempts:number;lease_id:string|null;lease_until:Date|null;dispatched_at:Date|null;stage:unknown;usage:Usage|null;failure:string|null;result_metadata:unknown;result_ciphertext:Buffer|null;package_digest:string|null;created_at:Date;finished_at:Date|null};
@@ -15,7 +16,7 @@ const billingAuthority=(owner:string)=>{const provider=billingProvider(),once=pr
 export async function generationUsage(pool:Pool,owner:string){
   const policy=globalGenerationPolicy();let availability:{state:'paused'|'ready'|'busy'|'daily_limit';resets_at:string}|undefined;
   if(policy){const global=(await pool.query("SELECT COALESCE(max(ceiling-spent-reserved) FILTER(WHERE scope='global'),$2)::int AS global_remaining,COALESCE(max(ceiling-spent-reserved) FILTER(WHERE scope=$1),$3)::int AS account_remaining,(SELECT count(*)::int FROM needware_generation_global_reservation WHERE state='reserved' AND expires_at>now()) AS running,((now() AT TIME ZONE 'UTC')::date+interval '1 day') AT TIME ZONE 'UTC' AS resets_at FROM needware_generation_global_day WHERE day=(now() AT TIME ZONE 'UTC')::date AND scope IN('global',$1)",[owner,policy.daily,policy.accountDaily])).rows[0];
-    availability={state:process.env.NEEDWARE_HOSTED_GENERATION!=='1'?'paused':Math.min(global.global_remaining,global.account_remaining)<policy.neurons?'daily_limit':global.running>=policy.concurrency?'busy':'ready',resets_at:new Date(global.resets_at).toISOString()};
+    availability={state:!generationAllowed(owner)?'paused':Math.min(global.global_remaining,global.account_remaining)<policy.neurons?'daily_limit':global.running>=policy.concurrency?'busy':'ready',resets_at:new Date(global.resets_at).toISOString()};
   }
   const entitlement=(await pool.query(`SELECT plan,paid_until FROM needware_entitlement WHERE account_id=$1 AND $5::boolean AND plan='pro' AND paid_until>now() AND updated_at>now()-interval '30 minutes' AND (NOT $2::boolean OR EXISTS(SELECT 1 FROM needware_billing_account b WHERE b.account_id=$1 AND b.merchant_id=$4 AND b.provider=$6 AND b.livemode=$3 AND b.status='active' AND b.paid_until>now()))`,[owner,...billingAuthority(owner)])).rows[0],plan=entitlement?'pro':'free',quota=limits[plan];
   const result=(await pool.query(`SELECT u.*, (SELECT count(*)::integer FROM needware_generation_job WHERE owner_id=$1 AND created_at>=date_trunc('day',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS daily_attempts,date_trunc('month',now() AT TIME ZONE 'UTC')+interval '1 month' AS resets_at

@@ -60,7 +60,7 @@ jobs:
       - run: pnpm test:accounts
         timeout-minutes: 20
       - name: Render runtime safety configuration
-        run: python3 scripts/token_guard.py run 'node --test scripts/render-service.test.mjs scripts/cloudflare-proxy.test.mjs'
+        run: python3 scripts/token_guard.py run 'node --test scripts/render-service.test.mjs scripts/cloudflare-proxy.test.mjs scripts/generation-access.test.mjs'
       - name: Netlify bounded account mail lifecycle (local services)
         run: python3 scripts/token_guard.py run 'node scripts/verify-netlify-mail.mjs'
         timeout-minutes: 2
