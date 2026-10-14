@@ -21,9 +21,18 @@ async function response<T>(value: Response, limit: number): Promise<T> {
 export class DocumentRelay {
   constructor(private readonly vault: BrowserVault) {}
   async request<T>(payload: unknown): Promise<T> {
+    // Only retry operations whose server implementation is immutable, digest-
+    // deduplicated or read-only. A timeout may occur after the server commits;
+    // never blindly replay grants, deletions, or key rotations.
+    const action=(payload&&typeof payload==='object'&&'action' in payload)?(payload as {action:unknown}).action:undefined;
+    const replaySafe=typeof action==='string'&&['create','chunk','finalize','read','download','upload'].includes(action);
     for(let attempt=0;;attempt++){try{return await this.requestOnce<T>(payload);}catch(error){
-      if(!(error instanceof RelayFailure)||error.status!==429||attempt>=2)throw error;
-      await new Promise(resolve=>setTimeout(resolve,Math.min(60,error.retryAfter)*1000));
+      const rateLimited=error instanceof RelayFailure&&error.status===429;
+      const transportError=error instanceof Error&&['AbortError','TimeoutError','TypeError'].includes(error.name);
+      const gatewayError=error instanceof RelayFailure&&[502,503,504].includes(error.status);
+      if(attempt>=2||!rateLimited&&!(replaySafe&&(transportError||gatewayError)))throw error;
+      const wait=rateLimited?Math.min(60,error.retryAfter)*1000:attempt===0?250:750;
+      await new Promise(resolve=>setTimeout(resolve,wait));
     }}
   }
   private async requestOnce<T>(payload:unknown):Promise<T>{
