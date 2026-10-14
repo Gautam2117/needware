@@ -22,7 +22,11 @@ for(const kind of ['list','table'])test(`bounded native ${kind} pages retain row
   await frame.getByRole('button',{name:'Previous page',exact:true}).click();await frame.getByRole('button',{name:'Previous page',exact:true}).click();await expect(first).toHaveValue('Unsaved first page');await expect(region.getByRole('status')).toContainText('1 unsaved input');
   await frame.getByRole('button',{name:'Save record',exact:true}).first().click();await expect(region.getByRole('status')).toContainText('0 unsaved inputs');await expect(frame.getByText('Unsaved first page',{exact:true})).toBeVisible();
   const audit=await new AxeBuilder({page}).include('iframe').withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa']).analyze();expect(audit.violations).toEqual([]);
-  await page.reload();await page.getByRole('button',{name:'Open Paged records fixture',exact:true}).click();await expect(first).toHaveValue('Unsaved first page');await expect(frame.getByRole('status')).toHaveText('Showing 1–100 of 251 records');
+  await page.reload();await page.getByRole('button',{name:'Open Paged records fixture',exact:true}).click();
+  // Rehydrating 251 local records can take longer in a saturated three-engine
+  // CI run. Wait for the actual persisted rows, not merely the viewer shell.
+  await expect(frame.getByRole('status')).toHaveText('Showing 1–100 of 251 records',{timeout:30_000});
+  await expect(first).toHaveValue('Unsaved first page',{timeout:30_000});
 });
 
 test('encrypted page projection emits no writes or uploads and keeps invalid cursors atomic',async({page})=>{
