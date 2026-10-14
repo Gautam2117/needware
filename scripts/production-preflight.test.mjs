@@ -13,6 +13,9 @@ test('server-side mail route cannot import development environment file loader',
   assert.ok(!worker.includes('.local/dev.env'));
   assert.match(entry,/loadEnvironment\(\)/);
   assert.match(entry,/runMailWorker\(/);
+  const manifest=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8'));
+  assert.equal(manifest.scripts['mail:worker'],'node scripts/mail-worker-cli.mjs',
+    'the published mail-worker command must start the CLI entrypoint, not the import-only module');
 });
 test('Netlify production ingress requires an explicitly pinned valid site',()=>{
   const env={...configured(),NEEDWARE_TRUST_PROXY:'netlify'};assert.equal(productionConfiguration(env).ok,false);

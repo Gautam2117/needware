@@ -35,7 +35,7 @@
     "test:scheduled-workers": "python3 scripts/token_guard.py run 'node scripts/verify-scheduled-workers.mjs'",
     "test:scheduled-workers:deno": "python3 scripts/token_guard.py run 'node scripts/verify-scheduled-workers.mjs --deno'",
     "test:backup": "python3 scripts/token_guard.py run 'node scripts/run-account-acceptance.mjs --backup'",
-    "mail:worker": "node scripts/mail-worker.mjs",
+    "mail:worker": "node scripts/mail-worker-cli.mjs",
     "generation:worker": "node scripts/generation-worker.mjs",
     "billing:worker": "node scripts/billing-worker.mjs",
     "billing:cashfree:prepare": "node scripts/prepare-cashfree-live.mjs",
