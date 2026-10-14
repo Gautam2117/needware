@@ -110,7 +110,7 @@ try {
   response = await post('sign-in/email', { email, password }, { Origin: '' }); assert.equal(response.status(), 403);
   response = await context.request.post(`${origin}/api/auth/sign-in/email`, { data: { padding: 'x'.repeat(70 * 1024) }, headers: { Origin: origin } }); assert.equal(response.status(), 413);
   // An unavailable SMTP service keeps the committed outbox and schedules an actual retry.
-  execFileSync('node', ['scripts/mail-worker.mjs', '--once'], { env: { ...environment, SMTP_PORT: '9' }, stdio: 'inherit' });
+  execFileSync('node', ['scripts/mail-worker-cli.mjs', '--once'], { env: { ...environment, SMTP_PORT: '9' }, stdio: 'inherit' });
   const retry = await pool.query('SELECT attempts, last_error FROM needware_email_outbox WHERE user_id=$1', [userId]);
   assert.equal(retry.rowCount, 1); assert.equal(retry.rows[0].attempts, 1); assert.equal(retry.rows[0].last_error, 'DELIVERY_FAILED');
   await page.goto(`${origin}/account?error=token_expired`);
@@ -121,7 +121,7 @@ try {
   assert.equal((await pool.query('SELECT id FROM needware_email_outbox WHERE user_id=$1', [userId])).rowCount, 2);
   // Restart the actual account HTTP process before delivering the durable verification job.
   await stop(web); web = start('web', 'pnpm', ['--filter', '@needware/web', 'start', '--port', String(port)]); await ready();
-  start('mail', 'node', ['scripts/mail-worker.mjs']);
+  start('mail', 'node', ['scripts/mail-worker-cli.mjs']);
   const verification = await mailLink('Verify your Needware email'); await page.goto(verification);
   await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
   await page.getByLabel('Email', { exact: true }).fill(email); await page.getByLabel('Password', { exact: true }).fill(password);

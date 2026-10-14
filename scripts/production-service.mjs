@@ -6,7 +6,7 @@ const role=process.argv[2],root=process.cwd();
 const commands={
   web:[process.execPath,[`${root}/apps/web/node_modules/next/dist/bin/next`,'start','--hostname','127.0.0.1','--port','3000'],`${root}/apps/web`],
   control:[`${root}/target/release/needware-control-plane`,[],root],
-  email:[process.execPath,['scripts/mail-worker.mjs'],root],
+  email:[process.execPath,['scripts/mail-worker-cli.mjs'],root],
   generation:[process.execPath,['scripts/generation-worker.mjs'],root],
   billing:[process.execPath,['scripts/billing-worker.mjs'],root]
 };

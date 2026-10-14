@@ -1,9 +1,19 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,createPrivateKey,createPublicKey,createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {productionConfiguration} from './production-config.mjs';
 import {preflight,workersReady,providerMatches,stripeReady} from './production-preflight.mjs';
 const secret=()=>randomBytes(32).toString('hex');
+test('server-side mail route cannot import development environment file loader',()=>{
+  const worker=readFileSync(new URL('./mail-worker.mjs',import.meta.url),'utf8');
+  const entry=readFileSync(new URL('./mail-worker-cli.mjs',import.meta.url),'utf8');
+  assert.ok(!worker.includes('load-environment.mjs'));
+  assert.ok(!worker.includes('loadEnvironment('));
+  assert.ok(!worker.includes('.local/dev.env'));
+  assert.match(entry,/loadEnvironment\(\)/);
+  assert.match(entry,/runMailWorker\(/);
+});
 test('Netlify production ingress requires an explicitly pinned valid site',()=>{
   const env={...configured(),NEEDWARE_TRUST_PROXY:'netlify'};assert.equal(productionConfiguration(env).ok,false);
   assert.equal(productionConfiguration({...env,NEEDWARE_NETLIFY_SITE_ID:'877cfef7-8999-45f4-bd95-8af79e14669e'}).ok,true);

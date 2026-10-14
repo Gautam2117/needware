@@ -18,7 +18,7 @@ if (accountsConfigured) {
   if (code !== 0) throw new Error('Account migration failed; inspect .logs/auth-migrate-dev.log');
 }
 const control = start('control', 'cargo', ['run', '-p', 'needware-control-plane']);
-const mail = accountsConfigured ? start('mail', 'node', ['scripts/mail-worker.mjs']) : undefined;
+const mail = accountsConfigured ? start('mail', 'node', ['scripts/mail-worker-cli.mjs']) : undefined;
 const web = start('web', 'pnpm', ['--filter', '@needware/web', 'dev']);
 let stopping = false;
 function stop(code) { if (stopping) return; stopping = true; control.kill('SIGINT'); web.kill('SIGINT'); mail?.kill('SIGINT'); process.exitCode = code; }

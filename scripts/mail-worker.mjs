@@ -1,7 +1,4 @@
-import { loadEnvironment } from './load-environment.mjs';
-import {pathToFileURL} from 'node:url';
 import {sendTransactionalMail} from '../apps/web/lib/transactional-mail.ts';
-loadEnvironment();
 export async function runMailWorker({once=false,reuseResources=false,scheduleSeconds=0}={}){
 if((reuseResources||scheduleSeconds)&&!once)throw Error('Reusable scheduled workers must be bounded');
 const { authResources } = await import('../apps/web/lib/auth-options.ts');
@@ -45,4 +42,3 @@ try {
   } while (!stopped);
   } catch(error){health.degraded();throw error;} finally { process.off('SIGINT',stop);process.off('SIGTERM',stop);await health.stop();if(!reuseResources){mail.close();await pool.end();} }
 }
-if(import.meta.main||import.meta.url===pathToFileURL(process.argv[1]??'').href)await runMailWorker({once:process.argv.includes('--once')});

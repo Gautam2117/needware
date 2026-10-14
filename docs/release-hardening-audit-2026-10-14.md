@@ -1,0 +1,22 @@
+# Needware release-hardening audit — 2026-10-14
+
+## Scope and discipline
+Existing production baseline: commit `0be37a2a9a26fab3277b21d9b243f735c126bb6b` at https://needware.continuumarc.tech. This document records observed verification, not an assertion of perfection, unlimited hosting capacity or all-device certification. Live payment scope is explicitly excluded from this hardening pass.
+
+## Completed and evidenced
+- **Hosted AI lifecycle:** one fresh real Cloudflare counter job succeeded on production, with signed output, device-targeted encrypted delivery, browser signer/permission review, local encrypted save, cloud relay signed create/chunk/finalize/readback and reopening. The 924-neuron reservation settled at approximately 217 actual neurons. The prior vague habit-tracker request failed compiler validation; diverse-prompt generation success rate is **not measured**.
+- **Live browser engines:** a real-model-signed package passed Chromium, Firefox and WebKit browser review, execution, local state persistence and offline reopen. Earlier full three-engine suite had 225 passing, 9 compiler-proxy cases skipped.
+- **Physical Android:** USB-connected CPH2487 on actual Android Chrome passed production runtime startup, signer trust, habit creation, reload persistence, offline reopening and responsive pricing. Private receipt `.local/physical-android-acceptance-20261014.json`.
+- **iOS:** iPhone 17 Pro simulator loaded live Safari pages. `xcrun devicectl list devices` returned no physical Apple device. Therefore physical iOS acceptance is **not complete**.
+- **Isolated authenticated load:** 78 GET requests to verified sessions and encrypted-vault endpoints across concurrency 1, 4 and 8, all passed against disposable PostgreSQL + Next.js. Most recent p50 8 ms, p95 32 ms, p99 84 ms. This does **not** prove public-scale concurrent writes, cold starts, p99 under saturation or a production SLA. Private artifact `artifacts/qa-auth-concurrency.json`.
+- **Failure recovery:** native-signed large checkpoint upload, lost acknowledgment, duplicate/replay rejection, tamper/CSRF/foreign-root denial, injected activation rollback, deleted account cleanup, mail retry and restart, and browser offline recovery passed in account acceptance.
+- **Operations, encrypted backup/restore and security:** `pnpm test:operations`, `pnpm test:backup`, `pnpm security`, and `pnpm test:generation:global-quota` passed locally on 2026-10-14.
+- **Production health:** previously verified HTTP route smoke, current healthy generation/email/billing worker heartbeat, empty pending queues and zero stalled cloud packages; automated hourly health/worker-condition monitors configured. No real sustained outage-alert delivery drill has been performed.
+- **This hardening branch:** replaced vague habit/expense/list starter prompts with explicitly supported local forms, collections and actions. Nine Playwright tests (3 scenarios x Chromium/Firefox/WebKit) passed, without generating AI calls. Decoupled development-only environment-file scanning from production mail API imports, preserving the separate CLI loader; preflight, scheduled-worker, `pnpm check` (120 Rust and 54 web tests), clean Next.js production build and account acceptance all passed. The filesystem-tracing warnings reported in the earlier build disappeared.
+
+## Capacity and release boundaries
+- Needware enforces a deliberate 8,000-neuron global shared daily ceiling and per-account admission, with conservative reservations and measured-usage settlement. The 924-neuron max reservation is a **bound**, not the average cost. Quota enforcement is not increased or bypassed.
+- Groq's captured candidate did not pass native validation without modification. It remains **disqualified as silent production failover** until raw multi-class compiler/package/browser qualification and rate/cost constraints pass.
+- Render Free can cold-start and has no commercially reliable uptime guarantee. Software checks cannot remove the platform's cost/service tradeoffs.
+- Future unresolved gates: sustained representative concurrent-write/load and production failure-injection, physical iPhone Safari/device-key/restore, actual alarm delivery during a controlled failure, and a statistically useful set of different live AI requests. Do not claim these are done or that Needware works perfectly.
+- Maintain a controlled first cohort and existing billing/generation caps; don't silently expose plaintext data, increase financial spend, delete customer state or loosen native compiler/signer enforcement.
