@@ -63,5 +63,17 @@ try{
   await pool.query("UPDATE needware_generation_global_reservation SET expires_at=now()-interval '3 days' WHERE job_id=$1",[midnight.id]);
   await reserve(job());assert.equal((await pool.query('SELECT job_id FROM needware_generation_global_reservation WHERE job_id=$1',[midnight.id])).rowCount,0,'Expired account metadata is pruned after the protected quota periods');
   await pool.query('TRUNCATE needware_generation_global_reservation,needware_generation_global_day');const late=job();await reserve(late);await pool.query("UPDATE needware_generation_global_reservation SET expires_at=now()-interval '1 second' WHERE job_id=$1",[late.id]);await settle(late,measured);for(const row of await totals())assert.equal(row.spent,policy.neurons,'Expiry alone prevents a late usage refund without another dispatch');
-  console.log('PASS global quota: concurrent accounts, replay, no paid fallback, reconciliation, unknown usage, restart, expiry, account cap, atomic rollback, immutable daily cap; zero provider calls');
+  // A terminal compiler validation failure reports its actual provider usage.
+  // It must not burn the maximum reservation when all inference usage is known.
+  await pool.query('TRUNCATE needware_generation_global_reservation,needware_generation_global_day');
+  const knownFailed=job(),failedUsage={input_tokens:3459,output_tokens:2073,unknown_usage_requests:0};
+  await reserve(knownFailed);await settle(knownFailed,failedUsage);
+  const actualNeurons=knownNeurons(failedUsage,policy.tokens);
+  assert.ok(actualNeurons>0&&actualNeurons<policy.neurons);
+  let accounting=(await pool.query('SELECT charged,unknown_usage FROM needware_generation_global_reservation WHERE job_id=$1',[knownFailed.id])).rows[0];
+  assert.equal(accounting.charged,actualNeurons);assert.equal(accounting.unknown_usage,false);
+  const unknownFailed=job();await reserve(unknownFailed);await settle(unknownFailed,{...failedUsage,unknown_usage_requests:1});
+  accounting=(await pool.query('SELECT charged,unknown_usage FROM needware_generation_global_reservation WHERE job_id=$1',[unknownFailed.id])).rows[0];
+  assert.equal(accounting.charged,policy.neurons);assert.equal(accounting.unknown_usage,true);
+  console.log('PASS global quota: concurrent accounts, replay, no paid fallback, reconciliation, known failed usage versus unknown, restart, expiry, account cap, atomic rollback, immutable daily cap; zero provider calls');
 }finally{await pool?.end();try{if(created)await admin.query(`DROP DATABASE "${database}"`);}finally{await admin.end();}}

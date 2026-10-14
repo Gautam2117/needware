@@ -4,6 +4,8 @@ import {createServer} from 'node:net';
 import {createWriteStream,mkdirSync} from 'node:fs';
 import {loadEnvironment} from './load-environment.mjs';
 loadEnvironment();mkdirSync('.logs',{recursive:true});
+// Verify safe, non-sensitive compiler error mapping before opening test services.
+execFileSync(process.execPath,['--test','scripts/compiler-failure.test.mjs'],{stdio:'inherit'});
 async function port(){const server=createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const value=server.address().port;await new Promise(resolve=>server.close(resolve));return value;}
 const providerPort=await port(),gatewayPort=await port();
 process.env.NEEDWARE_GENERATION_MAX_TOKENS='50000';

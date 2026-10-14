@@ -3,6 +3,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {loadEnvironment} from './load-environment.mjs';
+import {compilerFailureCode} from './compiler-failure.mjs';
 loadEnvironment();
 export async function runGenerationWorker({once=false,reuseResources=false,scheduleSeconds=0}={}){
 if((reuseResources||scheduleSeconds)&&!once)throw Error('Reusable scheduled workers must be bounded');
@@ -23,7 +24,7 @@ function usage(value,ceiling){
   const keys=['configured_cost_microusd','conservative_cost_microusd','input_tokens','output_tokens','unknown_usage_requests'];
   if(!value||Object.keys(value).sort().join(',')!==keys.sort().join(',')||!keys.every(key=>number(value[key]))||Math.max(value.configured_cost_microusd,value.conservative_cost_microusd)>ceiling||value.input_tokens+value.output_tokens>1000000||globalPolicy&&(value.input_tokens+value.output_tokens>globalPolicy.tokens||value.output_tokens>3*globalPolicy.outputTokens))throw Error('INVALID_USAGE');return value;
 }
-async function compile(job,signal){
+async function compile(job,signal,onTerminalUsage){
   const config=privateControlConfig();if(!config)throw Error('PROVIDER_UNAVAILABLE');
   const response=await fetch(new URL(globalPolicy?'/api/bounded-compile-jobs':'/api/compile-jobs',config.endpoint),{method:'POST',headers:{...config.headers,'Content-Type':'application/json'},body:JSON.stringify({prompt:job.prompt,...(globalPolicy?{max_tokens:globalPolicy.tokens,max_output_tokens:Math.min(globalPolicy.tokens,3*globalPolicy.outputTokens)}: {})}),signal,redirect:'error'});
   if(!response.ok||!response.body||!response.headers.get('content-type')?.startsWith('text/event-stream'))throw Error('PROVIDER_UNAVAILABLE');
@@ -34,7 +35,11 @@ async function compile(job,signal){
       if(message.kind==='stage'){
         const stage=message.event;if(!stage||Object.keys(stage).sort().join(',')!=='attempt,elapsed_ms,stage,usage'||!['extract_intent','generate_definition','repair_definition','validate_definition','package_verified','cancelled','failed'].includes(stage.stage)||!number(stage.attempt)||stage.attempt>2||!number(stage.elapsed_ms)||stage.elapsed_ms>185000)throw Error('INVALID_STAGE');usage(stage.usage,Number(job.reservation));
         const updated=await pool.query(`UPDATE needware_generation_job SET stage=$3 WHERE id=$1 AND lease_id=$2 AND state='running' RETURNING id`,[job.id,job.lease_id,canonicalize(stage)]);if(!updated.rowCount)throw Error('CANCELLED');
-      }else if(message.kind==='error')throw Error('COMPILATION_FAILED');
+        // The compiler emits its final usage even when native validation rejects
+        // the model output. Reconcile only a validated terminal failure stage;
+        // interruptions without a terminal stage keep the full reserved charge.
+        if(stage.stage==='failed')onTerminalUsage(stage.usage);
+      }else if(message.kind==='error')throw Error(compilerFailureCode(message));
       else if(message.kind==='package'){
         if(typeof message.package_base64!=='string'||message.package_base64.length>5592408)throw Error('RESULT_SIZE_LIMIT');
         const bytes=Buffer.from(message.package_base64,'base64');if(bytes.toString('base64')!==message.package_base64||bytes.length>4194304)throw Error('INVALID_PACKAGE');
@@ -55,8 +60,8 @@ async function work(){const job=await claimGenerationJob(pool);if(!job)return fa
   }catch{controller.abort();}finally{heartbeatBusy=false;}},10000);
   let result=null,reported=null,failure='COMPILATION_FAILED';
   try{const provider=await generationProvider(new URL(origin).protocol==='https:');if(canonicalize(provider)!==canonicalize(job.provider))throw Error('PROVIDER_CHANGED');
-    await dispatchGenerationJob(pool,job);const compiled=await compile(job,AbortSignal.any([controller.signal,AbortSignal.timeout(185000)]));result=compiled.result;reported=compiled.usage;
-  }catch(error){failure=['GLOBAL_GENERATION_QUOTA','GLOBAL_GENERATION_CONCURRENCY','GLOBAL_GENERATION_REPLAY','GLOBAL_GENERATION_PROVIDER','GLOBAL_GENERATION_POLICY','GLOBAL_GENERATION_POLICY_REQUIRED','PROVIDER_CHANGED','PROVIDER_UNAVAILABLE','SIGNER_CHANGED','INVALID_USAGE','RESULT_SIZE_LIMIT','INTERRUPTED_USAGE_UNKNOWN','COMPILATION_FAILED'].includes(error.message)?error.message:controller.signal.aborted?'CANCELLED':'INTERRUPTED_USAGE_UNKNOWN';}
+    await dispatchGenerationJob(pool,job);const compiled=await compile(job,AbortSignal.any([controller.signal,AbortSignal.timeout(185000)]),terminalUsage=>{reported=terminalUsage;});result=compiled.result;reported=compiled.usage;
+  }catch(error){failure=['GLOBAL_GENERATION_QUOTA','GLOBAL_GENERATION_CONCURRENCY','GLOBAL_GENERATION_REPLAY','GLOBAL_GENERATION_PROVIDER','GLOBAL_GENERATION_POLICY','GLOBAL_GENERATION_POLICY_REQUIRED','PROVIDER_CHANGED','PROVIDER_UNAVAILABLE','SIGNER_CHANGED','INVALID_USAGE','RESULT_SIZE_LIMIT','INTERRUPTED_USAGE_UNKNOWN','COMPILATION_FAILED','INVALID_COMPILER_MESSAGE','INVALID_DEFINITION','UNSUPPORTED_INTENT','PROVIDER_REFUSED','PROVIDER_RATE_LIMITED','GENERATION_TIMEOUT','GENERATION_LIMIT','CANCELLED'].includes(error.message)?error.message:controller.signal.aborted?'CANCELLED':'INTERRUPTED_USAGE_UNKNOWN';}
   finally{clearInterval(heartbeat);current=undefined;}
   try{await finishGenerationJob(pool,job,result,reported,failure);}finally{result?.ciphertext.fill(0);job.prompt=null;}
   return true;
