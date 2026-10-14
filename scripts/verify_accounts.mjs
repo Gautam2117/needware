@@ -137,6 +137,10 @@ try {
     await page.goto(`${origin}/account`);return {page,context,account:identity.user.id};
   };
   await verifyAccountVault({ page, context, pool, account: userId, origin, email, password, createCollaborator });
+  if(process.env.NEEDWARE_TEST_LOAD_FOCUS==='1'){
+    const {verifyLocalConcurrency}=await import('./verify-local-concurrency.mjs');
+    await verifyLocalConcurrency({context,origin,userId});
+  }
   await authWindow();
   await page.screenshot({ path: 'artifacts/account-acceptance.png', fullPage: true });
   const cookies = await context.cookies(); const sessionCookie = cookies.find(value => value.name.endsWith('session_token'));

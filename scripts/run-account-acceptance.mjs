@@ -23,6 +23,7 @@ try {
       ...(process.argv.includes('--generation') ? { NEEDWARE_TEST_GENERATION_FOCUS: '1' } : {}),
       ...(process.argv.includes('--billing') ? { NEEDWARE_TEST_BILLING_FOCUS: '1' } : {}),
       ...(process.argv.includes('--operations') ? { NEEDWARE_TEST_OPERATIONS_FOCUS: '1' } : {}),
+      ...(process.argv.includes('--load') ? { NEEDWARE_TEST_LOAD_FOCUS: '1' } : {}),
       ...(process.argv.includes('--backup') ? { NEEDWARE_TEST_BACKUP_FOCUS: '1' } : {}) },
   });
   if (result.error) throw result.error;
