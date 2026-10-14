@@ -65,7 +65,10 @@ export async function verifyDocumentRelay({page,context,otherPage,otherContext,o
     return {document,record,pin:vault.account_authority(),frame,pending:journal.pending().length,snapshot:journal.snapshot(),transportRejected,kept,checkpoint};
   },{account,packageBytes});
   await page.unroute(`${origin}/api/documents`,loseResponse);
-  assert(dropped);assert(metadata.transportRejected);assert.equal(metadata.kept,1);assert.equal(metadata.checkpoint,1);
+  // The first chunk response is deliberately lost AFTER the server committed it.
+  // The bounded replay-safe retry now obtains a fresh nonce, deduplicates that
+  // chunk, and completes synchronization without retaining a pending frame.
+  assert(dropped);assert.equal(metadata.transportRejected,false);assert.equal(metadata.kept,0);assert.equal(metadata.checkpoint,4);
   assert.equal(metadata.pending,0);
   const stored=await pool.query('SELECT descriptor,package_digest,storage_bytes FROM needware_document WHERE id=$1',[metadata.document]);assert.equal(stored.rowCount,1);
   const frameCount=await pool.query('SELECT count(*)::integer AS total FROM needware_document_frame WHERE document_id=$1',[metadata.document]);assert.equal(frameCount.rows[0].total,1);
